@@ -1,0 +1,113 @@
+services:
+  frontend-builder:
+    build: ./frontend
+    volumes:
+      - ./data/frontend_dist:/output
+
+  caddy-local:
+    image: caddy:latest
+    container_name: caddy-local
+    restart: unless-stopped
+    ports:
+      - "8080:80" # Используем 8080, чтобы не занимать 80 порт, если запущен основной Caddy
+    volumes:
+      - ./Caddyfile.local:/etc/caddy/Caddyfile
+      - ./data/frontend_dist:/usr/share/caddy
+    networks:
+      - chem_network
+
+
+  # Контейнер для пользователей и их личных данных
+  users_db:
+    image: informaticsmatters/rdkit-cartridge-debian:latest
+    container_name: users_db
+    environment:
+      - POSTGRES_USER=chemist
+      - POSTGRES_PASSWORD=users_pass
+      - POSTGRES_DB=users_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./data/users:/var/lib/postgresql/data
+    command: >
+      postgres 
+      -c shared_buffers=256MB 
+      -c max_connections=50
+    restart: always
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+    networks:
+      - chem_network
+
+  # Контейнер для 3 млн публичных реакций
+  archive_db:
+    image: informaticsmatters/rdkit-cartridge-debian:latest
+    container_name: archive_db
+    environment:
+      - POSTGRES_USER=chemist
+      - POSTGRES_PASSWORD=archive_pass
+      - POSTGRES_DB=archive_db
+    ports:
+      - "5433:5432" # Пробрасываем на другой порт хоста
+    volumes:
+      - ./data/archive:/var/lib/postgresql/data
+      # shared_buffers до 12-16GB на 18 ядрах -c max_connections=200
+    command: >
+      postgres 
+      -c shared_buffers=5000MB 
+      -c work_mem=32MB
+      -c maintenance_work_mem=512MB
+      -c effective_cache_size=8GB
+      -c max_connections=150
+    restart: always
+    deploy:
+      resources:
+        limits:
+          memory: 8G    # Максимум, который может взять база 18 ядер поднять до 16
+        reservations:
+          memory: 6G
+    networks:
+      - chem_network
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: openchem_app
+    ports:
+      - "8000:8000"
+    environment:
+      - WORKERS_COUNT=3  #16 на 18ядрах
+      - PYTHONUNBUFFERED=1
+      - REDIS_URL=redis://redis:6379/0
+      - USERS_DATABASE_URL=postgresql+asyncpg://chemist:users_pass@users_db:5432/users_db
+      - ARCHIVE_DATABASE_URL=postgresql+asyncpg://chemist:archive_pass@archive_db:5432/archive_db
+    env_file:
+      - .env
+    volumes:
+      - ./data:/app/data
+    command: >
+      sh -c "gunicorn app.main:app -w $${WORKERS_COUNT} -k uvicorn.workers.UvicornWorker -b 0.0.0.0:8000 --forwarded-allow-ips='*' --access-logfile - 
+                                                                                                                                      --error-logfile - --capture-output"
+    depends_on:
+      - users_db
+      - archive_db
+    deploy:
+      resources:
+        limits:
+          memory: 2G    # FastAPI + 4 воркера + RDKit обычно едят около 1-1.5 ГБ на зеон - deploy.resources.limits.memory=8GB
+        reservations:
+          memory: 1G
+    networks:
+      - chem_network
+
+networks:
+  chem_network:
+    name: chem_network
+    driver: bridge
+
+#
+# app - app (на 16 воркеров) -> deploy.resources.limits.memory=8GB
+#sudo chown -R 1000:1000 ./data  -сделать перед депллоем для аппа

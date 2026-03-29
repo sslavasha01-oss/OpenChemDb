@@ -1,0 +1,29 @@
+# --- Специфично для твоего проекта ---
+.env
+.env.local
+/data/
+/postgres_data/
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+ENV/
+build/
+dist/
+*.egg-info/
+
+# --- PyCharm / IDE ---
+.idea/
+.vscode/
+*.swp
+*.scratch
+
+# --- OS ---
+.DS_Store
+Thumbs.db
+
+# --- Docker ---
+.docker/
