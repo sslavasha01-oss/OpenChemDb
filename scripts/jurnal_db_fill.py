@@ -11,6 +11,44 @@ from app.core.settings import settings
 # Путь к твоему огромному файлу
 CSV_FILE_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data/journal_db.txt")
 
+from rdkit import Chem
+
+
+def sanitize_raw_smiles(smiles: str) -> str:
+    """
+    Нормализует SMILES без удаления маппинга.
+    Исправляет ошибки валентности и канонизирует структуру.
+    """
+    if not smiles or not isinstance(smiles, str):
+        return ""
+
+    try:
+        # Пробуем создать молекулу. Sanitize=False позволяет прочитать "битые" структуры
+        mol = Chem.MolFromSmiles(smiles, sanitize=False)
+        if mol:
+            # Исправляем валентности (особенно важно для азота и металлов)
+            mol.UpdatePropertyCache(strict=False)
+            # Базовая очистка (ароматика, стерео, кекилизация)
+            Chem.SanitizeMol(mol, Chem.SanitizeFlags.SANITIZE_ALL ^ Chem.SanitizeFlags.SANITIZE_PROPERTIES)
+            # Возвращаем чистый SMILES.
+            # isomericSmiles=True сохранит твою стереохимию [C@H]
+            return Chem.MolToSmiles(mol, isomericSmiles=True)
+        return smiles
+    except Exception:
+        # Если RDKit совсем не смог — возвращаем оригинал, пусть Postgres сам решит
+        return smiles
+
+
+def fix_reaction_string(reaction_smiles: str) -> str:
+    """Разбивает реакцию на части и санирует каждую молекулу отдельно"""
+    if '>>' not in reaction_smiles:
+        return sanitize_raw_smiles(reaction_smiles)
+
+    parts = reaction_smiles.split('>>')
+    left = '.'.join([sanitize_raw_smiles(s) for s in parts[0].split('.')])
+    right = '.'.join([sanitize_raw_smiles(s) for s in parts[1].split('.')])
+    return f"{left}>>{right}"
+
 async def fill_archive():
     print("Connecting to archive_db...")
     # Используем asyncpg напрямую для максимальной скорости
@@ -30,6 +68,9 @@ async def fill_archive():
 
             print("Starting data insertion...")
             for row in reader:
+                raw_smi = row['reaction_raw']
+                # Чистим смайл перед вставкой в базу
+                fixed_raw_smi = fix_reaction_string(raw_smi)
                 # Подготовка кортежа данных для вставки
                 # RDKit типы в Postgres принимают строку SMILES и сами конвертируют их
                 record = (
@@ -38,8 +79,8 @@ async def fill_archive():
                     row['Dataset Name'],
                     row['Reaction Smiles'],  # Сохраняем как строку
                     row['DOI'],
-                    row['reaction_raw'],  # Строка для отображения
-                    row['reaction_raw'],  # Она же пойдет в тип REACTION
+                    fixed_raw_smi,  # Строка для отображения
+                    fixed_raw_smi,  # Она же пойдет в тип REACTION
                     row['reaction_mapped'],  # Строка для отображения
                     row['reaction_mapped'],  # Она же пойдет в тип REACTION
                     row['is_mapped'].lower() == 'true',
