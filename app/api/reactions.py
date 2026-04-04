@@ -6,6 +6,9 @@ from app.core.settings import settings
 from app.core.db import get_archive_db  # Твой генератор сессий для archive_db
 from app.utils.utils import canonicalize_smiles
 
+from rdkit import Chem
+from rdkit.Chem import rdChemReactions, Draw, rdDepictor
+
 router = APIRouter(prefix="/reactions", tags=["reactions"])
 
 
@@ -73,16 +76,57 @@ async def get_reactions_by_ids(
     # Формируем список словарей для ответа
     reactions = []
     for row in result.fetchall():
+        raw_smiles = row[3]
         reactions.append({
             "id": row[0],
             "external_id": row[1],
             "doi": row[2],
-            "reaction_raw_smiles": row[3],
+            "reaction_raw_smiles": raw_smiles,
             "reaction_mapped_smiles": row[4],
             "references": row[5],
             "conditions": row[6],
             "yield_text": row[7],
-            "procedure": row[8]
+            "procedure": row[8],
+            "svg_content": generate_reaction_svg(raw_smiles),
         })
 
     return reactions
+
+
+def generate_reaction_svg(smiles: str) -> str:
+    if not smiles:
+        return ""
+
+    try:
+        # 1. Сначала пробуем распарсить как реакцию через Smarts (это надежнее)
+        rxn = rdChemReactions.ReactionFromSmarts(smiles, useSmiles=True)
+
+        if rxn:
+            # Даем RDKit достаточно места, но CSS потом сожмет его до 50%
+            d2d = Draw.MolDraw2DSVG(800, 300)
+
+            opts = d2d.drawOptions()
+            opts.prepareMolsBeforeDrawing = True  # Магическая кнопка для чистки координат
+            opts.fixedFontSize = 14
+
+            d2d.DrawReaction(rxn)
+            d2d.FinishDrawing()
+
+            svg = d2d.GetDrawingText()
+            # Важный хак: делаем SVG адаптивным, убирая фиксированные width/height из тега
+            return svg.replace('width="800px"', 'width="100%"').replace('height="300px"', 'height="auto"')
+
+        # 2. Fallback: если это не реакция, а просто молекула
+        mol = Chem.MolFromSmiles(smiles)
+        if mol:
+            d2d = Draw.MolDraw2DSVG(400, 200)
+            d2d.DrawMolecule(mol)
+            d2d.FinishDrawing()
+            svg = d2d.GetDrawingText()
+            return svg.replace('width="400px"', 'width="100%"').replace('height="200px"', 'height="auto"')
+
+    except Exception as e:
+        # Если RDKit совсем упал, в логах будет видно почему
+        print(f"RDKit Render Error for {smiles[:20]}: {e}")
+
+    return ""
