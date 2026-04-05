@@ -16,6 +16,7 @@ const sources = ref({
 
 const reactionSmiles = ref('')
 const reactionSvg = ref('') // Для хранения картинки в формате SVG
+const isExact = ref(false) // Состояние для чекбокса Exact Match
 const showKetcher = ref(false)
 const ketcherFrame = ref(null)
 
@@ -67,7 +68,7 @@ const saveFromKetcher = async () => {
     const ketcher = ketcherFrame.value?.contentWindow?.ketcher
     if (!ketcher) return
 
-    const smiles = await ketcher.getSmiles()
+    const smiles = await ketcher.getSmarts()
 
     if (smiles && smiles.trim().length > 0) {
       let finalSmiles = smiles.trim()
@@ -91,7 +92,7 @@ const saveFromKetcher = async () => {
 }
 
 const handleSearch = () => {
-  console.log('Global Search Triggered for:', reactionSmiles.value)
+  console.log('Global Search Triggered for:', reactionSmiles.value, 'Exact:', isExact.value)
   if (sources.value.journal) {
     journalRef.value?.performNewSearch()
   }
@@ -161,6 +162,9 @@ watch(reactionSmiles, (newValue) => {
             placeholder="Reaction SMILES (e.g. CC>>CC)..."
             class="smiles-input"
         />
+        <label class="exact-checkbox">
+          <input type="checkbox" v-model="isExact"> Exact Match
+        </label>
         <button
             class="btn-search"
             :disabled="!reactionSmiles"
@@ -175,6 +179,7 @@ watch(reactionSmiles, (newValue) => {
           ref="journalRef"
           v-if="sources.journal"
           :smiles="reactionSmiles"
+          :exact="isExact"
       />
       <BookResults v-if="sources.book" :smiles="reactionSmiles"/>
       <PublicJournalResults v-if="sources.public" :smiles="reactionSmiles"/>
@@ -387,5 +392,31 @@ watch(reactionSmiles, (newValue) => {
   padding: 10px 20px;
   border-radius: 6px;
   cursor: pointer;
+}
+
+.exact-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+  font-size: 0.9rem;
+  cursor: pointer;
+  user-select: none;
+}
+
+/* Адаптивность для мобилок */
+@media (max-width: 600px) {
+  .controls {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .exact-checkbox {
+    padding: 5px 0;
+  }
+
+  .btn-search {
+    padding: 12px;
+  }
 }
 </style>

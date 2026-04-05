@@ -1,3 +1,5 @@
+from ftplib import print_line
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 from typing import List, Optional
 import sqlalchemy as sa
@@ -26,24 +28,32 @@ async def search_reaction_ids(
     use_mapped = ":" in smiles
     column_name = "reaction_mapped_data" if use_mapped else "reaction_raw_data"
 
-    canonical_smiles = canonicalize_smiles(smiles)
-
-    # Выбираем оператор: = для точного, @> для подструктуры
+    processed_query = smiles
+    print_line(smiles)
+    print_line(processed_query)
+    # Выбираем оператор
     operator = "@=" if exact else "@>"
 
-    # Формируем SQL запрос
-    # Используем текстовый запрос, так как операторы RDKit специфичны
+    # 3. SQL ЗАПРОС
+    # Используем reaction_from_smarts — он переварит и SMILES, и SMARTS
     query = sa.text(f"""
-        SELECT id FROM archive_reactions
-        WHERE {column_name} {operator} cast(:smiles as reaction)
-        AND is_deleted = false
-        LIMIT :limit
-    """)
+            SELECT id FROM archive_reactions
+            WHERE {column_name} {operator} reaction_from_smarts(:smiles)
+            AND is_deleted = false
+            LIMIT :limit
+        """)
 
-    result = await db.execute(query, {"smiles": canonical_smiles, "limit": settings.SEARCH_LIMIT})
-    ids = [row[0] for row in result.fetchall()]
-
-    return {"ids": ids, "count": len(ids)}
+    try:
+        result = await db.execute(query, {
+            "smiles": processed_query,
+            "limit": settings.SEARCH_LIMIT
+        })
+        ids = [row[0] for row in result.fetchall()]
+        return {"ids": ids, "count": len(ids)}
+    except Exception as e:
+        # Если бд все же ругается на синтаксис SMARTS
+        print(f"DB Search Error: {e}")
+        return {"ids": [], "count": 0, "error": str(e)}
 
 
 @router.get("/search/by-ids")
