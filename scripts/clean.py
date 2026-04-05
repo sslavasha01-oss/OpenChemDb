@@ -1,83 +1,84 @@
 from rdkit import Chem
-from rdkit.Chem import AllChem
+from rdkit.Chem import rdChemReactions
 
-
-def fix_smiles(smiles_string):
-    """
-    Чистит и исправляет SMILES для корректного отображения.
-    """
-    if '>>' in smiles_string:
-        # Если это реакция, чистим части по отдельности
-        parts = smiles_string.split('>>')
-        fixed_parts = [fix_smiles(p) for p in parts]
-        return '>>'.join(fixed_parts)
-
-    if '.' in smiles_string:
-        # Если это смесь молекул, чистим каждую
-        mols = smiles_string.split('.')
-        fixed_mols = [fix_smiles(m) for m in mols]
-        return '.'.join(fixed_mols)
-
-    try:
-        # 1. Попытка создать молекулу с санитарной обработкой
-        mol = Chem.MolFromSmiles(smiles_string, sanitize=True)
-
-        if mol is None:
-            # 2. Если не вышло, пробуем создать без санитарии и исправить вручную
-            mol = Chem.MolFromSmiles(smiles_string, sanitize=False)
-            if mol:
-                mol.UpdatePropertyCache(strict=False)
-                # Исправляем типичные проблемы валентности (азот, сера)
-                Chem.SanitizeMol(mol, Chem.SanitizeFlags.SANITIZE_ALL ^ Chem.SanitizeFlags.SANITIZE_PROPERTIES)
-
-        if mol:
-            # Возвращаем канонический SMILES без лишних символов
-            return Chem.MolToSmiles(mol, isomericSmiles=True)
-        else:
-            return smiles_string  # Если совсем всё плохо, возвращаем как есть
-
-    except Exception as e:
-        return smiles_string
-
-
-def sanitize_raw_smiles(smiles: str) -> str:
-    """
-    Нормализует SMILES без удаления маппинга.
-    Исправляет ошибки валентности и канонизирует структуру.
-    """
-    if not smiles or not isinstance(smiles, str):
+def process_chemical_input(raw_input: str):
+    if not raw_input:
         return ""
 
-    try:
-        # Пробуем создать молекулу. Sanitize=False позволяет прочитать "битые" структуры
-        mol = Chem.MolFromSmiles(smiles, sanitize=False)
+    # 1. СЛУЧАЙ: Реакция (RXN block).
+    # В них заголовок $RXN обычно идет с первой строки.
+    if "$RXN" in raw_input:
+        rxn = rdChemReactions.ReactionFromRxnBlock(raw_input)
+        if rxn:
+            return rdChemReactions.ReactionToSmarts(rxn)
+
+    # 2. СЛУЧАЙ: Одна молекула (V2000 / V3000).
+    # ВАЖНО: Не делаем .strip() до парсинга, чтобы не убить структуру строк!
+    if "V2000" in raw_input or "V3000" in raw_input:
+        mol = Chem.MolFromMolBlock(raw_input)
         if mol:
-            # Исправляем валентности (особенно важно для азота и металлов)
-            mol.UpdatePropertyCache(strict=False)
-            # Базовая очистка (ароматика, стерео, кекилизация)
-            Chem.SanitizeMol(mol, Chem.SanitizeFlags.SANITIZE_ALL ^ Chem.SanitizeFlags.SANITIZE_PROPERTIES)
-            # Возвращаем чистый SMILES.
-            # isomericSmiles=True сохранит твою стереохимию [C@H]
-            return Chem.MolToSmiles(mol, isomericSmiles=True)
-        return smiles
-    except Exception:
-        # Если RDKit совсем не смог — возвращаем оригинал, пусть Postgres сам решит
-        return smiles
+            try:
+                Chem.SanitizeMol(mol) # Наша ароматизация
+                query = Chem.MolToSmarts(mol)
+                return ">>" + query
+            except:
+                return ">>" + Chem.MolToSmarts(mol)
+        else:
+            # Если не распарсилось, попробуем всё же убрать лишние пробелы
+            # ТОЛЬКО по краям всего блока, но не внутри
+            mol_retry = Chem.MolFromMolBlock(raw_input.strip())
+            if mol_retry:
+                Chem.SanitizeMol(mol_retry)
+                return ">>" + Chem.MolToSmarts(mol_retry)
+            return "Error: RDKit could not parse Molfile block"
+
+    # 3. СЛУЧАЙ: Если это не спец-форматы, возвращаем как есть (SMILES)
+    return raw_input.strip()
+
+def process_search_request(raw_input: str):
+    # 1. Проверяем, не Molfile ли это (Ketcher V2000)
+    if "V2000" in raw_input:
+        # RDKit очень чувствителен к структуре Molfile
+        mol = Chem.MolFromMolBlock(raw_input)
+
+        if mol:
+            try:
+                # 2. ВОТ ОНА - АРОМАТИЗАЦИЯ!
+                # RDKit посмотрит на 1=2-3=4 и сам сделает из них бензол
+                Chem.SanitizeMol(mol)
+
+                # 3. Генерируем SMARTS, который поймет база (с двоеточиями)
+                query = Chem.MolToSmarts(mol)
+                return ">>" + query
+            except:
+                # Если санитизация упала (бывает на сложной химии),
+                # пробуем отдать как есть
+                return ">>" + Chem.MolToSmarts(mol)
+        else:
+            return "Error: RDKit could not parse Molfile"
+
+    # Если это обычный SMILES
+    return raw_input
 
 
-def fix_reaction_string(reaction_smiles: str) -> str:
-    """Разбивает реакцию на части и санирует каждую молекулу отдельно"""
-    if '>>' not in reaction_smiles:
-        return sanitize_raw_smiles(reaction_smiles)
+# ТЕСТ С ТВОИМИ ДАННЫМИ (правильно отформатированными)
+test_molfile = ("""
+-INDIGO-04052622372D
 
-    parts = reaction_smiles.split('>>')
-    left = '.'.join([sanitize_raw_smiles(s) for s in parts[0].split('.')])
-    right = '.'.join([sanitize_raw_smiles(s) for s in parts[1].split('.')])
-    return f"{left}>>{right}"
+  6  6  0  0  0  0  0  0  0  0999 V2000
+    5.1848   -4.6251    0.0000 C   0  0  0  0  0  0  0  0  0  0  0  0
+    6.9152   -4.6246    0.0000 C   0  0  0  0  0  0  0  0  0  0  0  0
+    6.0516   -4.1250    0.0000 C   0  0  0  0  0  0  0  0  0  0  0  0
+    6.9152   -5.6255    0.0000 C   0  0  0  0  0  0  0  0  0  0  0  0
+    5.1848   -5.6300    0.0000 C   0  0  0  0  0  0  0  0  0  0  0  0
+    6.0538   -6.1250    0.0000 C   0  0  0  0  0  0  0  0  0  0  0  0
+  3  1  2  0  0  0  0
+  1  5  1  0  0  0  0
+  5  6  2  0  0  0  0
+  6  4  1  0  0  0  0
+  4  2  2  0  0  0  0
+  2  3  1  0  0  0  0
+M  END
 
-# Твой пример 1476879
-raw_rxn = "CC(C)=[N+]=[N-].CCOCC.CC(O[C@H]1C=C[C@H]1OC(C)=O)=O>>CC(C)([C@H]1[C@H]2OC(C)=O)N=N[C@@H]1[C@@H]2OC(C)=O"
-fixed_rxn = fix_reaction_string(raw_rxn)
-
-print(f"Original: {raw_rxn}")
-print(f"Fixed:    {fixed_rxn}")
+"""
+)
