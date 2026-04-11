@@ -1,23 +1,54 @@
-from ftplib import print_line
+from typing import List
 
-from fastapi import APIRouter, Depends, HTTPException, Query
-from typing import List, Optional
 import sqlalchemy as sa
-from sqlalchemy.ext.asyncio import AsyncSession
-from app.core.settings import settings
-from app.core.db import get_archive_db  # Твой генератор сессий для archive_db
-from app.utils.utils import canonicalize_smiles
-
+from fastapi import APIRouter, Depends, Query
 from rdkit import Chem
-from rdkit.Chem import rdChemReactions, Draw, rdDepictor
+from rdkit.Chem import rdChemReactions, Draw
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.core.db import get_archive_db  # Твой генератор сессий для archive_db
+from app.core.settings import settings
 
 router = APIRouter(prefix="/reactions", tags=["reactions"])
 
 
-@router.get("/search/ids")
-async def search_reaction_ids(
+@router.get("/search/ids/smiles")
+async def search_reaction_ids_smiles(
         smiles: str,
         exact: bool = False,
+        db: AsyncSession = Depends(get_archive_db)
+):
+    """
+    Поиск ID реакций.
+    Если в smiles есть маппинг (символ ':'), ищем по mapped_data, иначе по raw_data.
+    """
+    use_mapped = ":" in smiles
+    column_name = "reaction_mapped_data" if use_mapped else "reaction_raw_data"
+
+    operator = "@>"
+
+    query = sa.text(f"""
+            SELECT id FROM archive_reactions
+            WHERE {column_name} {operator} cast(:smiles as reaction)
+            AND is_deleted = false
+            ORDER BY id DESC
+            LIMIT :limit
+        """)
+
+    try:
+        result = await db.execute(query, {
+            "smiles": smiles,
+            "limit": settings.SEARCH_LIMIT
+        })
+        ids = [row[0] for row in result.fetchall()]
+        return {"ids": ids, "count": len(ids)}
+    except Exception as e:
+        print(f"DB Search Error (SMILES): {e}")
+        return {"ids": [], "count": 0, "error": str(e)}
+
+@router.get("/search/ids/smarts")
+async def search_reaction_ids_smarts(
+        smiles: str,
         db: AsyncSession = Depends(get_archive_db)
 ):
     """
@@ -29,10 +60,8 @@ async def search_reaction_ids(
     column_name = "reaction_mapped_data" if use_mapped else "reaction_raw_data"
 
     processed_query = smiles
-    print_line(smiles)
-    print_line(processed_query)
     # Выбираем оператор
-    operator = "@=" if exact else "@>"
+    operator = "@>"
 
     # 3. SQL ЗАПРОС
     # Используем reaction_from_smarts — он переварит и SMILES, и SMARTS

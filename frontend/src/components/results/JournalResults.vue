@@ -89,7 +89,11 @@ import axios from 'axios'
 import EvaluationModal from '@/components/modals/EvaluationModal.vue'
 import ReactionDetailsModal from '@/components/modals/ReactionDetailsModal.vue'
 
-const props = defineProps({ smiles: String, exact: Boolean })
+const props = defineProps({
+  smiles: String,
+  exact: Boolean,
+  mode: String // 'simple' или 'advanced'
+})
 
 const isDetailsOpen = ref(false)
 const selectedReaction = ref(null)
@@ -137,11 +141,23 @@ const performNewSearch = async () => {
   allIds.value = []
   cachedData.value = {}
   currentPage.value = 1
+
+  // Выбираем URL на основе режима
+  const searchUrl = props.mode === 'advanced'
+    ? '/api/reactions/search/ids/smarts'
+    : '/api/reactions/search/ids/smiles'
+
   try {
-    const response = await axios.get('/api/reactions/search/ids', { params: { smiles: props.smiles, exact: props.exact } })
+    const response = await axios.get(searchUrl, {
+      params: { smiles: props.smiles, exact: props.exact }
+    })
     allIds.value = response.data.ids
     if (allIds.value.length > 0) await fetchPageData(1)
-  } catch (err) { error.value = "Ошибка поиска" } finally { loading.value = false }
+  } catch (err) {
+    error.value = "Ошибка поиска"
+  } finally {
+    loading.value = false
+  }
 }
 
 const fetchPageData = async (page) => {

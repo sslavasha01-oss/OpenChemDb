@@ -19,6 +19,7 @@ const reactionSvg = ref('') // Для хранения картинки в фо�
 const isExact = ref(false) // Состояние для чекбокса Exact Match
 const showKetcher = ref(false)
 const ketcherFrame = ref(null)
+const searchMode = ref('simple')
 
 
 const openEditor = async () => {
@@ -68,23 +69,22 @@ const saveFromKetcher = async () => {
     const ketcher = ketcherFrame.value?.contentWindow?.ketcher
     if (!ketcher) return
 
-    const smiles = await ketcher.getSmarts()
+    // Выбираем метод получения данных в зависимости от режима
+    const result = searchMode.value === 'advanced'
+      ? await ketcher.getSmarts()
+      : await ketcher.getSmiles()
 
-    if (smiles && smiles.trim().length > 0) {
-      let finalSmiles = smiles.trim()
+    if (result && result.trim().length > 0) {
+      let finalStr = result.trim()
 
-      // Добавляем >> только если пользователь не нарисовал свою стрелку
-      if (!finalSmiles.includes('>>')) {
-        finalSmiles = `>>${finalSmiles}`
+      if (!finalStr.includes('>>')) {
+        finalStr = `>>${finalStr}`
       }
 
-      reactionSmiles.value = finalSmiles
-
-      // Генерируем картинку для превью
-      const blob = await ketcher.generateImage(finalSmiles, {outputFormat: 'svg'})
+      reactionSmiles.value = finalStr
+      const blob = await ketcher.generateImage(finalStr, {outputFormat: 'svg'})
       reactionSvg.value = await blob.text()
     }
-
     showKetcher.value = false
   } catch (e) {
     console.error("Save Error:", e)
@@ -130,6 +130,12 @@ watch(reactionSmiles, (newValue) => {
   }
 })
 
+watch(searchMode, (newMode) => {
+  if (newMode === 'advanced') {
+    isExact.value = false
+  }
+})
+
 
 </script>
 
@@ -156,15 +162,28 @@ watch(reactionSmiles, (newValue) => {
         <label><input type="checkbox" v-model="sources.public"> Public Journal</label>
       </div>
 
+<div class="mode-filters">
+  <label>
+    <input type="radio" value="simple" v-model="searchMode"> Simple (SMILES)
+  </label>
+  <label>
+    <input type="radio" value="advanced" v-model="searchMode"> Advanced (SMARTS)
+  </label>
+</div>
       <div class="controls">
         <input
             v-model="reactionSmiles"
             placeholder="Reaction SMILES (e.g. CC>>CC)..."
             class="smiles-input"
         />
-        <label class="exact-checkbox">
-          <input type="checkbox" v-model="isExact"> Exact Match
-        </label>
+        <label class="exact-checkbox" :class="{ 'disabled-label': searchMode === 'advanced' }">
+  <input
+    type="checkbox"
+    v-model="isExact"
+    :disabled="searchMode === 'advanced'"
+  >
+  Exact Match
+</label>
         <button
             class="btn-search"
             :disabled="!reactionSmiles"
@@ -176,11 +195,12 @@ watch(reactionSmiles, (newValue) => {
     </div>
     <div class="results-wrapper">
       <JournalResults
-          ref="journalRef"
-          v-if="sources.journal"
-          :smiles="reactionSmiles"
-          :exact="isExact"
-      />
+    ref="journalRef"
+    v-if="sources.journal"
+    :smiles="reactionSmiles"
+    :exact="isExact"
+    :mode="searchMode"
+/>
       <BookResults v-if="sources.book" :smiles="reactionSmiles"/>
       <PublicJournalResults v-if="sources.public" :smiles="reactionSmiles"/>
     </div>
@@ -418,5 +438,26 @@ watch(reactionSmiles, (newValue) => {
   .btn-search {
     padding: 12px;
   }
+}
+.mode-filters {
+  display: flex;
+  gap: 20px;
+  margin-bottom: 15px;
+  padding: 5px 10px;
+  font-size: 0.9rem;
+}
+.mode-filters label {
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+.disabled-label {
+  color: #bdc3c7;
+  cursor: not-allowed !important;
+}
+
+.disabled-label input {
+  cursor: not-allowed;
 }
 </style>
