@@ -1,13 +1,8 @@
-Понял, теперь оба блока будут иметь идентичную структуру: заголовок в серой «шапке» и само тело SMILES в текстовом боксе под ним. Это создаст строгий и единообразный вид.
-
-Вот финальный вариант кода модалки:
-
-Фрагмент коду
 <template>
-  <div v-if="isOpen" class="modal-overlay" @click.self="emit('close')">
+  <div v-if="isOpen && reaction" class="modal-overlay" @click.self="emit('close')">
     <div class="modal-card">
       <header class="modal-header">
-        <h2>Reaction Details #{{ reaction.id }}</h2>
+        <h2>Reaction Details #{{ reaction?.id }}</h2>
         <button class="close-btn" @click="emit('close')">&times;</button>
       </header>
 
@@ -17,7 +12,7 @@
             <div class="viz-header">
               <h4>Reaction Structure</h4>
             </div>
-            <div class="full-img-wrap" v-html="reaction.svg_content"></div>
+            <div class="full-img-wrap" v-html="reaction?.svg_content || ''"></div>
           </div>
 
           <div class="text-data-block">
@@ -25,58 +20,82 @@
               <h4>Reaction SMILES</h4>
             </div>
             <div class="smiles-display-box">
-              <code>{{ reaction.reaction_raw_smiles }}</code>
+              <code>{{ reaction?.reaction_raw_smiles }}</code>
             </div>
           </div>
 
-          <div class="text-data-block" v-if="reaction.reaction_mapped_smiles">
+          <div class="text-data-block" v-if="reaction?.reaction_mapped_smiles">
             <div class="viz-header">
               <h4>Mapped SMILES</h4>
             </div>
             <div class="smiles-display-box">
-              <code>{{ reaction.reaction_mapped_smiles }}</code>
+              <code>{{ reaction?.reaction_mapped_smiles }}</code>
             </div>
           </div>
         </section>
 
         <div class="main-info-grid">
-          <div class="meta-item"><strong>External ID:</strong> {{ reaction.external_id || 'N/A' }}</div>
+          <div class="meta-item"><strong>External ID:</strong> {{ reaction?.external_id || 'N/A' }}</div>
           <div class="meta-item">
             <strong>DOI:</strong>
-            <a v-if="reaction.doi" :href="'https://doi.org/' + reaction.doi" target="_blank">{{ reaction.doi }}</a>
+            <a v-if="reaction?.doi" :href="'https://doi.org/' + reaction.doi" target="_blank">{{ reaction.doi }}</a>
             <span v-else>N/A</span>
           </div>
-          <div class="meta-item"><strong>Yield:</strong> <span class="yield">{{ reaction.yield_text || '—' }}%</span></div>
+          <div class="meta-item"><strong>Yield:</strong> <span class="yield">{{ reaction?.yield_text || '—' }}%</span></div>
 
           <div class="meta-full">
             <strong>Conditions:</strong>
-            <p>{{ reaction.conditions || 'Standard conditions' }}</p>
+            <p>{{ reaction?.conditions || 'Standard conditions' }}</p>
           </div>
 
           <div class="meta-full">
             <strong>Reference:</strong>
-            <p class="italic">{{ reaction.references }}</p>
+            <p class="italic">{{ reaction?.references }}</p>
           </div>
         </div>
 
-        <section class="procedure-section" v-if="reaction.procedure">
+        <section class="procedure-section" v-if="reaction?.procedure">
           <h4>Experimental Procedure</h4>
-          <div class="procedure-box">{{ reaction.procedure }}</div>
+          <div class="procedure-box">{{ reaction?.procedure }}</div>
         </section>
 
         <hr />
 
-        <SocialActivity target="REACTIONS" :entryId="reaction.id" />
+        <SocialActivity
+          ref="socialRef"
+          target="REACTIONS"
+          :entryId="reaction?.id"
+          @request-add-eval="isEvalModalOpen = true"
+        />
       </div>
     </div>
+
+    <EvaluationModal
+      :isOpen="isEvalModalOpen"
+      :entryId="reaction?.id"
+      @close="isEvalModalOpen = false"
+      @success="onEvalSuccess"
+    />
   </div>
 </template>
 
 <script setup>
+import { ref } from 'vue'
 import SocialActivity from '@/components/shared/SocialActivity.vue'
+import EvaluationModal from '@/components/modals/EvaluationModal.vue'
+
+const isEvalModalOpen = ref(false)
+const socialRef = ref(null)
 
 const props = defineProps({ isOpen: Boolean, reaction: Object })
 const emit = defineEmits(['close'])
+
+const onEvalSuccess = () => {
+  // Вызываем метод loadData внутри SocialActivity, чтобы список обновился
+  if (socialRef.value) {
+    socialRef.value.loadData()
+  }
+}
 </script>
 
 <style scoped>

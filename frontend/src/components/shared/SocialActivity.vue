@@ -1,7 +1,14 @@
 <template>
   <div class="social-wrapper">
     <section class="social-section">
-      <h4>User Evaluations & Feedback</h4>
+      <div class="section-header">
+    <h4>User Evaluations & Feedback</h4>
+    <button class="btn-add-eval" @click="emit('request-add-eval')">
+      + Оценить {{ target === 'REACTIONS' ? 'реакцию' : 'объект' }}
+    </button>
+  </div>
+
+
       <div v-if="loading" class="loading-mini">Loading evaluations...</div>
       <div v-else class="eval-list">
         <div v-for="(ev, idx) in evaluations" :key="idx" class="eval-item" :class="ev.status.toLowerCase()">
@@ -38,6 +45,7 @@ const props = defineProps({
   entryId: { type: Number, required: true }
 })
 
+const emit = defineEmits(['request-add-eval'])
 const evaluations = ref([])
 const comments = ref([])
 const totalComments = ref(0)
@@ -69,6 +77,7 @@ const loadData = async () => {
 
 watch(() => props.entryId, loadData)
 onMounted(loadData)
+defineExpose({ loadData })
 </script>
 
 <style scoped>
@@ -82,4 +91,22 @@ onMounted(loadData)
 .comment-author { font-weight: bold; font-size: 0.85rem; color: #555; }
 .comment-text { margin-top: 4px; font-size: 0.95rem; }
 .empty-text { color: #aaa; font-style: italic; padding: 10px 0; }
+.section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 15px;
+}
+.btn-add-eval {
+  background: #42b983;
+  color: white;
+  border: none;
+  padding: 6px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.8rem;
+  font-weight: bold;
+  transition: 0.2s;
+}
+.btn-add-eval:hover { background: #3aa876; }
 </style>
