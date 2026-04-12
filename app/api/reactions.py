@@ -33,7 +33,6 @@ async def search_reaction_ids_smiles(
         where_clause = f"{reaction_column} @> :smiles\\:\\:reaction"
         params = {"smiles": smiles, "limit": settings.SEARCH_LIMIT}
     else:
-        # Разбиваем входной SMILES
         parts = smiles.split('>>')
         r_part = parts[0].strip() if len(parts) > 0 and parts[0].strip() else None
         p_part = parts[-1].strip() if len(parts) > 1 and parts[-1].strip() else None
@@ -41,41 +40,58 @@ async def search_reaction_ids_smiles(
         conditions = []
         params = {"limit": settings.SEARCH_LIMIT}
 
-        # Универсальный фильтр:
-        # 1. Либо вся колонка целиком равна запросу (для смесей типа A.B)
-        # 2. Либо один из фрагментов в базе равен запросу (для поиска основания в соли)
-        component_filter = """
-                    ({col} @> :{param}\\:\\:mol AND (
-                        {col} @= :{param}\\:\\:mol 
-                        OR EXISTS (
-                            SELECT 1 FROM unnest(string_to_array(mol_to_smiles({col})\\:\\:text, '.')) AS f 
-                            WHERE f\\:\\:mol @= :{param}\\:\\:mol
-                        )
-                    ))
-                """
+        # Функция для подготовки массива компонентов из строки SMILES
+        def get_components(smiles_str):
+            if not smiles_str:
+                return None
+
+            res = []
+            # Разрезаем по точке
+            raw_parts = smiles_str.split('.')
+            for p in raw_parts:
+                p = p.strip()
+                if not p:
+                    continue
+
+                # Превращаем в мол и обратно в SMILES для канонизации
+                mol = Chem.MolFromSmiles(p)
+                if mol:
+                    # Генерируем точно такой же SMILES, какой делает база через mol_to_smiles()
+                    canonical_smi = Chem.MolToSmiles(mol)
+                    res.append(canonical_smi)
+
+            return res if res else None
 
         if r_part:
-            conditions.append(component_filter.format(col="mol_reactants", param="r_part"))
-            params["r_part"] = r_part
+            # Превращаем 'A.B' в ['A', 'B']
+            params["r_components"] = get_components(r_part)
+            conditions.append(f"""
+                            (string_to_array(split_part(reaction_to_smiles(reaction_raw_data)\\:\\:text, '>', 1), '.') @> 
+                             :r_components\\:\\:text[])
+                        """)
 
         if p_part:
-            conditions.append(component_filter.format(col="mol_products", param="p_part"))
-            params["p_part"] = p_part
+            params["p_components"] = get_components(p_part)
+            conditions.append(f"""
+                            (string_to_array(split_part(reaction_to_smiles(reaction_raw_data)\\:\\:text, '>', 3), '.') @> 
+                             :p_components\\:\\:text[])
+                        """)
 
-        if not conditions:
-            where_clause = "is_deleted = false"
-        else:
-            where_clause = " AND ".join(conditions)
+        where_clause = " AND ".join(conditions) if conditions else "is_deleted = false"
 
     # Собираем финальный запрос
     query = sa.text(f"""
-        SELECT id FROM archive_reactions
-        WHERE {where_clause}
-        AND is_deleted = false
+        WITH found_ids AS (
+            SELECT id FROM archive_reactions
+            WHERE {where_clause}
+            AND is_deleted = false
+            OFFSET 0  -- Магический барьер: заставляет СНАЧАЛА выполнить поиск
+        )
+        SELECT id FROM found_ids
         ORDER BY id DESC
         LIMIT :limit
     """)
-
+    print(query, params, sep='\t')
     try:
         result = await db.execute(query, params)
         ids = [row[0] for row in result.fetchall()]
