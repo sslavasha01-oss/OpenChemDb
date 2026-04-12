@@ -18,80 +18,82 @@ async def search_reaction_ids_smiles(
         exact: bool = False,
         db: AsyncSession = Depends(get_archive_db)
 ):
-    """
-    Поиск ID реакций.
-    Simple mode: @> по всей реакции (реакция как подструктура).
-    Exact mode: %= по разделенным колонкам (совпадение компонентов).
-    """
-    # Определяем базовую колонку для подструктурного поиска
+    # Вспомогательная функция для канонизации
+    def canonicalize_reaction_smiles(smi: str):
+        if not smi:
+            return None
+        # Парсим реакцию
+        rxn = rdChemReactions.ReactionFromSmarts(smi)
+        if rxn:
+            # Чтобы ароматизировать кекулевские структуры в реакции,
+            # нужно пройтись по всем реагентам и продуктам
+            for i in range(rxn.GetNumReactantTemplates()):
+                mol = rxn.GetReactantTemplate(i)
+                if mol:
+                    Chem.SanitizeMol(mol)  # Вот здесь происходит магия ароматизации
+
+            for i in range(rxn.GetNumProductTemplates()):
+                mol = rxn.GetProductTemplate(i)
+                if mol:
+                    Chem.SanitizeMol(mol)
+
+            # Теперь генерируем SMILES. По умолчанию он будет ароматическим и каноничным.
+            return rdChemReactions.ReactionToSmiles(rxn)
+        return smi
+
+    # 1. Сначала чистим ввод
+    clean_smiles = canonicalize_reaction_smiles(smiles)
+
+    # Определяем колонку
     use_mapped = ":" in smiles
     reaction_column = "reaction_mapped_data" if use_mapped else "reaction_raw_data"
 
     if not exact:
-        # Стандартный режим: подструктурный поиск по всей реакции
-        # Используем двойной слэш \\ для экранирования двоеточия в SQLAlchemy
         where_clause = f"{reaction_column} @> :smiles\\:\\:reaction"
-        params = {"smiles": smiles, "limit": settings.SEARCH_LIMIT}
+        params = {"smiles": clean_smiles, "limit": settings.SEARCH_LIMIT}
     else:
-        parts = smiles.split('>>')
+        # Режим Exact Match
+        parts = clean_smiles.split('>>')  # Используем уже канонизированный clean_smiles
         r_part = parts[0].strip() if len(parts) > 0 and parts[0].strip() else None
         p_part = parts[-1].strip() if len(parts) > 1 and parts[-1].strip() else None
 
         conditions = []
         params = {"limit": settings.SEARCH_LIMIT}
 
-        # Функция для подготовки массива компонентов из строки SMILES
         def get_components(smiles_str):
-            if not smiles_str:
-                return None
-
-            res = []
-            # Разрезаем по точке
-            raw_parts = smiles_str.split('.')
-            for p in raw_parts:
-                p = p.strip()
-                if not p:
-                    continue
-
-                # Превращаем в мол и обратно в SMILES для канонизации
-                mol = Chem.MolFromSmiles(p)
-                if mol:
-                    # Генерируем точно такой же SMILES, какой делает база через mol_to_smiles()
-                    canonical_smi = Chem.MolToSmiles(mol)
-                    res.append(canonical_smi)
-
-            return res if res else None
+            if not smiles_str: return None
+            # Здесь фрагменты уже фактически каноничны после canonicalize_smiles,
+            # но split по точке всё равно нужен для GIN индекса
+            return [s.strip() for s in smiles_str.split('.') if s.strip()]
 
         if r_part:
-            # Превращаем 'A.B' в ['A', 'B']
             params["r_components"] = get_components(r_part)
             conditions.append(f"""
-                            (string_to_array(split_part(reaction_to_smiles(reaction_raw_data)\\:\\:text, '>', 1), '.') @> 
-                             :r_components\\:\\:text[])
-                        """)
+                (string_to_array(split_part(reaction_to_smiles(reaction_raw_data)\\:\\:text, '>', 1), '.') @> 
+                 :r_components\\:\\:text[])
+            """)
 
         if p_part:
             params["p_components"] = get_components(p_part)
             conditions.append(f"""
-                            (string_to_array(split_part(reaction_to_smiles(reaction_raw_data)\\:\\:text, '>', 3), '.') @> 
-                             :p_components\\:\\:text[])
-                        """)
+                (string_to_array(split_part(reaction_to_smiles(reaction_raw_data)\\:\\:text, '>', 3), '.') @> 
+                 :p_components\\:\\:text[])
+            """)
 
         where_clause = " AND ".join(conditions) if conditions else "is_deleted = false"
 
-    # Собираем финальный запрос
     query = sa.text(f"""
         WITH found_ids AS (
             SELECT id FROM archive_reactions
             WHERE {where_clause}
             AND is_deleted = false
-            OFFSET 0  -- Магический барьер: заставляет СНАЧАЛА выполнить поиск
+            OFFSET 0 --магический параметр чтоб не делать сортировку по айди сначала, без єтого база вешается
         )
         SELECT id FROM found_ids
         ORDER BY id DESC
         LIMIT :limit
     """)
-    print(query, params, sep='\t')
+
     try:
         result = await db.execute(query, params)
         ids = [row[0] for row in result.fetchall()]
