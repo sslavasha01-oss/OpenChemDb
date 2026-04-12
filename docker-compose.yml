@@ -19,7 +19,9 @@ services:
 
   # Контейнер для пользователей и их личных данных
   users_db:
-    image: informaticsmatters/rdkit-cartridge-debian:latest
+    build:
+      context: .                          # Папка, где лежит файл (обычно корень проекта)
+      dockerfile: postgres-rdkit-dockerfile
     container_name: users_db
     environment:
       - POSTGRES_USER=chemist
@@ -43,7 +45,9 @@ services:
 
   # Контейнер для 3 млн публичных реакций
   archive_db:
-    image: informaticsmatters/rdkit-cartridge-debian:latest
+    build:
+      context: .                          # Папка, где лежит файл (обычно корень проекта)
+      dockerfile: postgres-rdkit-dockerfile
     container_name: archive_db
     environment:
       - POSTGRES_USER=chemist

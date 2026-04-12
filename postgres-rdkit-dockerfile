@@ -1,0 +1,6 @@
+FROM postgres:16
+
+# Устанавливаем rdkit-postgresql из официальных репозиториев Debian
+RUN apt-get update && apt-get install -y \
+    postgresql-16-rdkit \
+    && rm -rf /var/lib/apt/lists/*
