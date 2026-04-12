@@ -81,7 +81,7 @@ async def get_comments(
     count_query = select(func.count()).select_from(Comment).where(Comment.target_table == target,
                                                                   Comment.entry_id == entry_id)
     total = (await db.execute(count_query)).scalar()
-
+    print(comments)
     return {
         "total": total,
         "items": comments
