@@ -64,9 +64,9 @@
                 👎 {{ reactionsMap[c.id]?.NOT_USEFUL || 0 }}
               </button>
 
-              <span class="action-item" title="Ответы">
-                💬 {{ repliesMap[c.id] || 0 }}
-              </span>
+              <button class="btn-action clickable-icon" title="Показать ответы" @click="toggleReplies(c.id)">
+  💬             {{ repliesMap[c.id] || 0 }}
+              </button>
 
               <button class="btn-reply" @click="toggleReplyForm(c.id)">
                 ↩️ {{ replyingToId === c.id ? 'Отмена' : 'Ответить' }}
@@ -91,6 +91,30 @@
               </button>
             </div>
           </div>
+            <div v-if="expandedReplies.has(c.id)" class="replies-list">
+              <div v-for="r in (repliesData[c.id] || [])" :key="r.id" class="reply-item">
+                <div class="comment-author">
+                  {{ r.user_nickname }} <small>{{ r.created_at }}</small>
+                </div>
+                <div class="comment-text">{{ r.content }}</div>
+                <div class="comment-footer">
+                  <div class="comment-actions-right">
+                    <button class="btn-action small" @click="toggleReaction(r.id, 'USEFUL', 'REPLY')">
+                      👍 {{ replyReactionsMap[r.id]?.USEFUL || 0 }}
+                    </button>
+                    <button class="btn-action small" @click="toggleReaction(r.id, 'NOT_USEFUL', 'REPLY')">
+                      👎 {{ replyReactionsMap[r.id]?.NOT_USEFUL || 0 }}
+                    </button>
+                  </div>
+                </div>
+              </div>
+              <div v-if="repliesData[c.id]?.length < (repliesMap[c.id] || 0)" class="pagination-wrapper-mini">
+               <button class="btn-load-more-mini" @click="loadMoreReplies(c.id)">
+                  Показать еще ответы
+               </button>
+              </div>
+
+            </div>
         </div>
 
         <div v-if="comments.length === 0" class="empty-text">
@@ -128,9 +152,14 @@ const loading = ref(false)
 const reactionsMap = ref({}) // { commentId: { USEFUL: 0, NOT_USEFUL: 0 } }
 const repliesMap = ref({})   // { commentId: count }
 
+const expandedReplies = ref(new Set()) // ID комментариев, у которых развернуты ответы
+const repliesData = ref({})            // { commentId: [ответ1, ответ2...] }
+const replyReactionsMap = ref({})      // { replyId: { USEFUL: 0, NOT_USEFUL: 0 } }
+
 const replyingToId = ref(null)
 const replyText = ref('')
 const isSubmittingReply = ref(false)
+const replyLimit = 5
 
 const commentText = ref('')
 const isSubmittingComment = ref(false)
@@ -267,24 +296,63 @@ const loadMoreComments = async () => {
   }
 }
 
-const toggleReaction = async (commentId, type) => {
+const toggleReaction = async (id, type, targetType = 'COMMENT') => {
   try {
     const response = await apiRequest(
-      `/comment_reaction/add?target_type=COMMENT&target_id=${commentId}&reaction=${type}`,
+      `/comment_reaction/add?target_type=${targetType}&target_id=${id}&reaction=${type}`,
       { method: 'POST' }
     )
     if (response.ok) {
-      if (!reactionsMap.value[commentId]) {
-        reactionsMap.value[commentId] = { USEFUL: 0, NOT_USEFUL: 0 }
-      }
-      reactionsMap.value[commentId][type]++
-    } else {
-      const err = await response.json()
-      alert(err.detail || "Не удалось поставить реакцию")
+      const map = targetType === 'COMMENT' ? reactionsMap : replyReactionsMap
+      if (!map.value[id]) map.value[id] = { USEFUL: 0, NOT_USEFUL: 0 }
+      map.value[id][type]++
     }
-  } catch (e) {
-    console.error("Reaction error:", e)
+  } catch (e) { console.error("Reaction error:", e) }
+}
+
+const toggleReplies = async (commentId) => {
+  if (expandedReplies.value.has(commentId)) {
+    expandedReplies.value.delete(commentId)
+  } else {
+    expandedReplies.value.add(commentId)
+    // Загружаем только если данных еще нет
+    if (!repliesData.value[commentId]) {
+      await fetchReplies(commentId, 0)
+    }
   }
+}
+
+const fetchReplies = async (commentId, offset) => {
+  try {
+    const res = await apiRequest(`/comments/replies/${commentId}?limit=${replyLimit}&offset=${offset}`)
+    if (res.ok) {
+      const newData = await res.json()
+
+      // Если это первая загрузка — заменяем, если дозагрузка — склеиваем
+      if (offset === 0) {
+        repliesData.value[commentId] = newData
+      } else {
+        repliesData.value[commentId] = [...repliesData.value[commentId], ...newData]
+      }
+
+      if (newData.length > 0) {
+        const replyIds = newData.map(r => r.id)
+        const params = new URLSearchParams()
+        params.append('target_type', 'REPLY')
+        replyIds.forEach(id => params.append('target_ids', id))
+
+        const resReact = await apiRequest(`/comment_reaction/count?${params.toString()}`)
+        if (resReact.ok) {
+          replyReactionsMap.value = { ...replyReactionsMap.value, ...(await resReact.json()) }
+        }
+      }
+    }
+  } catch (e) { console.error("Error loading replies:", e) }
+}
+
+const loadMoreReplies = async (commentId) => {
+  const currentOffset = repliesData.value[commentId]?.length || 0
+  await fetchReplies(commentId, currentOffset)
 }
 
 watch(() => props.entryId, loadData)
@@ -389,5 +457,36 @@ defineExpose({ loadData })
 .btn-load-more {
   background: #f0f2f5; border: 1px solid #ddd; color: #555;
   padding: 8px 20px; border-radius: 20px; cursor: pointer;
+}
+
+.replies-list {
+  margin-left: 40px;
+  border-left: 2px solid #eee;
+  padding-left: 15px;
+  margin-top: 10px;
+}
+.reply-item {
+  padding: 8px 0;
+  border-bottom: 1px solid #f9f9f9;
+}
+.btn-action.small { font-size: 0.75rem; padding: 1px 4px; }
+.clickable-icon { cursor: pointer !important; color: #3498db; }
+
+.pagination-wrapper-mini {
+  display: flex;
+  justify-content: flex-start;
+  padding: 5px 0;
+}
+.btn-load-more-mini {
+  background: none;
+  border: none;
+  color: #3498db;
+  font-size: 0.75rem;
+  cursor: pointer;
+  padding: 0;
+  text-decoration: underline;
+}
+.btn-load-more-mini:hover {
+  color: #2980b9;
 }
 </style>
