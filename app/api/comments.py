@@ -1,6 +1,6 @@
 from typing import List
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -81,7 +81,6 @@ async def get_comments(
     count_query = select(func.count()).select_from(Comment).where(Comment.target_table == target,
                                                                   Comment.entry_id == entry_id)
     total = (await db.execute(count_query)).scalar()
-    print(comments)
     return {
         "total": total,
         "items": comments
@@ -107,9 +106,9 @@ async def get_replies(
     return result.scalars().all()
 
 
-@router.post("/replies/count")
+@router.get("/replies-batch-count")
 async def get_replies_count(
-        comment_ids: List[int],
+        comment_ids: List[int] = Query(...),
         db: AsyncSession = Depends(get_users_db)
 ):
     """

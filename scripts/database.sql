@@ -1,3 +1,5 @@
+CREATE EXTENSION IF NOT EXISTS pg_buffercache;
+
 --узнать размер всех индексов
 SELECT
     pg_size_pretty(SUM(pg_relation_size(indexrelid))) AS "Общий вес всех индексов",

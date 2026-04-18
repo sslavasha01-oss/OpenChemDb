@@ -1,6 +1,6 @@
 from typing import List
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy import select, func, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -34,10 +34,10 @@ async def add_reaction(
     return {"status": "success"}
 
 
-@router.post("/count")
+@router.get("/count")
 async def get_reactions_count(
         target_type: ReactionTargetType,
-        target_ids: List[int],
+        target_ids: List[int] = Query(...),
         db: AsyncSession = Depends(get_users_db)
 ):
     """

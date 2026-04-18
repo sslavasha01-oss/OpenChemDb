@@ -53,6 +53,23 @@
         {{ c.user_nickname }} <small>{{ c.created_at }}</small>
       </div>
       <div class="comment-text">{{ c.content }}</div>
+
+<div class="comment-footer">
+  <div class="comment-actions-right">
+    <span class="action-item" title="Полезно">
+      👍 {{ reactionsMap[c.id]?.USEFUL || 0 }}
+    </span>
+    <span class="action-item" title="Не полезно">
+      👎 {{ reactionsMap[c.id]?.NOT_USEFUL || 0 }}
+    </span>
+    <span class="action-item" title="Ответы">
+      💬 {{ repliesMap[c.id] || 0 }}
+    </span>
+    <button class="btn-reply" @click="console.log('Reply to', c.id)">
+      ↩️ Ответить
+    </button>
+  </div>
+</div>
     </div>
 
     <div v-if="comments.length === 0" class="empty-text">
@@ -86,6 +103,9 @@ const evaluations = ref([])
 const comments = ref([])
 const totalComments = ref(0)
 const loading = ref(false)
+
+const reactionsMap = ref({}) // { commentId: { USEFUL: 0, NOT_USEFUL: 0 } }
+const repliesMap = ref({})   // { commentId: count }
 
 const commentText = ref('')
 const isSubmittingComment = ref(false)
@@ -122,6 +142,38 @@ const submitComment = async () => {
   }
 }
 
+const loadSocialCounts = async (commentIds) => {
+  if (!commentIds || commentIds.length === 0) return
+
+  try {
+    // Формируем параметры строки запроса
+    const reactionParams = new URLSearchParams()
+    reactionParams.append('target_type', 'COMMENT')
+    commentIds.forEach(id => reactionParams.append('target_ids', id))
+
+    const replyParams = new URLSearchParams()
+    commentIds.forEach(id => replyParams.append('comment_ids', id))
+
+    // Выполняем GET запросы
+    const [resReactions, resReplies] = await Promise.all([
+      apiRequest(`/comment_reaction/count?${reactionParams.toString()}`, { method: 'GET' }),
+      apiRequest(`/comments/replies-batch-count?${replyParams.toString()}`, { method: 'GET' })
+    ])
+
+    if (resReactions.ok) {
+      const data = await resReactions.json()
+      reactionsMap.value = { ...reactionsMap.value, ...data }
+    }
+
+    if (resReplies.ok) {
+      const data = await resReplies.json()
+      repliesMap.value = { ...repliesMap.value, ...data }
+    }
+  } catch (e) {
+    console.error("Error loading social counts:", e)
+  }
+}
+
 
 const getStatusIcon = (s) => ({ 'CHECK': '✅', 'POO': '💩', 'ERROR': '🛑' }[s] || '❓')
 
@@ -139,6 +191,7 @@ const loadData = async () => {
     if (resComm.ok) {
       const data = await resComm.json()
       comments.value = data.items
+      loadSocialCounts(data.items.map(c => c.id))
       totalComments.value = data.total
     }
   } catch (e) {
@@ -160,6 +213,7 @@ const loadMoreComments = async () => {
       const data = await res.json()
       // Добавляем новые комменты в конец существующего массива
       comments.value = [...comments.value, ...data.items]
+      loadSocialCounts(data.items.map(c => c.id))
       totalComments.value = data.total
     }
   } catch (e) {
@@ -289,5 +343,42 @@ defineExpose({ loadData })
 .btn-load-more:disabled {
   opacity: 0.6;
   cursor: wait;
+}
+
+.comment-footer {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 8px;
+}
+
+.comment-actions-right {
+  display: flex;
+  align-items: center;
+  gap: 15px;
+  font-size: 0.85rem;
+  color: #666;
+}
+
+.action-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  cursor: default;
+}
+
+.btn-reply {
+  background: none;
+  border: none;
+  color: #3498db;
+  cursor: pointer;
+  font-size: 0.85rem;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.btn-reply:hover {
+  text-decoration: underline;
 }
 </style>
