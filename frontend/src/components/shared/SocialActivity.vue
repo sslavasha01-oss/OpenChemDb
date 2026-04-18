@@ -105,8 +105,8 @@
                     <button class="btn-action small" @click="toggleReaction(r.id, 'NOT_USEFUL', 'REPLY')">
                       👎 {{ replyReactionsMap[r.id]?.NOT_USEFUL || 0 }}
                     </button>
-                    <button class="btn-reply small" @click="toggleReplyForm(r.id)">
-                      ↩️ Ответить
+                    <button class="btn-reply small" @click="toggleReplyForm(r.id, r.user_nickname)">
+                     ↩️ Ответить
                     </button>
                   </div>
                 </div>
@@ -241,9 +241,15 @@ const submitReply = async (commentId) => {
   }
 }
 
-const toggleReplyForm = (id) => {
-  replyingToId.value = replyingToId.value === id ? null : id
-  replyText.value = ''
+const toggleReplyForm = (id, nickname = null) => {
+  if (replyingToId.value === id) {
+    replyingToId.value = null
+    replyText.value = ''
+  } else {
+    replyingToId.value = id
+    // Если передан никнейм, вставляем его в начало текста
+    replyText.value = nickname ? `@${nickname}, ` : ''
+  }
 }
 
 const loadSocialCounts = async (commentIds) => {
