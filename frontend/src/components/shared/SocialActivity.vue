@@ -105,9 +105,30 @@
                     <button class="btn-action small" @click="toggleReaction(r.id, 'NOT_USEFUL', 'REPLY')">
                       👎 {{ replyReactionsMap[r.id]?.NOT_USEFUL || 0 }}
                     </button>
+                    <button class="btn-reply small" @click="toggleReplyForm(r.id)">
+                      ↩️ Ответить
+                    </button>
                   </div>
                 </div>
+                <div v-if="replyingToId === r.id" class="reply-input-block nested">
+                 <textarea
+                     v-model="replyText"
+                     placeholder="Напишите ваш ответ..."
+                     rows="2"
+                     :disabled="isSubmittingReply"
+                   ></textarea>
+                   <div class="reply-actions">
+                     <button
+                       @click="submitReply(c.id)"
+                       :disabled="isSubmittingReply || !replyText.trim()"
+                       class="btn-send-reply"
+                     >
+                       {{ isSubmittingReply ? 'Отправка...' : 'Ответить' }}
+                     </button>
+                   </div>
+                 </div>
               </div>
+
               <div v-if="repliesData[c.id]?.length < (repliesMap[c.id] || 0)" class="pagination-wrapper-mini">
                <button class="btn-load-more-mini" @click="loadMoreReplies(c.id)">
                   Показать еще ответы
@@ -202,28 +223,27 @@ const submitReply = async (commentId) => {
     )
     if (response.ok) {
       replyText.value = ''
-      replyingToId.value = null
+      replyingToId.value = null // Закрываем форму
       repliesMap.value[commentId] = (repliesMap.value[commentId] || 0) + 1
+
+      // Если ветка уже была развернута, подгружаем свежие данные в конец
+      if (expandedReplies.value.has(commentId)) {
+        await fetchReplies(commentId, 0) // Перезагружаем или можно просто догрузить последний
+      }
     } else {
       const errorData = await response.json()
       alert(errorData.detail || "Ошибка при добавлении ответа")
     }
   } catch (e) {
     console.error("Reply submit error:", e)
-    alert("Не удалось отправить ответ")
   } finally {
     isSubmittingReply.value = false
   }
 }
 
-const toggleReplyForm = (commentId) => {
-  if (replyingToId.value === commentId) {
-    replyingToId.value = null
-    replyText.value = ''
-  } else {
-    replyingToId.value = commentId
-    replyText.value = ''
-  }
+const toggleReplyForm = (id) => {
+  replyingToId.value = replyingToId.value === id ? null : id
+  replyText.value = ''
 }
 
 const loadSocialCounts = async (commentIds) => {
@@ -488,5 +508,19 @@ defineExpose({ loadData })
 }
 .btn-load-more-mini:hover {
   color: #2980b9;
+}
+
+.btn-reply.small {
+  font-size: 0.75rem;
+  margin-left: 10px;
+}
+
+.reply-input-block.nested {
+  max-width: 90%; /* Чтобы форма была чуть уже самого ответа */
+  margin-left: auto; /* Сдвинет её немного вправо для красоты */
+}
+
+.reply-item .comment-footer {
+  justify-content: flex-start; /* У ответов лучше прижать кнопки к левому краю */
 }
 </style>
