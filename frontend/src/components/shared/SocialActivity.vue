@@ -2,11 +2,11 @@
   <div class="social-wrapper">
     <section class="social-section">
       <div class="section-header">
-    <h4>User Evaluations & Feedback</h4>
-    <button class="btn-add-eval" @click="emit('request-add-eval')">
-      + Оценить {{ target === 'REACTIONS' ? 'реакцию' : 'объект' }}
-    </button>
-  </div>
+        <h4>User Evaluations & Feedback</h4>
+        <button class="btn-add-eval" @click="emit('request-add-eval')">
+          + Оценить {{ target === 'REACTIONS' ? 'реакцию' : 'объект' }}
+        </button>
+      </div>
       <div v-if="loading" class="loading-mini">Loading evaluations...</div>
       <div v-else class="eval-list">
         <div v-for="(ev, idx) in evaluations" :key="idx" class="eval-item" :class="ev.status.toLowerCase()">
@@ -22,81 +22,91 @@
     </section>
 
     <section class="social-section">
-  <div class="section-header">
-    <h4>General Discussion ({{ totalComments }})</h4>
-    <button class="btn-comment-toggle" @click="showCommentInput = !showCommentInput">
-      {{ showCommentInput ? 'Отмена' : 'Комментировать' }}
-    </button>
-  </div>
-
-  <div v-if="showCommentInput" class="add-comment-block">
-    <textarea
-      v-model="commentText"
-      placeholder="Напишите ваш комментарий..."
-      rows="3"
-      :disabled="isSubmittingComment"
-    ></textarea>
-    <div class="comment-actions">
-      <button
-        @click="submitComment"
-        :disabled="isSubmittingComment || !commentText.trim()"
-        class="btn-send-comment"
-      >
-        {{ isSubmittingComment ? 'Отправка...' : 'Отправить' }}
-      </button>
-    </div>
-  </div>
-
-  <div class="comments-list">
-    <div v-for="c in comments" :key="c.id" class="comment-row">
-      <div class="comment-author">
-        {{ c.user_nickname }} <small>{{ c.created_at }}</small>
+      <div class="section-header">
+        <h4>General Discussion ({{ totalComments }})</h4>
+        <button class="btn-comment-toggle" @click="showCommentInput = !showCommentInput">
+          {{ showCommentInput ? 'Отмена' : 'Комментировать' }}
+        </button>
       </div>
-      <div class="comment-text">{{ c.content }}</div>
 
-<div class="comment-footer">
-  <div class="comment-actions-right">
-  <button
-    class="btn-action"
-    title="Полезно"
-    @click="toggleReaction(c.id, 'USEFUL')"
-  >
-    👍 {{ reactionsMap[c.id]?.USEFUL || 0 }}
-  </button>
+      <div v-if="showCommentInput" class="add-comment-block">
+        <textarea
+          v-model="commentText"
+          placeholder="Напишите ваш комментарий..."
+          rows="3"
+          :disabled="isSubmittingComment"
+        ></textarea>
+        <div class="comment-actions">
+          <button
+            @click="submitComment"
+            :disabled="isSubmittingComment || !commentText.trim()"
+            class="btn-send-comment"
+          >
+            {{ isSubmittingComment ? 'Отправка...' : 'Отправить' }}
+          </button>
+        </div>
+      </div>
 
-  <button
-    class="btn-action"
-    title="Не полезно"
-    @click="toggleReaction(c.id, 'NOT_USEFUL')"
-  >
-    👎 {{ reactionsMap[c.id]?.NOT_USEFUL || 0 }}
-  </button>
+      <div class="comments-list">
+        <div v-for="c in comments" :key="c.id" class="comment-row">
+          <div class="comment-author">
+            {{ c.user_nickname }} <small>{{ c.created_at }}</small>
+          </div>
+          <div class="comment-text">{{ c.content }}</div>
 
-  <span class="action-item" title="Ответы">
-    💬 {{ repliesMap[c.id] || 0 }}
-  </span>
+          <div class="comment-footer">
+            <div class="comment-actions-right">
+              <button class="btn-action" title="Полезно" @click="toggleReaction(c.id, 'USEFUL')">
+                👍 {{ reactionsMap[c.id]?.USEFUL || 0 }}
+              </button>
 
-  <button class="btn-reply" @click="console.log('Reply to', c.id)">
-    ↩️ Ответить
-  </button>
-</div>
-</div>
-    </div>
+              <button class="btn-action" title="Не полезно" @click="toggleReaction(c.id, 'NOT_USEFUL')">
+                👎 {{ reactionsMap[c.id]?.NOT_USEFUL || 0 }}
+              </button>
 
-    <div v-if="comments.length === 0" class="empty-text">
-      No comments yet.
-    </div>
-    <div v-if="comments.length < totalComments" class="pagination-wrapper">
-      <button
-        class="btn-load-more"
-        @click="loadMoreComments"
-        :disabled="loadingMore"
-      >
-        {{ loadingMore ? 'Загрузка...' : 'Показать еще' }}
-      </button>
-    </div>
-  </div>
-</section>
+              <span class="action-item" title="Ответы">
+                💬 {{ repliesMap[c.id] || 0 }}
+              </span>
+
+              <button class="btn-reply" @click="toggleReplyForm(c.id)">
+                ↩️ {{ replyingToId === c.id ? 'Отмена' : 'Ответить' }}
+              </button>
+            </div>
+          </div>
+
+          <div v-if="replyingToId === c.id" class="reply-input-block">
+            <textarea
+              v-model="replyText"
+              placeholder="Напишите ваш ответ..."
+              rows="2"
+              :disabled="isSubmittingReply"
+            ></textarea>
+            <div class="reply-actions">
+              <button
+                @click="submitReply(c.id)"
+                :disabled="isSubmittingReply || !replyText.trim()"
+                class="btn-send-reply"
+              >
+                {{ isSubmittingReply ? 'Отправка...' : 'Ответить' }}
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div v-if="comments.length === 0" class="empty-text">
+          No comments yet.
+        </div>
+        <div v-if="comments.length < totalComments" class="pagination-wrapper">
+          <button
+            class="btn-load-more"
+            @click="loadMoreComments"
+            :disabled="loadingMore"
+          >
+            {{ loadingMore ? 'Загрузка...' : 'Показать еще' }}
+          </button>
+        </div>
+      </div>
+    </section>
   </div>
 </template>
 
@@ -118,29 +128,29 @@ const loading = ref(false)
 const reactionsMap = ref({}) // { commentId: { USEFUL: 0, NOT_USEFUL: 0 } }
 const repliesMap = ref({})   // { commentId: count }
 
+const replyingToId = ref(null)
+const replyText = ref('')
+const isSubmittingReply = ref(false)
+
 const commentText = ref('')
 const isSubmittingComment = ref(false)
 const showCommentInput = ref(false)
 
 const loadingMore = ref(false)
-const limit = 10 // Количество за раз комментарии
+const limit = 10
 
 const submitComment = async () => {
   if (!commentText.value.trim()) return
-
   isSubmittingComment.value = true
   try {
-    // В FastAPI эндпоинте параметры target, entry_id и content
-    // судя по всему принимаются как query-params (так как нет Body-модели)
     const response = await apiRequest(
       `/comments/add?target=${props.target}&entry_id=${props.entryId}&content=${encodeURIComponent(commentText.value)}`,
       { method: 'POST' }
     )
-
     if (response.ok) {
       commentText.value = ''
       showCommentInput.value = false
-      await loadData() // Перезагружаем данные (и оценки, и комменты)
+      await loadData()
     } else {
       const errorData = await response.json()
       alert(errorData.detail || "Ошибка при добавлении комментария")
@@ -153,11 +163,43 @@ const submitComment = async () => {
   }
 }
 
+const submitReply = async (commentId) => {
+  if (!replyText.value.trim()) return
+  isSubmittingReply.value = true
+  try {
+    const response = await apiRequest(
+      `/comments/reply/add?comment_id=${commentId}&content=${encodeURIComponent(replyText.value)}`,
+      { method: 'POST' }
+    )
+    if (response.ok) {
+      replyText.value = ''
+      replyingToId.value = null
+      repliesMap.value[commentId] = (repliesMap.value[commentId] || 0) + 1
+    } else {
+      const errorData = await response.json()
+      alert(errorData.detail || "Ошибка при добавлении ответа")
+    }
+  } catch (e) {
+    console.error("Reply submit error:", e)
+    alert("Не удалось отправить ответ")
+  } finally {
+    isSubmittingReply.value = false
+  }
+}
+
+const toggleReplyForm = (commentId) => {
+  if (replyingToId.value === commentId) {
+    replyingToId.value = null
+    replyText.value = ''
+  } else {
+    replyingToId.value = commentId
+    replyText.value = ''
+  }
+}
+
 const loadSocialCounts = async (commentIds) => {
   if (!commentIds || commentIds.length === 0) return
-
   try {
-    // Формируем параметры строки запроса
     const reactionParams = new URLSearchParams()
     reactionParams.append('target_type', 'COMMENT')
     commentIds.forEach(id => reactionParams.append('target_ids', id))
@@ -165,17 +207,14 @@ const loadSocialCounts = async (commentIds) => {
     const replyParams = new URLSearchParams()
     commentIds.forEach(id => replyParams.append('comment_ids', id))
 
-    // Выполняем GET запросы
     const [resReactions, resReplies] = await Promise.all([
       apiRequest(`/comment_reaction/count?${reactionParams.toString()}`, { method: 'GET' }),
       apiRequest(`/comments/replies-batch-count?${replyParams.toString()}`, { method: 'GET' })
     ])
-
     if (resReactions.ok) {
       const data = await resReactions.json()
       reactionsMap.value = { ...reactionsMap.value, ...data }
     }
-
     if (resReplies.ok) {
       const data = await resReplies.json()
       repliesMap.value = { ...repliesMap.value, ...data }
@@ -185,19 +224,16 @@ const loadSocialCounts = async (commentIds) => {
   }
 }
 
-
 const getStatusIcon = (s) => ({ 'CHECK': '✅', 'POO': '💩', 'ERROR': '🛑' }[s] || '❓')
 
 const loadData = async () => {
   if (!props.entryId) return
   loading.value = true
   try {
-    // При первичной загрузке сбрасываем offset на 0
     const [resEval, resComm] = await Promise.all([
       apiRequest(`/evaluations/details?target=${props.target}&entry_id=${props.entryId}`),
       apiRequest(`/comments/list?target=${props.target}&entry_id=${props.entryId}&limit=${limit}&offset=0`)
     ])
-
     if (resEval.ok) evaluations.value = await resEval.json()
     if (resComm.ok) {
       const data = await resComm.json()
@@ -214,15 +250,12 @@ const loadData = async () => {
 
 const loadMoreComments = async () => {
   if (loadingMore.value || comments.value.length >= totalComments.value) return
-
   loadingMore.value = true
   try {
     const currentOffset = comments.value.length
     const res = await apiRequest(`/comments/list?target=${props.target}&entry_id=${props.entryId}&limit=${limit}&offset=${currentOffset}`)
-
     if (res.ok) {
       const data = await res.json()
-      // Добавляем новые комменты в конец существующего массива
       comments.value = [...comments.value, ...data.items]
       loadSocialCounts(data.items.map(c => c.id))
       totalComments.value = data.total
@@ -236,22 +269,17 @@ const loadMoreComments = async () => {
 
 const toggleReaction = async (commentId, type) => {
   try {
-    // Отправляем POST. Параметры target_type, target_id и reaction вставляем в URL
     const response = await apiRequest(
       `/comment_reaction/add?target_type=COMMENT&target_id=${commentId}&reaction=${type}`,
       { method: 'POST' }
     )
-
     if (response.ok) {
-      // Инициализируем объект в мапе, если его вдруг нет
       if (!reactionsMap.value[commentId]) {
         reactionsMap.value[commentId] = { USEFUL: 0, NOT_USEFUL: 0 }
       }
-      // Просто инкрементируем локально (без перезагрузки всего списка)
       reactionsMap.value[commentId][type]++
     } else {
       const err = await response.json()
-      // Если пользователь не авторизован или уже лайкнул (в зависимости от логики бэкенда)
       alert(err.detail || "Не удалось поставить реакцию")
     }
   } catch (e) {
@@ -282,103 +310,22 @@ defineExpose({ loadData })
   margin-bottom: 15px;
 }
 .btn-add-eval {
-  background: #42b983;
-  color: white;
-  border: none;
-  padding: 6px 12px;
-  border-radius: 4px;
-  cursor: pointer;
-  font-size: 0.8rem;
-  font-weight: bold;
-  transition: 0.2s;
+  background: #42b983; color: white; border: none; padding: 6px 12px;
+  border-radius: 4px; cursor: pointer; font-size: 0.8rem; font-weight: bold;
 }
-.btn-add-eval:hover { background: #3aa876; }
-
 .btn-comment-toggle {
-  background: none;
-  border: 1px solid #3498db;
-  color: #3498db;
-  padding: 4px 10px;
-  border-radius: 4px;
-  cursor: pointer;
-  font-size: 0.8rem;
+  background: none; border: 1px solid #3498db; color: #3498db;
+  padding: 4px 10px; border-radius: 4px; cursor: pointer; font-size: 0.8rem;
 }
 
-.btn-comment-toggle:hover {
-  background: #f0f7ff;
-}
-
-/* Блок ввода */
 .add-comment-block {
-  margin-bottom: 20px;
-  background: #f9f9f9;
-  padding: 10px;
-  border-radius: 8px;
-  border: 1px solid #eee;
+  margin-bottom: 20px; background: #f9f9f9; padding: 10px; border-radius: 8px; border: 1px solid #eee;
 }
-
 .add-comment-block textarea {
-  width: 100%;
-  border: 1px solid #ddd;
-  border-radius: 4px;
-  padding: 8px;
-  resize: vertical;
-  box-sizing: border-box;
-  font-family: inherit;
+  width: 100%; border: 1px solid #ddd; border-radius: 4px; padding: 8px; resize: vertical; box-sizing: border-box;
 }
-
-.comment-actions {
-  display: flex;
-  justify-content: flex-end;
-  margin-top: 8px;
-}
-
 .btn-send-comment {
-  background: #3498db;
-  color: white;
-  border: none;
-  padding: 6px 15px;
-  border-radius: 4px;
-  cursor: pointer;
-  font-weight: bold;
-}
-
-.btn-send-comment:disabled {
-  background: #ccc;
-  cursor: not-allowed;
-}
-
-/* Небольшой отступ для списка, если форма открыта */
-.comments-list {
-  margin-top: 10px;
-}
-
-.pagination-wrapper {
-  display: flex;
-  justify-content: center;
-  margin-top: 15px;
-  padding-bottom: 10px;
-}
-
-.btn-load-more {
-  background: #f0f2f5;
-  border: 1px solid #ddd;
-  color: #555;
-  padding: 8px 20px;
-  border-radius: 20px;
-  cursor: pointer;
-  font-size: 0.85rem;
-  transition: all 0.2s;
-}
-
-.btn-load-more:hover:not(:disabled) {
-  background: #e4e6e9;
-  border-color: #ccc;
-}
-
-.btn-load-more:disabled {
-  opacity: 0.6;
-  cursor: wait;
+  background: #3498db; color: white; border: none; padding: 6px 15px; border-radius: 4px; cursor: pointer; font-weight: bold;
 }
 
 .comment-footer {
@@ -386,7 +333,6 @@ defineExpose({ loadData })
   justify-content: flex-end;
   margin-top: 8px;
 }
-
 .comment-actions-right {
   display: flex;
   align-items: center;
@@ -395,51 +341,53 @@ defineExpose({ loadData })
   color: #666;
 }
 
-.action-item {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  cursor: default;
+.btn-action {
+  background: none; border: 1px solid transparent; border-radius: 4px;
+  cursor: pointer; color: #666; font-size: 0.85rem; padding: 2px 6px;
+  display: flex; align-items: center; gap: 4px;
 }
+.btn-action:hover { background: #f0f2f5; border-color: #ddd; }
 
 .btn-reply {
-  background: none;
-  border: none;
-  color: #3498db;
-  cursor: pointer;
-  font-size: 0.85rem;
-  padding: 0;
-  display: flex;
-  align-items: center;
-  gap: 4px;
+  background: none; border: none; color: #3498db; cursor: pointer; font-size: 0.85rem;
 }
 
-.btn-reply:hover {
-  text-decoration: underline;
+/* ИСПРАВЛЕННЫЕ СТИЛИ ОТВЕТА */
+.reply-input-block {
+  display: block;
+  margin-top: 10px;
+  margin-left: 30px; /* Отступ для визуальной вложенности */
+  padding: 12px;
+  background: #f8fbff;
+  border-radius: 8px;
+  border: 1px solid #d0e3ff;
+  border-left: 4px solid #3498db;
+  box-sizing: border-box;
 }
-
-.btn-action {
-  background: none;
-  border: 1px solid transparent;
+.reply-input-block textarea {
+  width: 100%;
+  border: 1px solid #ccd6e0;
   border-radius: 4px;
-  cursor: pointer;
-  color: #666;
-  font-size: 0.85rem;
-  padding: 2px 6px;
-  transition: all 0.2s;
+  padding: 8px;
+  font-size: 0.9rem;
+  resize: none;
+  box-sizing: border-box;
+  display: block;
+  margin-bottom: 8px;
+}
+.reply-actions {
   display: flex;
-  align-items: center;
-  gap: 4px;
+  justify-content: flex-end;
 }
-
-.btn-action:hover {
-  background: #f0f2f5;
-  border-color: #ddd;
-  color: #333;
+.btn-send-reply {
+  background: #3498db; color: white; border: none; padding: 5px 15px;
+  border-radius: 4px; cursor: pointer; font-weight: bold; font-size: 0.85rem;
 }
+.btn-send-reply:disabled { background: #ccc; }
 
-.btn-action:active {
-  background: #e4e6e9;
-  transform: translateY(1px);
+.pagination-wrapper { display: flex; justify-content: center; margin-top: 15px; }
+.btn-load-more {
+  background: #f0f2f5; border: 1px solid #ddd; color: #555;
+  padding: 8px 20px; border-radius: 20px; cursor: pointer;
 }
 </style>
