@@ -56,19 +56,30 @@
 
 <div class="comment-footer">
   <div class="comment-actions-right">
-    <span class="action-item" title="Полезно">
-      👍 {{ reactionsMap[c.id]?.USEFUL || 0 }}
-    </span>
-    <span class="action-item" title="Не полезно">
-      👎 {{ reactionsMap[c.id]?.NOT_USEFUL || 0 }}
-    </span>
-    <span class="action-item" title="Ответы">
-      💬 {{ repliesMap[c.id] || 0 }}
-    </span>
-    <button class="btn-reply" @click="console.log('Reply to', c.id)">
-      ↩️ Ответить
-    </button>
-  </div>
+  <button
+    class="btn-action"
+    title="Полезно"
+    @click="toggleReaction(c.id, 'USEFUL')"
+  >
+    👍 {{ reactionsMap[c.id]?.USEFUL || 0 }}
+  </button>
+
+  <button
+    class="btn-action"
+    title="Не полезно"
+    @click="toggleReaction(c.id, 'NOT_USEFUL')"
+  >
+    👎 {{ reactionsMap[c.id]?.NOT_USEFUL || 0 }}
+  </button>
+
+  <span class="action-item" title="Ответы">
+    💬 {{ repliesMap[c.id] || 0 }}
+  </span>
+
+  <button class="btn-reply" @click="console.log('Reply to', c.id)">
+    ↩️ Ответить
+  </button>
+</div>
 </div>
     </div>
 
@@ -220,6 +231,31 @@ const loadMoreComments = async () => {
     console.error("Load more error:", e)
   } finally {
     loadingMore.value = false
+  }
+}
+
+const toggleReaction = async (commentId, type) => {
+  try {
+    // Отправляем POST. Параметры target_type, target_id и reaction вставляем в URL
+    const response = await apiRequest(
+      `/comment_reaction/add?target_type=COMMENT&target_id=${commentId}&reaction=${type}`,
+      { method: 'POST' }
+    )
+
+    if (response.ok) {
+      // Инициализируем объект в мапе, если его вдруг нет
+      if (!reactionsMap.value[commentId]) {
+        reactionsMap.value[commentId] = { USEFUL: 0, NOT_USEFUL: 0 }
+      }
+      // Просто инкрементируем локально (без перезагрузки всего списка)
+      reactionsMap.value[commentId][type]++
+    } else {
+      const err = await response.json()
+      // Если пользователь не авторизован или уже лайкнул (в зависимости от логики бэкенда)
+      alert(err.detail || "Не удалось поставить реакцию")
+    }
+  } catch (e) {
+    console.error("Reaction error:", e)
   }
 }
 
@@ -380,5 +416,30 @@ defineExpose({ loadData })
 
 .btn-reply:hover {
   text-decoration: underline;
+}
+
+.btn-action {
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  cursor: pointer;
+  color: #666;
+  font-size: 0.85rem;
+  padding: 2px 6px;
+  transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.btn-action:hover {
+  background: #f0f2f5;
+  border-color: #ddd;
+  color: #333;
+}
+
+.btn-action:active {
+  background: #e4e6e9;
+  transform: translateY(1px);
 }
 </style>
