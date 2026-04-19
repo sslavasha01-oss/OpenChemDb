@@ -37,26 +37,35 @@
         <div class="main-info-grid">
           <div class="meta-item"><strong>External ID:</strong> {{ reaction?.external_id || 'N/A' }}</div>
           <div class="meta-item">
-            <strong>DOI:</strong>
-            <a v-if="reaction?.doi" :href="'https://doi.org/' + reaction.doi" target="_blank">{{ reaction.doi }}</a>
-            <span v-else>N/A</span>
+            <div class="doi-list" v-if="reaction?.doi">
+                <a
+                  v-for="doi in parseDois(reaction.doi)"
+                  :key="doi"
+                  :href="'https://doi.org/' + doi"
+                  target="_blank"
+                  class="doi-link-item"
+                >
+                  {{ doi }}
+                </a>
+              </div>
+              <span v-else>N/A</span>
           </div>
           <div class="meta-item"><strong>Yield:</strong> <span class="yield">{{ reaction?.yield_text || '—' }}%</span></div>
 
           <div class="meta-full">
             <strong>Conditions:</strong>
-            <p>{{ reaction?.conditions || 'Standard conditions' }}</p>
+            <p class="pre-wrap">{{ formatText(reaction?.conditions) || 'Standard conditions' }}</p>
           </div>
 
           <div class="meta-full">
             <strong>Reference:</strong>
-            <p class="italic">{{ reaction?.references }}</p>
+            <p class="italic pre-wrap">{{ formatText(reaction?.references) }}</p>
           </div>
         </div>
 
         <section class="procedure-section" v-if="reaction?.procedure">
           <h4>Experimental Procedure</h4>
-          <div class="procedure-box">{{ reaction?.procedure }}</div>
+          <div class="procedure-box">{{ formatText(reaction?.procedure) }}</div>
         </section>
 
         <hr />
@@ -89,6 +98,21 @@ const socialRef = ref(null)
 
 const props = defineProps({ isOpen: Boolean, reaction: Object })
 const emit = defineEmits(['close'])
+
+// Функция для замены <NL> на переносы строк
+const formatText = (text) => {
+  if (!text) return ''
+  return text.replace(/<NL>/g, '\n')
+}
+
+// Функция для извлечения массива DOI
+const parseDois = (doiString) => {
+  if (!doiString) return []
+  return doiString
+    .split(/<NL>|\s|\n/)
+    .map(d => d.trim())
+    .filter(d => d.length > 0)
+}
 
 const onEvalSuccess = () => {
   // Вызываем метод loadData внутри SocialActivity, чтобы список обновился
@@ -174,4 +198,34 @@ const onEvalSuccess = () => {
 }
 
 hr { border: 0; border-top: 1px solid #eee; margin: 30px 0; }
+
+.pre-wrap {
+  white-space: pre-line; /* Заставляет браузер уважать перенос строки \n */
+  margin-top: 5px;
+}
+
+.doi-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 5px;
+}
+
+.doi-link-item {
+  color: #3498db;
+  text-decoration: none;
+  font-size: 0.9rem;
+  word-break: break-all;
+}
+
+.doi-link-item:hover {
+  text-decoration: underline;
+}
+
+/* Уточнение для процедуры (там уже есть white-space: pre-wrap,
+   но formatText уберет <NL>, чтобы они не дублировались) */
+.procedure-box {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
 </style>

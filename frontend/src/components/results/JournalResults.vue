@@ -27,14 +27,25 @@
             <td class="col-viz">
               <div class="reaction-container" v-html="res.svg_content"></div>
             </td>
-            <td class="col-cond" data-label="Conditions">{{ res.conditions || '—' }}</td>
+            <td class="col-cond" data-label="Conditions">
+               {{ formatText(res.conditions) }}
+            </td>
             <td class="col-yield" data-label="Yield">{{ res.yield_text || '—' }}%</td>
             <td class="col-ref" data-label="Source" @click.stop>
               <div class="ref-block">
-                <span class="ref-text">{{ res.references }}</span>
-                <a v-if="res.doi" :href="'https://doi.org/' + res.doi" target="_blank" class="doi-link">
-                  {{ res.doi }}
-                </a>
+                <span class="ref-text">{{ formatText(res.references) }}</span>
+
+    <div class="doi-wrapper" v-if="res.doi">
+      <a
+        v-for="doi in parseDois(res.doi)"
+        :key="doi"
+        :href="'https://doi.org/' + doi"
+        target="_blank"
+        class="doi-link"
+      >
+        {{ doi }}
+      </a>
+    </div>
                 <div class="eval-bar">
                   <button class="eval-btn check" :class="{ 'empty': !evaluations[res.id]?.CHECK }" @click="openEvalModal(res.id)" title="Reproduced">
                     <span class="icon">✅</span>
@@ -194,6 +205,22 @@ const fetchPageData = async (page) => {
   } catch (err) { error.value = "Ошибка загрузки" } finally { loading.value = false }
 }
 
+// Заменяет <NL> на реальные переносы для использования в v-html или просто тексте
+const formatText = (text) => {
+  if (!text) return '—'
+  return text.replace(/<NL>/g, '\n')
+}
+
+// Превращает строку с DOI в массив чистых ссылок
+const parseDois = (doiString) => {
+  if (!doiString) return []
+  // Разбиваем по <NL>, пробелам или обычным переносам строк
+  return doiString
+    .split(/<NL>|\s|\n/)
+    .map(d => d.trim())
+    .filter(d => d.length > 0)
+}
+
 defineExpose({performNewSearch})
 </script>
 
@@ -320,5 +347,27 @@ defineExpose({performNewSearch})
     border: none;
     padding: 0;
   }
+}
+
+.col-cond, .ref-text {
+  white-space: pre-line;
+}
+
+.doi-wrapper {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.doi-link {
+  color: #3498db;
+  text-decoration: none;
+  font-size: 0.8rem;
+  word-break: break-all;
+  display: block; /* Каждая ссылка с новой строки */
+}
+
+.doi-link:hover {
+  text-decoration: underline;
 }
 </style>
