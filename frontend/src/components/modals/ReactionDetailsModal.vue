@@ -82,6 +82,7 @@
     <EvaluationModal
       :isOpen="isEvalModalOpen"
       :entryId="reaction?.id"
+      target="REACTIONS"
       @close="isEvalModalOpen = false"
       @success="onEvalSuccess"
     />

@@ -90,7 +90,7 @@
     <div v-else-if="!loading" class="no-results">Введите запрос и нажмите поиск</div>
   </div>
 
-  <EvaluationModal :isOpen="isEvalModalOpen" :entryId="selectedEntryId" @close="isEvalModalOpen = false" @success="onEvalSuccess" />
+  <EvaluationModal :isOpen="isEvalModalOpen" :entryId="selectedEntryId" target="REACTIONS" @close="isEvalModalOpen = false" @success="onEvalSuccess" />
   <ReactionDetailsModal :isOpen="isDetailsOpen" :reaction="selectedReaction" @close="isDetailsOpen = false" />
 </template>
 

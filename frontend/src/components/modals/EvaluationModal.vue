@@ -38,7 +38,7 @@
 import {ref, reactive} from 'vue'
 import axios from 'axios'
 
-const props = defineProps(['isOpen', 'entryId'])
+const props = defineProps(['isOpen', 'entryId', 'target'])
 const emit = defineEmits(['close', 'success'])
 
 const loading = ref(false)
@@ -60,7 +60,7 @@ const submit = async () => {
 
     await axios.post('/api/evaluations/add', null, {
       params: {
-        target: 'REACTIONS',
+        target: props.target,
         entry_id: props.entryId,
         status: form.status,
         comment: form.comment
