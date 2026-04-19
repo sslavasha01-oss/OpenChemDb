@@ -53,8 +53,8 @@
 
                   <button class="eval-btn comments" @click="openEvalModal(res.id)" title="Comments">
                     <span class="icon">💬</span>
-                    <span class="count">?</span>
-                  </button>
+                    <span class="count">{{ commentCounts[res.id] || 0 }}</span>
+                 </button>
                 </div>
               </div>
             </td>
@@ -98,6 +98,7 @@ const props = defineProps({
 const isDetailsOpen = ref(false)
 const selectedReaction = ref(null)
 const evaluations = ref({})
+const commentCounts = ref({})
 const allIds = ref([])
 const cachedData = ref({})
 const currentPage = ref(1)
@@ -133,6 +134,20 @@ const fetchEvaluations = async (ids) => {
     const response = await axios.get('/api/evaluations/batch', {params})
     evaluations.value = {...evaluations.value, ...response.data}
   } catch (err) { console.error(err) }
+}
+
+const fetchCommentCounts = async (ids) => {
+  try {
+    const params = new URLSearchParams()
+    params.append('target', 'REACTIONS')
+    ids.forEach(id => params.append('entry_ids', id))
+
+    // Используем твой новый эндпоинт /batch-counts
+    const response = await axios.get('/api/comments/batch-counts', { params })
+    commentCounts.value = { ...commentCounts.value, ...response.data }
+  } catch (err) {
+    console.error("Error fetching comment counts:", err)
+  }
 }
 
 const performNewSearch = async () => {
@@ -172,7 +187,10 @@ const fetchPageData = async (page) => {
     })
     cachedData.value[page] = response.data
     currentPage.value = page
-    await fetchEvaluations(idsToFetch)
+    await Promise.all([
+      fetchEvaluations(idsToFetch),
+      fetchCommentCounts(idsToFetch)
+    ])
   } catch (err) { error.value = "Ошибка загрузки" } finally { loading.value = false }
 }
 

@@ -1,4 +1,4 @@
-from typing import List
+from typing import List, Dict
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import select, func
@@ -56,8 +56,6 @@ async def add_reply(
     return {"status": "success", "reply_id": new_reply.id}
 
 
-# --- ПОЛУЧЕНИЕ (С ПАГИНАЦИЕЙ) ---
-
 @router.get("/list")
 async def get_comments(
         target: TargetTable,
@@ -85,6 +83,36 @@ async def get_comments(
         "total": total,
         "items": comments
     }
+
+
+@router.get("/batch-counts")
+async def get_comments_batch_counts(
+        target: TargetTable,
+        entry_ids: List[int] = Query(...),
+        db: AsyncSession = Depends(get_users_db)
+) -> Dict[int, int]:
+    """
+    Возвращает словарь {entry_id: count} для списка переданных ID записей.
+    """
+    if not entry_ids:
+        return {}
+
+    # Формируем запрос с группировкой
+    query = (
+        select(Comment.entry_id, func.count(Comment.id))
+        .where(
+            Comment.target_table == target,
+            Comment.entry_id.in_(entry_ids)
+        )
+        .group_by(Comment.entry_id)
+    )
+
+    result = await db.execute(query)
+    # Превращаем результат выполнения в удобный dict {id: count}
+    counts_map = {row[0]: row[1] for row in result.all()}
+
+    # Дозаполняем нулями те ID, для которых комментариев не нашлось
+    return {eid: counts_map.get(eid, 0) for eid in entry_ids}
 
 
 @router.get("/replies/{comment_id}")
