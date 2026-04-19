@@ -6,6 +6,7 @@ import BookResults from '@/components/results/BookResults.vue'
 import PublicJournalResults from '@/components/results/PublicJournalResults.vue'
 
 const journalRef = ref(null)
+const bookRef = ref(null)
 
 //состояние чекбоксов
 const sources = ref({
@@ -96,6 +97,11 @@ const handleSearch = () => {
   if (sources.value.journal) {
     journalRef.value?.performNewSearch()
   }
+
+  if (sources.value.book) {
+    bookRef.value?.performNewSearch()
+  }
+
 }
 
 // Функция для обновления превью, если SMILES ввели вручную
@@ -201,7 +207,13 @@ watch(searchMode, (newMode) => {
     :exact="isExact"
     :mode="searchMode"
 />
-      <BookResults v-if="sources.book" :smiles="reactionSmiles"/>
+      <BookResults
+    ref="bookRef"
+    v-if="sources.book"
+    :smiles="reactionSmiles"
+    :exact="isExact"
+    :mode="searchMode"
+      />
       <PublicJournalResults v-if="sources.public" :smiles="reactionSmiles"/>
     </div>
 

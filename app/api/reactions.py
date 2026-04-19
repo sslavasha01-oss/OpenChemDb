@@ -83,14 +83,9 @@ async def search_reaction_ids_smiles(
         where_clause = " AND ".join(conditions) if conditions else "is_deleted = false"
 
     query = sa.text(f"""
-        WITH found_ids AS (
             SELECT id FROM archive_reactions
             WHERE {where_clause}
             AND is_deleted = false
-            OFFSET 0 --магический параметр чтоб не делать сортировку по айди сначала, без єтого база вешается
-        )
-        SELECT id FROM found_ids
-        ORDER BY id DESC
         LIMIT :limit
     """)
 

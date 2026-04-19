@@ -1,6 +1,8 @@
 from fastapi import APIRouter, Depends, Query
 from typing import List
 import sqlalchemy as sa
+from rdkit import Chem
+from rdkit.Chem import Draw
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.settings import settings
 from app.core.db import get_archive_db
@@ -14,28 +16,83 @@ async def search_book_ids(
         exact: bool = False,
         db: AsyncSession = Depends(get_archive_db)
 ):
-    """
-    Поиск ID в книжной базе.
-    exact=True -> точное совпадение структур.
-    exact=False -> поиск подструктуры.
-    """
-    operator = "@=" if exact else "@>"
+    def canonicalize_molecule_smiles(smi: str):
+        if not smi:
+            return None
+        try:
+            mol = Chem.MolFromSmiles(smi)
+            if mol:
+                Chem.SanitizeMol(mol)
+                return Chem.MolToSmiles(mol)
+        except:
+            pass
+        return smi
 
-    # Используем тройное двоеточие ::: для экранирования типа MOL в SQLAlchemy
+    clean_smiles = canonicalize_molecule_smiles(smiles)
+
+    if not exact:
+        # Для подструктурного поиска оставляем работу с типом mol
+        where_clause = "mol_data @> :smiles\\:\\:mol"
+        params = {"smiles": clean_smiles, "limit": settings.SEARCH_LIMIT}
+    else:
+        # Режим Exact Match через массивы каноничных SMILES (аналог логики из реакций)
+        # Разбиваем на фрагменты (соли, смеси), если они есть
+        components = [s.strip() for s in clean_smiles.split('.') if s.strip()]
+
+        # Используем встроенную функцию rdkit (mol_to_smiles) или хранимый текст.
+        # В примере ниже предполагается, что мы сравниваем каноничный массив
+        where_clause = """
+            (string_to_array(mol_to_smiles(mol_data)::text, '.') @> :components\\:\\:text[])
+        """
+        params = {
+            "components": components,
+            "comp_count": len(components),
+            "limit": settings.SEARCH_LIMIT
+        }
+
     query = sa.text(f"""
         SELECT id FROM book_base
-        WHERE mol_data {operator} cast(:smiles as mol)
+        WHERE {where_clause}
         AND is_deleted = false
         LIMIT :limit
     """)
 
-    result = await db.execute(query, {
-        "smiles": smiles,
-        "limit": settings.SEARCH_LIMIT
-    })
+    try:
+        result = await db.execute(query, params)
+        ids = [row[0] for row in result.fetchall()]
+        return {"ids": ids, "count": len(ids)}
+    except Exception as e:
+        print(f"DB Search Error (Books Exact): {e}")
+        return {"ids": [], "count": 0, "error": str(e)}
 
-    ids = [row[0] for row in result.fetchall()]
-    return {"ids": ids, "count": len(ids)}
+@router.get("/search/ids/smarts")
+async def search_book_ids_smarts(
+    smarts: str,
+    db: AsyncSession = Depends(get_archive_db)
+):
+    """
+    Поиск ID молекул в книжной базе по SMARTS паттерну.
+    """
+    # Используем mol_from_smarts, так как он корректно интерпретирует
+    # специфические для SMARTS запросы (дикие карты, количество связей и т.д.)
+    query = sa.text("""
+            SELECT id FROM book_base
+            WHERE mol_data @> cast(:smarts as qmol)
+            AND is_deleted = false
+            LIMIT :limit
+    """)
+
+    try:
+        result = await db.execute(query, {
+            "smarts": smarts,
+            "limit": settings.SEARCH_LIMIT
+        })
+        ids = [row[0] for row in result.fetchall()]
+        return {"ids": ids, "count": len(ids)}
+    except Exception as e:
+        # Часто возникает, если SMARTS синтаксически некорректен
+        print(f"DB Search Error (SMARTS): {e}")
+        return {"ids": [], "count": 0, "error": str(e)}
 
 
 @router.get("/search/by-ids")
@@ -63,19 +120,58 @@ async def get_books_by_ids(
                       AND is_deleted = false
                     """)
 
-    result = await db.execute(query, {"ids": ids})
+    try:
+        result = await db.execute(query, {"ids": ids})
+        rows = result.fetchall()
 
-    books = []
-    for row in result.fetchall():
-        books.append({
-            "id": row[0],
-            "external_id": row[1],
-            "name": row[2],
-            "book_name": row[3],
-            "pages": row[4],
-            "smiles": row[5],
-            "references": row[6],
-            "date_added": row[7]
-        })
+        books = []
+        for row in rows:
+            current_smiles = row[5]
 
-    return books
+            books.append({
+                "id": row[0],
+                "external_id": row[1],
+                "name": row[2],
+                "book_name": row[3],
+                "pages": row[4],
+                "smiles": current_smiles,
+                "references": row[6],
+                "date_added": row[7].isoformat() if row[7] else None,
+                "svg_content": generate_molecule_svg(current_smiles)
+            })
+
+        return books
+
+    except Exception as e:
+        print(f"Error fetching books by IDs: {e}")
+        return []
+
+
+def generate_molecule_svg(smiles: str) -> str:
+    """
+    Генерация SVG для одиночной молекулы.
+    """
+    if not smiles:
+        return ""
+
+    try:
+        mol = Chem.MolFromSmiles(smiles)
+        if mol:
+            # Для одиночной молекулы 400x200 обычно достаточно
+            d2d = Draw.MolDraw2DSVG(400, 200)
+
+            opts = d2d.drawOptions()
+            opts.prepareMolsBeforeDrawing = True
+            opts.fixedFontSize = 14
+
+            d2d.DrawMolecule(mol)
+            d2d.FinishDrawing()
+
+            svg = d2d.GetDrawingText()
+            # Делаем SVG адаптивным для фронтенда
+            return svg.replace('width="400px"', 'width="100%"').replace('height="200px"', 'height="auto"')
+
+    except Exception as e:
+        print(f"RDKit Render Error (Molecule) for {smiles[:20]}: {e}")
+
+    return ""
