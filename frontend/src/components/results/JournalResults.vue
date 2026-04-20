@@ -47,24 +47,24 @@
       </a>
     </div>
                 <div class="eval-bar">
-                  <button class="eval-btn check" :class="{ 'empty': !evaluations[res.id]?.CHECK }" @click="openEvalModal(res.id)" title="Reproduced">
+                  <button class="eval-btn check" :class="{ 'empty': !evaluations[res.external_id]?.CHECK }" @click="openEvalModal(res.external_id)">
                     <span class="icon">✅</span>
-                    <span class="count">{{ evaluations[res.id]?.CHECK || 0 }}</span>
+                    <span class="count">{{ evaluations[res.external_id]?.CHECK || 0 }}</span>
                   </button>
 
-                  <button v-if="evaluations[res.id]?.POO > 0" class="eval-btn poo" @click="openEvalModal(res.id)" title="Not reproduced">
+                  <button v-if="evaluations[res.external_id]?.POO > 0" class="eval-btn poo" @click="openEvalModal(res.external_id)" title="Not reproduced">
                     <span class="icon">💩</span>
-                    <span class="count">{{ evaluations[res.id].POO }}</span>
+                    <span class="count">{{ evaluations[res.external_id].POO }}</span>
                   </button>
 
-                  <button v-if="evaluations[res.id]?.ERROR > 0" class="eval-btn error" @click="openEvalModal(res.id)" title="Data error">
+                  <button v-if="evaluations[res.external_id]?.ERROR > 0" class="eval-btn error" @click="openEvalModal(res.external_id)" title="Data error">
                     <span class="icon">🛑</span>
-                    <span class="count">{{ evaluations[res.id].ERROR }}</span>
+                    <span class="count">{{ evaluations[res.external_id].ERROR }}</span>
                   </button>
 
-                  <button class="eval-btn comments" @click="openEvalModal(res.id)" title="Comments">
+                  <button class="eval-btn comments" @click="openEvalModal(res.external_id)" title="Comments">
                     <span class="icon">💬</span>
-                    <span class="count">{{ commentCounts[res.id] || 0 }}</span>
+                    <span class="count">{{ commentCounts[res.external_id] || 0 }}</span>
                  </button>
                 </div>
               </div>
@@ -196,12 +196,20 @@ const fetchPageData = async (page) => {
       params: {ids: idsToFetch},
       paramsSerializer: {indexes: null}
     })
-    cachedData.value[page] = response.data
+
+    const data = response.data
+    cachedData.value[page] = data
     currentPage.value = page
-    await Promise.all([
-      fetchEvaluations(idsToFetch),
-      fetchCommentCounts(idsToFetch)
-    ])
+
+    // ВЫТАСКИВАЕМ EXTERNAL_ID
+    const externalIds = data.map(r => r.external_id).filter(id => id)
+
+    if (externalIds.length > 0) {
+      await Promise.all([
+        fetchEvaluations(externalIds),
+        fetchCommentCounts(externalIds)
+      ])
+    }
   } catch (err) { error.value = "Ошибка загрузки" } finally { loading.value = false }
 }
 

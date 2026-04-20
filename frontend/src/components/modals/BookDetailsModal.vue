@@ -68,7 +68,7 @@
         <SocialActivity
           ref="socialRef"
           target="BOOKS"
-          :entryId="item?.id"
+          :entryId="item?.external_id"
           @request-add-eval="isEvalModalOpen = true"
         />
       </div>
@@ -76,7 +76,7 @@
 
     <EvaluationModal
       :isOpen="isEvalModalOpen"
-      :entryId="item?.id"
+      :entryId="item?.external_id"
       target="BOOKS"
       @close="isEvalModalOpen = false"
       @success="onEvalSuccess"

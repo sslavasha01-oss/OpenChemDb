@@ -49,15 +49,26 @@
                 <div class="ref-block">
                   <span class="ref-text">{{ formatText(res.references) }}</span>
                   <div class="eval-bar">
-                    <button class="eval-btn check" @click="openEvalModal(res.id)">
-                      <span class="icon">✅</span>
-                      <span class="count">{{ evaluations[res.id]?.CHECK || 0 }}</span>
-                    </button>
-                    <button class="eval-btn comments" @click="openEvalModal(res.id)">
-                      <span class="icon">💬</span>
-                      <span class="count">{{ commentCounts[res.id] || 0 }}</span>
-                    </button>
-                  </div>
+                  <button class="eval-btn check" :class="{ 'empty': !evaluations[res.external_id]?.CHECK }" @click="openEvalModal(res.external_id)">
+                    <span class="icon">✅</span>
+                    <span class="count">{{ evaluations[res.external_id]?.CHECK || 0 }}</span>
+                  </button>
+
+                  <button v-if="evaluations[res.external_id]?.POO > 0" class="eval-btn poo" @click="openEvalModal(res.external_id)" title="Not reproduced">
+                    <span class="icon">💩</span>
+                    <span class="count">{{ evaluations[res.external_id].POO }}</span>
+                  </button>
+
+                  <button v-if="evaluations[res.external_id]?.ERROR > 0" class="eval-btn error" @click="openEvalModal(res.external_id)" title="Data error">
+                    <span class="icon">🛑</span>
+                    <span class="count">{{ evaluations[res.external_id].ERROR }}</span>
+                  </button>
+
+                  <button class="eval-btn comments" @click="openEvalModal(res.external_id)" title="Comments">
+                    <span class="icon">💬</span>
+                    <span class="count">{{ commentCounts[res.external_id] || 0 }}</span>
+                 </button>
+                </div>
                 </div>
               </td>
             </tr>
@@ -99,6 +110,13 @@
   :item="selectedReaction"
   @close="isDetailsOpen = false"
   @open-book-files="openFileModal"
+/>
+<EvaluationModal
+  :isOpen="isEvalModalOpen"
+  :entryId="selectedEntryId"
+  target="BOOKS"
+  @close="isEvalModalOpen = false"
+  @success="onEvalSuccess"
 />
 </template>
 
@@ -281,13 +299,25 @@ const fetchPageData = async (page) => {
       params: {ids: idsToFetch},
       paramsSerializer: {indexes: null}
     })
-    cachedData.value[page] = response.data
+
+    const data = response.data // Сохраняем полученные данные
+    cachedData.value[page] = data
     currentPage.value = page
-    await Promise.all([
-      fetchEvaluations(idsToFetch),
-      fetchCommentCounts(idsToFetch)
-    ])
-  } catch (err) { error.value = "Ошибка загрузки данных" } finally { loading.value = false }
+
+    // ВЫТАСКИВАЕМ EXTERNAL_ID (как в Journal)
+    const externalIds = data.map(r => r.external_id).filter(id => id)
+
+    if (externalIds.length > 0) {
+      await Promise.all([
+        fetchEvaluations(externalIds), // Теперь передаем внешние ID
+        fetchCommentCounts(externalIds) // Теперь передаем внешние ID
+      ])
+    }
+  } catch (err) {
+    error.value = "Ошибка загрузки данных"
+  } finally {
+    loading.value = false
+  }
 }
 
 const formatText = (text) => {

@@ -73,7 +73,7 @@
         <SocialActivity
           ref="socialRef"
           target="REACTIONS"
-          :entryId="reaction?.id"
+          :entryId="reaction?.external_id"
           @request-add-eval="isEvalModalOpen = true"
         />
       </div>
@@ -81,7 +81,7 @@
 
     <EvaluationModal
       :isOpen="isEvalModalOpen"
-      :entryId="reaction?.id"
+      :entryId="reaction?.external_id"
       target="REACTIONS"
       @close="isEvalModalOpen = false"
       @success="onEvalSuccess"
