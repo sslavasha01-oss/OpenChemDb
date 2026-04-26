@@ -1,6 +1,6 @@
 <template>
   <div class="about-page">
-    <h1>О проекте OpenChemDB</h1>
+    <h1>About project OpenChemDB</h1>
 
     <section class="mission">
       <p>

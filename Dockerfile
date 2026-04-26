@@ -20,8 +20,12 @@ COPY requirements.txt .
 # Устанавливаем зависимости
 RUN pip install --no-cache-dir -r requirements.txt
 
+COPY alembic.ini /app/
+COPY ./migrations /app/migrations
+
 # Копируем исходный код приложения
 COPY --chown=chemist:chemist ./app ./app
+RUN chown -R chemist:chemist /app/migrations /app/alembic.ini
 
 # Создаем пустую папку data (она будет перекрыта Volume)
 RUN mkdir -p /app/data && chown chemist:chemist /app/data
