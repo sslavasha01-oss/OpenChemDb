@@ -83,7 +83,23 @@
       </div>
     </div>
 
-    <div v-else-if="!loading" class="no-results">No results found in book database</div>
+    <div v-if="loading && allIds.length === 0" class="status-msg loading">
+      <div class="spinner"></div>
+      <p>Searching books in database...</p>
+    </div>
+
+    <div v-else-if="error" class="status-msg error">
+      <span class="icon">⚠️</span>
+      <p>{{ error }}</p>
+    </div>
+
+    <div v-else-if="hasSearched && allIds.length === 0" class="status-msg empty">
+      <p>No results found in book database</p>
+    </div>
+
+    <div v-else-if="!hasSearched" class="status-msg intro">
+      <p>Enter a query and press search to explore the Book Base</p>
+    </div>
   </div>
 
   <div v-if="isFileModalOpen" class="modal-overlay" @click="isFileModalOpen = false">
@@ -144,6 +160,7 @@ const loading = ref(false)
 const error = ref(null)
 const isEvalModalOpen = ref(false)
 const selectedEntryId = ref(null)
+const hasSearched = ref(false)
 
 const totalPages = computed(() => Math.ceil(allIds.value.length / pageSize))
 const currentResults = computed(() => cachedData.value[currentPage.value] || [])
@@ -249,6 +266,8 @@ const performNewSearch = async () => {
   allIds.value = []
   cachedData.value = {}
   currentPage.value = 1
+  error.value = null      // 2. Сбрасываем ошибку перед новым поиском
+  hasSearched.value = true // 3. Фиксируем факт поиска
 
     let cleanQuery = props.smiles
   if (cleanQuery.includes('>>')) {
@@ -283,7 +302,7 @@ const performNewSearch = async () => {
     allIds.value = response.data.ids
     if (allIds.value.length > 0) await fetchPageData(1)
   } catch (err) {
-    error.value = "Search error in books"
+    error.value = err.response?.data?.detail || "Search error in books"
   } finally {
     loading.value = false
   }
@@ -294,6 +313,7 @@ const fetchPageData = async (page) => {
   const start = (page - 1) * pageSize
   const idsToFetch = allIds.value.slice(start, start + pageSize)
   loading.value = true
+  error.value = null
   try {
     const response = await axios.get('/api/books/search/by-ids', {
       params: {ids: idsToFetch},
@@ -579,4 +599,33 @@ defineExpose({performNewSearch})
   background: #ccc;
   border-radius: 10px;
 }
+.status-msg {
+  text-align: center;
+  padding: 40px 20px;
+  border-radius: 8px;
+  margin: 20px 0;
+}
+
+.status-msg.error {
+  background: #fff5f5;
+  color: #c0392b;
+  border: 1px solid #f8d7da;
+}
+
+.status-msg.error .icon {
+  font-size: 2rem;
+  display: block;
+  margin-bottom: 10px;
+}
+
+.status-msg.loading {
+  color: #42b983;
+}
+
+.status-msg.intro, .status-msg.empty {
+  color: #7f8c8d;
+  background: #f9f9f9;
+  border: 1px dashed #ccc;
+}
+
 </style>

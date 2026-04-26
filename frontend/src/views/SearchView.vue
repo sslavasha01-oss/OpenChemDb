@@ -149,7 +149,7 @@ watch(searchMode, (newMode) => {
   <div class="search-page">
     <header class="page-header">
       <h2>Public Reaction Database</h2>
-      <p>Draw a reaction or paste SMILES to search the database</p>
+      <p>Draw a reaction(or just a product) or paste SMILES to search the database</p>
     </header>
 
     <div class="search-container">

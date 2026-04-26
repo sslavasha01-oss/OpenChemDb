@@ -87,7 +87,23 @@
       </div>
     </div>
 
-    <div v-else-if="!loading" class="no-results">Enter a query and press search</div>
+    <div v-if="loading" class="loading-state">
+  <div class="spinner"></div> <p>Searching in database...</p>
+</div>
+
+<div v-else-if="error" class="error-msg">
+  <span class="icon">⚠️</span>
+  {{ error }}
+</div>
+
+<div v-else-if="allIds.length === 0" class="empty-state">
+  <div v-if="hasSearched">
+    <p>No results found for this query.</p>
+  </div>
+  <div v-else>
+    <p>Enter a query and press search to begin.</p>
+  </div>
+</div>
   </div>
 
   <EvaluationModal :isOpen="isEvalModalOpen" :entryId="selectedEntryId" target="REACTIONS" @close="isEvalModalOpen = false" @success="onEvalSuccess" />
@@ -118,6 +134,7 @@ const loading = ref(false)
 const error = ref(null)
 const isEvalModalOpen = ref(false)
 const selectedEntryId = ref(null)
+const hasSearched = ref(false)
 
 const totalPages = computed(() => Math.ceil(allIds.value.length / pageSize))
 const currentResults = computed(() => cachedData.value[currentPage.value] || [])
@@ -164,6 +181,8 @@ const fetchCommentCounts = async (ids) => {
 const performNewSearch = async () => {
   if (!props.smiles) return
   loading.value = true
+  error.value = null // Сбрасываем старую ошибку
+  hasSearched.value = true // Помечаем, что попытка поиска была
   allIds.value = []
   cachedData.value = {}
   currentPage.value = 1
@@ -180,7 +199,7 @@ const performNewSearch = async () => {
     allIds.value = response.data.ids
     if (allIds.value.length > 0) await fetchPageData(1)
   } catch (err) {
-    error.value = "Search error"
+    error.value = err.response?.data?.detail || "Search error"
   } finally {
     loading.value = false
   }
@@ -377,5 +396,19 @@ defineExpose({performNewSearch})
 
 .doi-link:hover {
   text-decoration: underline;
+}
+.error-msg {
+  color: #e74c3c;
+  padding: 20px;
+  text-align: center;
+  background: #fdf2f2;
+  border-radius: 8px;
+  border: 1px solid #facccc;
+  margin: 10px 0;
+}
+.loading-state, .empty-state {
+  text-align: center;
+  padding: 40px;
+  color: #666;
 }
 </style>
