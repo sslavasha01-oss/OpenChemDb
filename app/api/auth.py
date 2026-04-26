@@ -7,12 +7,17 @@ from app.schemas.user import UserCreate, UserOut, Token
 from app.core.security import get_password_hash
 from fastapi.security import OAuth2PasswordRequestForm
 from app.core.security import verify_password, create_access_token
+from app.core.settings import settings
+
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 
 @router.post("/register-local", response_model=UserOut)
 async def register(user_data: UserCreate, db: AsyncSession = Depends(get_users_db)):
+    if settings.ENV == "prod":
+        raise HTTPException(status_code=400, detail="Endpoint is disabled in production")
+
     # 1. Проверяем, нет ли уже такого юзера
     result = await db.execute(select(User).where(User.username == user_data.username))
     if result.scalar_one_or_none():
@@ -30,6 +35,7 @@ async def register(user_data: UserCreate, db: AsyncSession = Depends(get_users_d
     await db.commit()
     await db.refresh(new_user)
     return new_user
+
 
 @router.post("/login", response_model=Token)
 async def login(
