@@ -1,6 +1,6 @@
-# OpenChemВи
+# OpenChemDb
 
-OpenChem is a high-performance chemical data platform featuring a FastAPI backend, a modern frontend, and dual PostgreSQL databases enhanced with the RDKit cartridge for chemical informatics.
+OpenChemDb is a high-performance chemical data platform featuring a FastAPI backend, a modern frontend, and dual PostgreSQL databases enhanced with the RDKit cartridge for chemical informatics.
 
 ## Architecture Overview
 
@@ -29,7 +29,7 @@ Rename the example environment file and adjust the variables if necessary:
 
 ```bash
 # In the project root
-cp .env_example .env
+cp .env.example .env
 ```
 
 Build and start the databases:
@@ -64,6 +64,7 @@ alembic upgrade head
 uvicorn app.main:app --reload
 ```
 The API will be available at http://localhost:8000
+Swagger: http://localhost:8000/docs#/
 
 ### 5. Frontend Setup
 
@@ -89,4 +90,7 @@ sudo chown -R 1000:1000 ./data
 
 # Build and start all services
 docker compose up --build
+
+#run migrations on database
+docker compose exec app alembic upgrade head
 ```
