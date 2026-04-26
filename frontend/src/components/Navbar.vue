@@ -39,6 +39,9 @@ const toggleAccountMenu = () => { // <--- И это
         <li v-if="userStore.isAdmin">
           <router-link to="/admin" @click="isMenuOpen = false">Admin Console</router-link>
         </li>
+        <li>
+           <router-link to="/about" @click="isMenuOpen = false">About & Support</router-link>
+        </li>
 
         <li v-if="!userStore.isLoggedIn">
           <router-link to="/login" @click="isMenuOpen = false">Login</router-link>

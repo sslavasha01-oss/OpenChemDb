@@ -6,6 +6,7 @@ const routes = [
   { path: '/admin', component: () => import('@/views/AdminView.vue') },
   { path: '/login', component: () => import('@/views/LoginView.vue') },
   { path: '/account', component: () => import('@/views/AccountView.vue') },
+  { path: '/about', component: () => import('@/views/AboutView.vue') }
 ]
 
 const router = createRouter({
