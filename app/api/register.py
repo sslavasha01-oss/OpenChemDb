@@ -12,7 +12,7 @@ from app.core.email import create_verification_token, send_verification_email, s
 from app.core.limiter import rate_limit
 from app.core.security import get_password_hash
 from app.core.settings import settings
-from app.models.user import User  # Импорт вашей модели
+from app.models.user import User
 from app.schemas.user import UserCreate, UserOut, ResetPasswordUpdate, ForgotPasswordRequest  # Ваши схемы
 
 router = APIRouter()
@@ -61,26 +61,26 @@ async def verify_email_page(token: str, db: AsyncSession = Depends(get_users_db)
         email: str = payload.get("sub")
 
         if email is None:
-            return render_error_page("Неверный токен активации.")
+            return render_error_page("Invalid activation token.")
 
         # Ищем пользователя
         result = await db.execute(select(User).where(User.email == email))
         user = result.scalar_one_or_none()
 
         if not user:
-            return render_error_page("Пользователь не найден.")
+            return render_error_page("User not found.")
 
         if user.is_active:
-            return render_success_page("Ваш аккаунт уже был активирован ранее!")
+            return render_success_page("Account already activated!")
 
         # Активируем
         user.is_active = True
         await db.commit()
 
-        return render_success_page("Аккаунт успешно активирован! Теперь вы можете войти в систему.")
+        return render_success_page("Account successfully activated!")
 
     except JWTError:
-        return render_error_page("Ссылка для активации устарела или недействительна.")
+        return render_error_page("Activation link expired or invalid.")
 
 
 # Вспомогательные функции для красоты
@@ -88,7 +88,7 @@ def render_success_page(message: str):
     return f"""
     <html>
         <head>
-            <title>OpenChemDB - Успех</title>
+            <title>OpenChemDB - Success</title>
             <style>
                 body {{ font-family: sans-serif; display: flex; justify-content: center; padding-top: 100px; background-color: #f4f4f9; }}
                 .card {{ background: white; padding: 40px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); text-align: center; width: 400px; }}
@@ -100,12 +100,12 @@ def render_success_page(message: str):
         <body>
             <div class="card">
                 <div class="icon">✔</div>
-                <h2>Готово!</h2>
+                <h2>Done!</h2>
                 <p>{message}</p>
                 <br>
-                <p style="font-size: 0.9em; color: #888;">Можете закрыть это окно.</p>
+                <p style="font-size: 0.9em; color: #888;">You may close this window.</p>
             </div>
-        </body>
+        </body>8
     </html>
     """
 
@@ -114,7 +114,7 @@ def render_error_page(error_message: str):
     return f"""
     <html>
         <head>
-            <title>OpenChemDB - Ошибка</title>
+            <title>OpenChemDB - Error</title>
             <style>
                 body {{ font-family: sans-serif; display: flex; justify-content: center; padding-top: 100px; background-color: #f4f4f9; }}
                 .card {{ background: white; padding: 40px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); text-align: center; width: 400px; }}
@@ -126,7 +126,7 @@ def render_error_page(error_message: str):
         <body>
             <div class="card">
                 <div class="icon">✘</div>
-                <h2>Ошибка активации</h2>
+                <h2>Activation Error</h2>
                 <p>{error_message}</p>
                 <br>
                 <p><a href="/" style="color: #3498db; text-decoration: none;">На главную</a></p>
@@ -154,7 +154,7 @@ async def forgot_password(
         token = create_verification_token(user.email, expires_delta=timedelta(hours=1))
         background_tasks.add_task(send_reset_password_email, user.email, token)
 
-    return {"message": "Если такой email зарегистрирован, письмо со ссылкой отправлено."}
+    return {"message": "If this email is registered, a reset link has been sent."}
 
 
 # 2. Установка нового пароля
@@ -167,19 +167,19 @@ async def reset_password_confirm(
         payload = jwt.decode(data.token, settings.SECRET_KEY, algorithms=["HS256"])
         email: str = payload.get("sub")
     except JWTError:
-        raise HTTPException(status_code=400, detail="Токен недействителен или истек")
+        raise HTTPException(status_code=400, detail="Token is invalid or expired")
 
     result = await db.execute(select(User).where(User.email == email))
     user = result.scalar_one_or_none()
 
     if not user:
-        raise HTTPException(status_code=404, detail="Пользователь не найден")
+        raise HTTPException(status_code=404, detail="User not found")
 
     # Хешируем новый пароль и сохраняем
     user.hashed_password = get_password_hash(data.new_password)
     await db.commit()
 
-    return {"message": "Пароль успешно изменен. Теперь вы можете войти."}
+    return {"message": "Password changed successfully. You can now log in."}
 
 
 @router.post("/reset-password-confirm-html", response_class=HTMLResponse)
@@ -197,7 +197,7 @@ async def reset_password_confirm_html(
         user = result.scalar_one_or_none()
 
         if not user:
-            return "<h3>Ошибка: Пользователь не найден.</h3>"
+            return "<h3>Error: User not found.</h3>"
 
         # Хешируем и сохраняем
         user.hashed_password = get_password_hash(new_password)
@@ -205,12 +205,12 @@ async def reset_password_confirm_html(
 
         return """
         <div style="text-align:center; padding-top:50px; font-family:sans-serif;">
-            <h2 style="color: green;">Пароль успешно изменен!</h2>
-            <p>Теперь вы можете войти в систему под своим новым паролем.</p>
+            <h2 style="color: green;">Password changed successfully!</h2>
+            <p>You can now log in to the system with your new password.</p>
         </div>
         """
     except JWTError:
-        return "<h3>Ошибка: Ссылка устарела или неверна.</h3>"
+        return "<h3>Error: Link expired or invalid.</h3>"
 
 
 @router.get("/reset-password-page", response_class=HTMLResponse)
@@ -218,7 +218,7 @@ async def reset_password_page(token: str):
     return f"""
     <html>
         <head>
-            <title>OpenChemDB - Сброс пароля</title>
+            <title>OpenChemDB - Reset Password</title>
             <style>
                 body {{ font-family: sans-serif; display: flex; justify-content: center; padding-top: 50px; background-color: #f4f4f9; }}
                 .card {{ background: white; padding: 30px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); width: 350px; }}
@@ -231,18 +231,18 @@ async def reset_password_page(token: str):
         </head>
         <body>
             <div class="card">
-                <h2>Новый пароль</h2>
+                <h2>New Password</h2>
                 <div id="message"></div>
                 <form id="resetForm" action="/reset-password-confirm-html" method="post">
                     <input type="hidden" name="token" value="{token}">
 
                     <input type="password" id="pass" name="new_password" 
-                           placeholder="Новый пароль (мин. 6 симв.)" required minlength="6">
+                           placeholder="New password (min. 6 chars)" required minlength="6">
 
                     <input type="password" id="confirm_pass" 
-                           placeholder="Повторите пароль" required>
+                           placeholder="Confirm password" required>
 
-                    <button type="submit" id="submitBtn" disabled>Обновить пароль</button>
+                    <button type="submit" id="submitBtn" disabled>Update Password</button>
                 </form>
             </div>
 
@@ -259,7 +259,7 @@ async def reset_password_page(token: str):
                     }} else {{
                         btn.disabled = true;
                         if (confirm.value.length > 0 && pass.value !== confirm.value) {{
-                            msg.innerText = "Пароли не совпадают";
+                            msg.innerText = "Passwords do not match";
                         }} else {{
                             msg.innerText = "";
                         }}

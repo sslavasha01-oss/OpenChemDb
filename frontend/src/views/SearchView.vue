@@ -123,7 +123,7 @@ const updatePreviewFromSmiles = async (smiles) => {
       reactionSvg.value = await blob.text()
     }
   } catch (e) {
-    console.warn("Не удалось обновить превью из SMILES:", e)
+    console.warn("Failed to update preview from SMILES:", e)
   }
 }
 

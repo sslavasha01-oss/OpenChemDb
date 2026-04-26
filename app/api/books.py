@@ -6,6 +6,7 @@ from rdkit.Chem import Draw
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.settings import settings
 from app.core.db import get_archive_db
+from fastapi import HTTPException
 
 router = APIRouter(prefix="/books", tags=["books"])
 
@@ -63,7 +64,7 @@ async def search_book_ids(
         return {"ids": ids, "count": len(ids)}
     except Exception as e:
         print(f"DB Search Error (Books Exact): {e}")
-        return {"ids": [], "count": 0, "error": str(e)}
+        raise HTTPException(status_code=500, detail="Database error")
 
 @router.get("/search/ids/smarts")
 async def search_book_ids_smarts(
@@ -92,7 +93,7 @@ async def search_book_ids_smarts(
     except Exception as e:
         # Часто возникает, если SMARTS синтаксически некорректен
         print(f"DB Search Error (SMARTS): {e}")
-        return {"ids": [], "count": 0, "error": str(e)}
+        raise HTTPException(status_code=500, detail="Database error")
 
 
 @router.get("/search/by-ids")

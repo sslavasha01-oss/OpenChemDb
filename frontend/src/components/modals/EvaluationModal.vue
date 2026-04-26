@@ -1,7 +1,7 @@
 <template>
   <div v-if="isOpen" class="modal-overlay" @click.self="close">
     <div class="modal-card">
-      <h3>Оценить реакцию #{{ entryId }}</h3>
+      <h3>Rate reaction #{{ entryId }}</h3>
 
       <div class="status-selector">
         <label :class="{ active: form.status === 'CHECK' }" class="status-option check">
@@ -20,15 +20,15 @@
 
       <textarea
           v-model="form.comment"
-          placeholder="Ваш комментарий (нюансы синтеза, очистки...)"
+          placeholder="Your comment (synthesis nuances, purification...)"
           rows="4"
       ></textarea>
 
       <div class="actions">
         <button @click="submit" :disabled="loading" class="btn-submit">
-          {{ loading ? 'Сохранение...' : 'Сохранить оценку' }}
+          {{ loading ? 'Saving...' : 'Save Evaluation' }}
         </button>
-        <button @click="close" class="btn-cancel">Отмена</button>
+        <button @click="close" class="btn-cancel">Cancel</button>
       </div>
     </div>
   </div>
@@ -74,7 +74,7 @@ const submit = async () => {
     emit('success', {id: props.entryId, status: form.status})
     close()
   } catch (err) {
-    alert(err.response?.status === 401 ? "Ошибка авторизации! Проверьте логин." : "Ошибка при сохранении")
+    alert(err.response?.status === 401 ? "Authorization error! Please log in again." : "Error while saving")
   } finally {
     loading.value = false
   }

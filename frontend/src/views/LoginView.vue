@@ -74,7 +74,7 @@ async function handleSubmit() {
 
       // Бэкенд всегда возвращает 200 (даже если имейла нет в базе) для безопасности
       const data = await res.json()
-      message.value = data.message || 'Инструкции отправлены на почту'
+      message.value = data.message || 'Instructions have been sent to your email'
 
       // Возвращаем пользователя на форму логина через 5 секунд
       setTimeout(() => {

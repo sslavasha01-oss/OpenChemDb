@@ -54,11 +54,11 @@
 
           <div class="meta-full">
             <strong>Conditions:</strong>
-            <p class="pre-wrap">{{ formatText(reaction?.conditions) || 'Standard conditions' }}</p>
+            <p class="pre-wrap">{{ formatText(reaction?.conditions) || '-' }}</p>
           </div>
 
           <div class="meta-full">
-            <strong>Reference:</strong>
+            <strong>References:</strong>
             <p class="italic pre-wrap">{{ formatText(reaction?.references) }}</p>
           </div>
         </div>
@@ -102,7 +102,7 @@ const emit = defineEmits(['close'])
 
 // Функция для замены <NL> на переносы строк
 const formatText = (text) => {
-  if (!text) return ''
+  if (!text) return 'N/A'
   return text.replace(/<NL>/g, '\n')
 }
 

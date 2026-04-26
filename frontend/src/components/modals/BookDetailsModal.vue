@@ -108,7 +108,7 @@ const getShortName = (path) => {
 
 const formatDate = (dateStr) => {
   if (!dateStr) return 'N/A'
-  return new Date(dateStr).toLocaleDateString('uk-UA') + ' ' + new Date(dateStr).toLocaleTimeString('uk-UA', {hour: '2-digit', minute:'2-digit'})
+  return new Date(dateStr).toLocaleDateString('en-US') + ' ' + new Date(dateStr).toLocaleTimeString('en-US', {hour: '2-digit', minute:'2-digit'})
 }
 
 const parsePages = (pagesRaw) => {

@@ -4,7 +4,7 @@
       <div class="section-header">
         <h4>User Evaluations & Feedback</h4>
         <button class="btn-add-eval" @click="emit('request-add-eval')">
-          + Оценить {{ target === 'REACTIONS' ? 'реакцию' : 'объект' }}
+          + Rate {{ target === 'REACTIONS' ? 'reaction' : 'record' }}
         </button>
       </div>
       <div v-if="loading" class="loading-mini">Loading evaluations...</div>
@@ -25,14 +25,14 @@
       <div class="section-header">
         <h4>General Discussion ({{ totalComments }})</h4>
         <button class="btn-comment-toggle" @click="showCommentInput = !showCommentInput">
-          {{ showCommentInput ? 'Отмена' : 'Комментировать' }}
+          {{ showCommentInput ? 'Cancel' : 'Comment' }}
         </button>
       </div>
 
       <div v-if="showCommentInput" class="add-comment-block">
         <textarea
           v-model="commentText"
-          placeholder="Напишите ваш комментарий..."
+          placeholder="Write your comment..."
           rows="3"
           :disabled="isSubmittingComment"
         ></textarea>
@@ -42,7 +42,7 @@
             :disabled="isSubmittingComment || !commentText.trim()"
             class="btn-send-comment"
           >
-            {{ isSubmittingComment ? 'Отправка...' : 'Отправить' }}
+            {{ isSubmittingComment ? 'Sending...' : 'Post' }}
           </button>
         </div>
       </div>
@@ -56,20 +56,20 @@
 
           <div class="comment-footer">
             <div class="comment-actions-right">
-              <button class="btn-action" title="Полезно" @click="toggleReaction(c.id, 'USEFUL')">
+              <button class="btn-action" title="Helpful" @click="toggleReaction(c.id, 'USEFUL')">
                 👍 {{ reactionsMap[c.id]?.USEFUL || 0 }}
               </button>
 
-              <button class="btn-action" title="Не полезно" @click="toggleReaction(c.id, 'NOT_USEFUL')">
+              <button class="btn-action" title="Not helpful" @click="toggleReaction(c.id, 'NOT_USEFUL')">
                 👎 {{ reactionsMap[c.id]?.NOT_USEFUL || 0 }}
               </button>
 
-              <button class="btn-action clickable-icon" title="Показать ответы" @click="toggleReplies(c.id)">
+              <button class="btn-action clickable-icon" title="Show replies" @click="toggleReplies(c.id)">
   💬             {{ repliesMap[c.id] || 0 }}
               </button>
 
               <button class="btn-reply" @click="toggleReplyForm(c.id)">
-                ↩️ {{ replyingToId === c.id ? 'Отмена' : 'Ответить' }}
+                ↩️ {{ replyingToId === c.id ? 'Cancel' : 'Reply' }}
               </button>
             </div>
           </div>
@@ -77,7 +77,7 @@
           <div v-if="replyingToId === c.id" class="reply-input-block">
             <textarea
               v-model="replyText"
-              placeholder="Напишите ваш ответ..."
+              placeholder="Write your reply..."
               rows="2"
               :disabled="isSubmittingReply"
             ></textarea>
@@ -87,7 +87,7 @@
                 :disabled="isSubmittingReply || !replyText.trim()"
                 class="btn-send-reply"
               >
-                {{ isSubmittingReply ? 'Отправка...' : 'Ответить' }}
+                {{ isSubmittingReply ? 'Sending...' : 'Reply' }}
               </button>
             </div>
           </div>
@@ -106,7 +106,7 @@
                       👎 {{ replyReactionsMap[r.id]?.NOT_USEFUL || 0 }}
                     </button>
                     <button class="btn-reply small" @click="toggleReplyForm(r.id, r.user_nickname)">
-                     ↩️ Ответить
+                     ↩️ Reply
                     </button>
                   </div>
                 </div>
@@ -131,7 +131,7 @@
 
               <div v-if="repliesData[c.id]?.length < (repliesMap[c.id] || 0)" class="pagination-wrapper-mini">
                <button class="btn-load-more-mini" @click="loadMoreReplies(c.id)">
-                  Показать еще ответы
+                  Show more replies
                </button>
               </div>
 
@@ -147,7 +147,7 @@
             @click="loadMoreComments"
             :disabled="loadingMore"
           >
-            {{ loadingMore ? 'Загрузка...' : 'Показать еще' }}
+            {{ loadingMore ? 'Loading...' : 'Show more' }}
           </button>
         </div>
       </div>
@@ -203,11 +203,11 @@ const submitComment = async () => {
       await loadData()
     } else {
       const errorData = await response.json()
-      alert(errorData.detail || "Ошибка при добавлении комментария")
+      alert(errorData.detail || "Error adding comment")
     }
   } catch (e) {
     console.error("Comment submit error:", e)
-    alert("Не удалось отправить комментарий")
+    alert("Failed to send comment")
   } finally {
     isSubmittingComment.value = false
   }
@@ -232,7 +232,7 @@ const submitReply = async (commentId) => {
       }
     } else {
       const errorData = await response.json()
-      alert(errorData.detail || "Ошибка при добавлении ответа")
+      alert(errorData.detail || "Error adding reply")
     }
   } catch (e) {
     console.error("Reply submit error:", e)

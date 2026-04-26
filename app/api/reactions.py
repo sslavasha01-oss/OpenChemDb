@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db import get_archive_db  # Твой генератор сессий для archive_db
 from app.core.settings import settings
+from fastapi import HTTPException
 
 router = APIRouter(prefix="/reactions", tags=["reactions"])
 
@@ -95,7 +96,7 @@ async def search_reaction_ids_smiles(
         return {"ids": ids, "count": len(ids)}
     except Exception as e:
         print(f"DB Search Error (SMILES): {e}")
-        return {"ids": [], "count": 0, "error": str(e)}
+        raise HTTPException(status_code=500, detail="Database error")
 
 
 @router.get("/search/ids/smarts")
@@ -134,7 +135,7 @@ async def search_reaction_ids_smarts(
     except Exception as e:
         # Если бд все же ругается на синтаксис SMARTS
         print(f"DB Search Error: {e}")
-        return {"ids": [], "count": 0, "error": str(e)}
+        raise HTTPException(status_code=500, detail="Database error")
 
 
 @router.get("/search/by-ids")

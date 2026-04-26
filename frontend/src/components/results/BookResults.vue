@@ -3,13 +3,13 @@
     <div class="header">
       <h3>Book Base</h3>
       <span v-if="allIds && allIds.length > 0" class="stat">
-        Найдено: {{ allIds.length }} (показано {{
+        Found: {{ allIds.length }} (showing {{
           (currentPage - 1) * 10 + 1
         }}-{{ Math.min(currentPage * 10, allIds.length) }})
       </span>
     </div>
 
-    <div v-if="loading && allIds.length === 0" class="loading">Поиск в книгах...</div>
+    <div v-if="loading && allIds.length === 0" class="loading">Searching books...</div>
 
     <div v-if="allIds && allIds.length > 0">
       <div class="table-container">
@@ -83,7 +83,7 @@
       </div>
     </div>
 
-    <div v-else-if="!loading" class="no-results">В книжной базе ничего не найдено</div>
+    <div v-else-if="!loading" class="no-results">No results found in book database</div>
   </div>
 
   <div v-if="isFileModalOpen" class="modal-overlay" @click="isFileModalOpen = false">
@@ -283,7 +283,7 @@ const performNewSearch = async () => {
     allIds.value = response.data.ids
     if (allIds.value.length > 0) await fetchPageData(1)
   } catch (err) {
-    error.value = "Ошибка поиска в книгах"
+    error.value = "Search error in books"
   } finally {
     loading.value = false
   }
@@ -314,7 +314,7 @@ const fetchPageData = async (page) => {
       ])
     }
   } catch (err) {
-    error.value = "Ошибка загрузки данных"
+    error.value = "Data loading error"
   } finally {
     loading.value = false
   }

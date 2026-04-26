@@ -3,13 +3,13 @@
     <div class="header">
       <h3>Journal Base</h3>
       <span v-if="allIds.length > 0" class="stat">
-        Найдено: {{ allIds.length }} (показано {{
+        Found: {{ allIds.length }} (showing {{
           (currentPage - 1) * 10 + 1
         }}-{{ Math.min(currentPage * 10, allIds.length) }})
       </span>
     </div>
 
-    <div v-if="loading && allIds.length === 0" class="loading">Поиск в архивах...</div>
+    <div v-if="loading && allIds.length === 0" class="loading">Searching...</div>
 
     <div v-if="allIds.length > 0">
       <div class="table-container">
@@ -87,7 +87,7 @@
       </div>
     </div>
 
-    <div v-else-if="!loading" class="no-results">Введите запрос и нажмите поиск</div>
+    <div v-else-if="!loading" class="no-results">Enter a query and press search</div>
   </div>
 
   <EvaluationModal :isOpen="isEvalModalOpen" :entryId="selectedEntryId" target="REACTIONS" @close="isEvalModalOpen = false" @success="onEvalSuccess" />
@@ -180,7 +180,7 @@ const performNewSearch = async () => {
     allIds.value = response.data.ids
     if (allIds.value.length > 0) await fetchPageData(1)
   } catch (err) {
-    error.value = "Ошибка поиска"
+    error.value = "Search error"
   } finally {
     loading.value = false
   }
@@ -210,7 +210,7 @@ const fetchPageData = async (page) => {
         fetchCommentCounts(externalIds)
       ])
     }
-  } catch (err) { error.value = "Ошибка загрузки" } finally { loading.value = false }
+  } catch (err) { error.value = "Loading error" } finally { loading.value = false }
 }
 
 // Заменяет <NL> на реальные переносы для использования в v-html или просто тексте
