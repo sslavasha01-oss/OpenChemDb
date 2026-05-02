@@ -13,8 +13,8 @@ services:
     deploy:
       resources:
         limits:
-          memory: 128M
-          cpus: '0.25'
+          memory: 256M
+          cpus: '0.5'
 
   # Сам туннель Cloudflare
   tunnel:
@@ -44,8 +44,8 @@ services:
     deploy:
       resources:
         limits:
-          memory: 512M
-          cpus: '0.50'
+          memory: 1G
+          cpus: '1.0'
 
   # Сборщик логов из Docker
   promtail:
@@ -127,8 +127,8 @@ services:
       deploy:
         resources:
           limits:
-            memory: 1G     # Prometheus любит RAM. 1ГБ хватит для хранения данных за 15 дней
-            cpus: '0.50'
+            memory: 2G     # Prometheus любит RAM. 1ГБ хватит для хранения данных за 15 дней
+            cpus: '1.0'
 
   redis:
     image: redis:alpine
