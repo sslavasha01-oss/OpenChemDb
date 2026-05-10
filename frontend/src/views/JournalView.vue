@@ -18,9 +18,8 @@
 
     <main class="tab-content">
       <!-- Вкладка Таблица -->
-      <section v-if="activeTab === 'table'">
-        <h2>Список записей</h2>
-        <p>Здесь будет Table View...</p>
+      <section v-show="activeTab === 'table'">
+        <JournalTable ref="tableRef" @select-record="loadRecordIntoForm" />
       </section>
 
       <!-- Вкладка Методика -->
@@ -75,14 +74,16 @@
 
 <script setup>
 import { ref, watch } from 'vue'
-import axios from 'axios' // Импортируем axios
+import axios from 'axios'
 import ProductCard from '@/components/ProductCard.vue'
 import ReagentCard from '@/components/ReagentCard.vue'
+import JournalTable from '@/components/JournalTable.vue'
 
 const activeTab = ref('method')
 const isEditing = ref(false)
 const loading = ref(false) // Состояние загрузки
 const visibleReagentsCount = ref(3)
+const tableRef = ref(null)
 
 const addReagent = () => {
   if (visibleReagentsCount.value < 5) {
@@ -174,6 +175,9 @@ const saveEntry = async () => {
     journalData.value = response.data;
     isEditing.value = false;
     alert("Запись успешно сохранена!");
+    if (tableRef.value) {
+      tableRef.value.refreshData();
+    }
 
   } catch (err) {
     console.error("Ошибка при сохранении:", err.response?.data || err);
@@ -261,6 +265,19 @@ const calculateJournal = () => {
   if (prac_mass > 0 && theor_mass > 0) {
     d.product_yield_calc = ((prac_mass / theor_mass) * 100).toFixed(1);
   }
+}
+
+const loadRecordIntoForm = (record) => {
+  journalData.value = { ...record };
+  activeTab.value = 'method'; // Переключаемся на вкладку формы
+  isEditing.value = false;    // По умолчанию просто просмотр
+
+  // Определяем, сколько карточек реагентов показать
+  let count = 0;
+  for (let i = 1; i <= 5; i++) {
+    if (record[`reagent${i}_smiles`]) count = i;
+  }
+  visibleReagentsCount.value = Math.max(count, 1);
 }
 
 watch(journalData, () => {

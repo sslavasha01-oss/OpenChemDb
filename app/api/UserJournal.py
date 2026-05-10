@@ -178,7 +178,7 @@ async def get_journal_list(
                 schema_rec.product_svg = generate_molecule_svg(schema_rec.product_smiles)
             output.append(schema_rec)
 
-        return records
+        return output
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to fetch list: {str(e)}")
