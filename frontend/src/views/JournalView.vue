@@ -71,7 +71,13 @@
         <h2>Поиск по структуре</h2>
       </section>
     </main>
+    <iframe
+      v-show="false"
+      ref="globalKetcherFrame"
+      src="/standalone/index.html?hidden_controls=all"
+    ></iframe>
   </div>
+
 </template>
 
 <script setup>
@@ -89,45 +95,7 @@ const tableRef = ref(null)
 const productCardRef = ref(null);
 const reagentCardRefs = ref([]);
 
-const loadRecordIntoForm = (record) => {
-  journalData.value = { ...record };
-  activeTab.value = 'method';
-  isEditing.value = false;
-
-  // Определяем количество видимых реагентов
-  let count = 0;
-  for (let i = 1; i <= 5; i++) {
-    if (record[`reagent${i}_smiles`]) count = i;
-  }
-  visibleReagentsCount.value = Math.max(count, 1);
-
-  // Ждем, пока Vue обновит DOM (v-show переключится)
-  nextTick(() => {
-    console.log("=== DEBUG DRAWING START ===");
-    console.log("Record to draw:", record);
-
-    // Продукт
-    if (productCardRef.value) {
-      console.log("Product SMILES sending:", record.product_smiles);
-      productCardRef.value.drawSmiles(record.product_smiles);
-    } else {
-      console.error("productCardRef is NULL");
-    }
-
-    // Реагенты
-    reagentCardRefs.value.forEach((card, index) => {
-      const i = index + 1;
-      const smiles = record[`reagent${i}_smiles`];
-      console.log(`Reagent ${i} SMILES sending:`, smiles);
-      if (card) {
-        card.drawSmiles(smiles);
-      } else {
-        console.warn(`ReagentCardRef ${i} is NULL`);
-      }
-    });
-    console.log("=== DEBUG DRAWING END ===");
-  });
-}
+const globalKetcherFrame = ref(null);
 
 const addReagent = () => {
   if (visibleReagentsCount.value < 5) {
@@ -206,8 +174,6 @@ const saveEntry = async () => {
         cleanData[key] = (val === '') ? null : val;
       }
     });
-
-    console.log("ОКОНЧАТЕЛЬНЫЙ JSON ДЛЯ ОТПРАВКИ:", JSON.stringify(cleanData, null, 2));
 
     const response = await axios.post('/api/my-journal/add', cleanData, {
       headers: {
@@ -310,6 +276,68 @@ const calculateJournal = () => {
     d.product_yield_calc = ((prac_mass / theor_mass) * 100).toFixed(1);
   }
 }
+
+const loadRecordIntoForm = (record) => {
+  // 1. Сразу переключаем интерфейс и данные
+  journalData.value = { ...record };
+  activeTab.value = 'method';
+  isEditing.value = false;
+
+  // Определяем количество видимых реагентов
+  let count = 0;
+  for (let i = 1; i <= 5; i++) {
+    if (record[`reagent${i}_smiles`]) count = i;
+  }
+  visibleReagentsCount.value = Math.max(count, 1);
+
+  // 2. Запускаем умное ожидание Ketcher
+  const waitForKetcherAndDraw = async () => {
+    const ketcher = globalKetcherFrame.value?.contentWindow?.ketcher;
+
+    // Проверяем наличие ketcher и метода setMolecule
+    if (ketcher && typeof ketcher.setMolecule === 'function') {
+      console.time("Global Drawing");
+
+      try {
+        // Продукт
+        if (record.product_smiles) {
+          journalData.value.product_preview_svg = await fastGenerateSVG(ketcher, record.product_smiles);
+        }
+
+        // Реагенты
+        for (let i = 1; i <= 5; i++) {
+          const smiles = record[`reagent${i}_smiles`];
+          if (smiles) {
+            journalData.value[`reagent${i}_svg`] = await fastGenerateSVG(ketcher, smiles);
+          }
+        }
+      } catch (err) {
+        console.error("Drawing process failed:", err);
+      }
+
+      console.timeEnd("Global Drawing");
+    } else {
+      // Если Ketcher еще не загрузился (первый запуск), пробуем через 200мс снова
+      console.log("Global Ketcher not ready, retrying...");
+      setTimeout(waitForKetcherAndDraw, 200);
+    }
+  };
+
+  waitForKetcherAndDraw();
+};
+
+// Вспомогательная функция (уже есть в твоем коде, проверь наличие)
+const fastGenerateSVG = async (ketcher, smiles) => {
+  try {
+    await ketcher.setMolecule(smiles);
+    const blob = await ketcher.generateImage(smiles, { outputFormat: 'svg' });
+    const svg = await blob.text();
+    return svg;
+  } catch (e) {
+    console.error("SVG Gen Error:", e);
+    return '';
+  }
+};
 
 watch(journalData, () => {
   calculateJournal();

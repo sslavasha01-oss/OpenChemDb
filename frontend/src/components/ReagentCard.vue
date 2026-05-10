@@ -141,50 +141,33 @@ const drawSmiles = async (smiles) => {
   }
 
   const tryDraw = (attempts = 0) => {
-    const frame = ketcherFrame.value;
+    // Если открыта модалка — рисуем в ней, если нет — в скрытом фрейме
+    const frame = showKetcher.value ? ketcherFrame.value : hiddenKetcher.value;
     const ketcher = frame?.contentWindow?.ketcher;
 
     if (ketcher && typeof ketcher.setMolecule === 'function') {
       (async () => {
         try {
-          // 1. Рисуем молекулу в скрытом фрейме
           await ketcher.setMolecule(smiles);
 
-          // 2. Генерируем SVG код из того, что только что нарисовали
+          // Масштаб 100% для внутреннего редактора
+          if (ketcher.editor?.setZoom) ketcher.editor.setZoom(1.0);
+
+          // Генерируем картинку
           const blob = await ketcher.generateImage(smiles, { outputFormat: 'svg' });
           const svgText = await blob.text();
 
-          // 3. Обновляем модель, чтобы v-html в шаблоне увидел картинку
           const updated = { ...props.modelValue };
-
-          // Для ProductCard:
-          if (props.index === undefined) {
-             updated.product_preview_svg = svgText;
-          } else {
-             // Для ReagentCard (используем индекс):
-             updated[`reagent${props.index}_svg`] = svgText;
-          }
-
+          updated[`reagent${props.index}_svg`] = svgText;
           emit('update:modelValue', updated);
-
-          // 4. Масштаб
-          setTimeout(() => {
-            try {
-              if (ketcher.setZoom) ketcher.setZoom(1.0);
-              else if (ketcher.editor?.setZoom) ketcher.editor.setZoom(1.0);
-            } catch (e) {}
-          }, 150);
-
-          console.log("[Card Debug] Drawing & Preview Generation SUCCESS");
         } catch (err) {
-          console.error("[Card Debug] Draw/Preview FAILED:", err);
+          console.error("Reagent Draw Error:", err);
         }
       })();
-    } else if (attempts < 25) {
+    } else if (attempts < 15) {
       setTimeout(() => tryDraw(attempts + 1), 200);
     }
   };
-
   tryDraw();
 };
 
@@ -265,14 +248,29 @@ const saveFromKetcher = async () => {
 }
 
 const openEditor = async () => {
-  showKetcher.value = true
-  await nextTick()
-  const ketcher = ketcherFrame.value?.contentWindow?.ketcher
-  const currentSmiles = props.modelValue[`reagent${props.index}_smiles`]
-  if (ketcher && currentSmiles) {
-    setTimeout(() => ketcher.setMolecule(currentSmiles), 200)
-  }
-}
+  showKetcher.value = true;
+  await nextTick();
+
+  const checkAndSet = async () => {
+    const ketcher = ketcherFrame.value?.contentWindow?.ketcher;
+    // Ждем не просто ketcher, а наличие editor
+    if (ketcher && ketcher.editor) {
+      const smiles = props.index === undefined
+        ? props.modelValue.product_smiles
+        : props.modelValue[`reagent${props.index}_smiles`];
+
+      await ketcher.setMolecule(smiles || "");
+
+      // Сброс зума
+      ketcher.editor.setZoom(1.0);
+      if (ketcher.editor.centerXy) ketcher.editor.centerXy();
+    } else {
+      setTimeout(checkAndSet, 50); // Проверяем каждые 50мс
+    }
+  };
+
+  checkAndSet();
+};
 </script>
 
 <style scoped>

@@ -189,41 +189,6 @@ const onSmilesInput = (e) => {
   const updatedValue = { ...props.modelValue, product_smiles: newSmiles };
   emit('update:modelValue', updatedValue);
 
-  updateVisualsFromSmiles(newSmiles)
-  // emit('calculate') уже не нужен, так как сработает watch в родителе
-}
-
-// 2. Универсальная функция обновления SVG и Массы
-const updateVisualsFromSmiles = async (smiles) => {
-  if (!smiles || smiles.trim() === '') {
-    props.modelValue.product_preview_svg = ''
-    props.modelValue.product_molar_mass = null
-    return
-  }
-
-  // ИСПРАВЛЕНО: .value вместо .ref
-  const frame = showKetcher.value ? ketcherFrame.value : hiddenKetcher.value
-  const ketcher = frame?.contentWindow?.ketcher
-
-  if (ketcher) {
-    try {
-      // 1. Устанавливаем молекулу в скрытый редактор
-      await ketcher.setMolecule(smiles)
-
-      // 2. Генерируем картинку
-      const blob = await ketcher.generateImage(smiles, { outputFormat: 'svg' })
-      props.modelValue.product_preview_svg = await blob.text()
-
-      // 3. Получаем массу.
-      // В Ketcher это обычно делается через getStructureInfo() или анализ Mol-файла
-      const info = await ketcher.getStructureInfo()
-      if (info && info.mass) {
-        props.modelValue.product_molar_mass = parseFloat(info.mass).toFixed(2)
-      }
-    } catch (e) {
-      console.warn("Ketcher Error:", e)
-    }
-  }
 }
 
 // 3. Сохранение из редактора
@@ -284,15 +249,25 @@ const openEditor = async () => {
   showKetcher.value = true;
   await nextTick();
 
-  // Даем Ketcher время "увидеть" размеры открывшейся модалки
-  setTimeout(async () => {
+  const checkAndSet = async () => {
     const ketcher = ketcherFrame.value?.contentWindow?.ketcher;
-    if (ketcher && props.modelValue.product_smiles) {
-      await ketcher.setMolecule(props.modelValue.product_smiles);
-      // Вот здесь жестко ставим 100%
-      if (ketcher.setZoom) ketcher.setZoom(1.0);
+    // Ждем не просто ketcher, а наличие editor
+    if (ketcher && ketcher.editor) {
+      const smiles = props.index === undefined
+        ? props.modelValue.product_smiles
+        : props.modelValue[`reagent${props.index}_smiles`];
+
+      await ketcher.setMolecule(smiles || "");
+
+      // Сброс зума
+      ketcher.editor.setZoom(1.0);
+      if (ketcher.editor.centerXy) ketcher.editor.centerXy();
+    } else {
+      setTimeout(checkAndSet, 50); // Проверяем каждые 50мс
     }
-  }, 200);
+  };
+
+  checkAndSet();
 };
 </script>
 
