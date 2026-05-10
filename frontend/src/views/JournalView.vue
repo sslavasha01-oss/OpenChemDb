@@ -17,10 +17,16 @@
     </div>
 
     <main class="tab-content">
-      <!-- Вкладка Таблица -->
-      <section v-show="activeTab === 'table'">
+        <section v-show="activeTab === 'table'">
+        <div class="table-actions">
+          <button class="btn-add-main" @click="initNewEntryFromTable">
+            <span class="icon">+</span> Добавить новую запись в журнал
+          </button>
+        </div>
+
         <JournalTable ref="tableRef" @select-record="loadRecordIntoForm" />
       </section>
+
 
       <!-- Вкладка Методика -->
       <section v-show="activeTab === 'method'" class="method-page">
@@ -87,7 +93,7 @@ import ProductCard from '@/components/ProductCard.vue'
 import ReagentCard from '@/components/ReagentCard.vue'
 import JournalTable from '@/components/JournalTable.vue'
 
-const activeTab = ref('method')
+const activeTab = ref('table')
 const isEditing = ref(false)
 const loading = ref(false) // Состояние загрузки
 const visibleReagentsCount = ref(3)
@@ -159,6 +165,17 @@ const createEmptyEntry = () => {
 }
 
 const journalData = ref(createEmptyEntry())
+
+// Функция для кнопки над таблицей
+const initNewEntryFromTable = () => {
+  // Обнуляем данные
+  journalData.value = createEmptyEntry();
+  visibleReagentsCount.value = 3;
+
+  // Переключаем вкладку и включаем режим редактирования
+  activeTab.value = 'method';
+  isEditing.value = true;
+};
 
 // 1. НАЖАТИЕ "НОВАЯ ЗАПИСЬ"
 const createNewEntry = () => {
@@ -453,5 +470,33 @@ watch(journalData, () => {
   z-index: -1000;
   border: none;
   pointer-events: none;
+}
+
+.table-actions {
+  margin-bottom: 15px;
+  display: flex;
+  justify-content: flex-start;
+}
+
+.btn-add-main {
+  background-color: #42b983;
+  color: white;
+  border: none;
+  padding: 12px 20px;
+  border-radius: 8px;
+  font-weight: bold;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  transition: background 0.2s;
+}
+
+.btn-add-main:hover {
+  background-color: #3aa876;
+}
+
+.btn-add-main .icon {
+  font-size: 1.2rem;
 }
 </style>

@@ -80,7 +80,6 @@
       src="/standalone/index.html?hidden_controls=all"
     ></iframe>
 
-    <!-- Модалка редактора (без изменений, вызывается только по клику) -->
     <div v-show="showKetcher" class="modal-overlay">
       <div class="modal-content">
         <div class="modal-header">
@@ -105,7 +104,7 @@ const props = defineProps({
 })
 
 const showKetcher = ref(false)
-const ketcherFrame = ref(null) // ОСТАВЛЯЕМ ТОЛЬКО ОДИН РАЗ
+const ketcherFrame = ref(null)
 const isKetcherReady = ref(false)
 
 const drawSmiles = async (smiles) => {
