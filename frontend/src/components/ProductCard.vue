@@ -9,11 +9,11 @@
         :class="{ 'editable-zone': isEditing }"
         @click="isEditing && openEditor()"
       >
-        <div v-if="!modelValue.product_svg" class="placeholder">
+        <div v-if="!modelValue.product_preview_svg" class="placeholder">
           <span class="icon">⚗️</span>
           <p>Нажмите, чтобы нарисовать</p>
         </div>
-        <div v-else class="svg-render" v-html="modelValue.product_svg"></div>
+        <div v-else class="svg-render" v-html="modelValue.product_preview_svg"></div>
       </div>
 
       <!-- Поля данных -->
@@ -124,7 +124,7 @@ const onSmilesInput = (e) => {
 // 2. Универсальная функция обновления SVG и Массы
 const updateVisualsFromSmiles = async (smiles) => {
   if (!smiles || smiles.trim() === '') {
-    props.modelValue.product_svg = ''
+    props.modelValue.product_preview_svg = ''
     props.modelValue.product_molar_mass = null
     return
   }
@@ -140,7 +140,7 @@ const updateVisualsFromSmiles = async (smiles) => {
 
       // 2. Генерируем картинку
       const blob = await ketcher.generateImage(smiles, { outputFormat: 'svg' })
-      props.modelValue.product_svg = await blob.text()
+      props.modelValue.product_preview_svg = await blob.text()
 
       // 3. Получаем массу.
       // В Ketcher это обычно делается через getStructureInfo() или анализ Mol-файла
@@ -156,63 +156,57 @@ const updateVisualsFromSmiles = async (smiles) => {
 
 // 3. Сохранение из редактора
 const saveFromKetcher = async () => {
+  console.log("--- Debug Start: Product ---");
   try {
-    const ketcher = ketcherFrame.value?.contentWindow?.ketcher
-    if (!ketcher) {
-      showKetcher.value = false
-      return
+    const ketcher = ketcherFrame.value?.contentWindow?.ketcher;
+    if (!ketcher) return;
+
+    // 1. Получаем данные из редактора
+    const smiles = await ketcher.getSmiles();
+    const blob = await ketcher.generateImage(smiles, { outputFormat: 'svg' });
+    const svgText = await blob.text();
+    const molfile = await ketcher.getMolfile();
+
+    let massVal = null;
+
+    // 2. Расчет массы через сервис
+    if (ketcher.structService) {
+      const result = await ketcher.structService.calculate({
+        struct: molfile,
+        properties: ['molecular-weight']
+      });
+      console.log("Product calculation result:", result);
+      massVal = result?.['molecular-weight'];
     }
 
-    // 1. Получаем SMILES и SVG (база)
-    const smiles = await ketcher.getSmiles()
-    const blob = await ketcher.generateImage(smiles, { outputFormat: 'svg' })
-    const svgText = await blob.text()
+    // 3. Формируем обновленный объект
+    const updatedValue = { ...props.modelValue };
+    updatedValue.product_smiles = smiles;
+    updatedValue.product_preview_svg = svgText; // Возвращаемся к стандартному полю
 
-    let mass = null
+    if (massVal) {
+      // Суммируем фрагменты, если их несколько (через ';')
+      const totalMass = String(massVal)
+        .split(';')
+        .reduce((sum, part) => {
+          const num = parseFloat(part.trim());
+          return sum + (isNaN(num) ? 0 : num);
+        }, 0);
 
-    // 2. Идем в structService для получения массы
-    try {
-      if (ketcher.structService && typeof ketcher.structService.calculate === 'function') {
-        // Мы запрашиваем расчет свойств.
-        // Обычно нужно передать объект с типом расчета.
-        const structData = await ketcher.getMolfile() // или getStruct()
-        const result = await ketcher.structService.calculate({
-          struct: structData,
-          properties: ['molecular-weight'] // запрашиваем вес
-        })
-
-        if (result && result['molecular-weight']) {
-          mass = result['molecular-weight']
-        }
-      }
-
-      // Запасной план: если calculate не вернул массу,
-      // попробуем вытащить через getCheckEntity (там часто лежит формула и вес)
-      if (!mass && ketcher.structService.getCheckEntity) {
-        const checkResult = await ketcher.structService.getCheckEntity(await ketcher.getMolfile())
-        // В некоторых версиях масса лежит в результатах проверки
-      }
-    } catch (calcErr) {
-      console.warn("Ошибка при расчете через structService:", calcErr)
+      updatedValue.product_molar_mass = totalMass.toFixed(2);
+      console.log("Calculated Total Product M.W.:", updatedValue.product_molar_mass);
     }
 
-    // 3. Обновляем состояние
-    const updatedValue = {
-      ...props.modelValue,
-      product_smiles: smiles,
-      product_svg: svgText,
-      // Приводим к числу и округляем до 2 знаков
-      product_molar_mass: mass ? parseFloat(mass).toFixed(2) : props.modelValue.product_molar_mass
-    }
-
-    emit('update:modelValue', updatedValue)
+    // 4. Отправляем наверх
+    emit('update:modelValue', updatedValue);
 
   } catch (err) {
-    console.error("Критическая ошибка:", err)
+    console.error("Error saving product from Ketcher:", err);
   } finally {
-    showKetcher.value = false
+    console.log("--- Debug End: Product ---");
+    showKetcher.value = false;
   }
-}
+};
 
 const openEditor = async () => {
   showKetcher.value = true
