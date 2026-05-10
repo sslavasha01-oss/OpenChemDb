@@ -23,9 +23,10 @@
       </section>
 
       <!-- Вкладка Методика -->
-      <section v-if="activeTab === 'method'" class="method-page">
+      <section v-show="activeTab === 'method'" class="method-page">
         <div class="product-row">
           <ProductCard
+            ref="productCardRef"
             v-model="journalData"
             :isEditing="isEditing"
           />
@@ -37,6 +38,7 @@
                v-for="i in 5"
                :key="i"
                :index="i"
+               :ref="el => { if (el) reagentCardRefs[i-1] = el }"
                v-model="journalData"
                :isEditing="isEditing"
                v-show="(isEditing && i <= visibleReagentsCount) || (!isEditing && journalData[`reagent${i}_smiles`]) || i === 1"
@@ -73,7 +75,7 @@
 </template>
 
 <script setup>
-import { ref, watch } from 'vue'
+import { ref, watch, nextTick } from 'vue'
 import axios from 'axios'
 import ProductCard from '@/components/ProductCard.vue'
 import ReagentCard from '@/components/ReagentCard.vue'
@@ -84,6 +86,48 @@ const isEditing = ref(false)
 const loading = ref(false) // Состояние загрузки
 const visibleReagentsCount = ref(3)
 const tableRef = ref(null)
+const productCardRef = ref(null);
+const reagentCardRefs = ref([]);
+
+const loadRecordIntoForm = (record) => {
+  journalData.value = { ...record };
+  activeTab.value = 'method';
+  isEditing.value = false;
+
+  // Определяем количество видимых реагентов
+  let count = 0;
+  for (let i = 1; i <= 5; i++) {
+    if (record[`reagent${i}_smiles`]) count = i;
+  }
+  visibleReagentsCount.value = Math.max(count, 1);
+
+  // Ждем, пока Vue обновит DOM (v-show переключится)
+  nextTick(() => {
+    console.log("=== DEBUG DRAWING START ===");
+    console.log("Record to draw:", record);
+
+    // Продукт
+    if (productCardRef.value) {
+      console.log("Product SMILES sending:", record.product_smiles);
+      productCardRef.value.drawSmiles(record.product_smiles);
+    } else {
+      console.error("productCardRef is NULL");
+    }
+
+    // Реагенты
+    reagentCardRefs.value.forEach((card, index) => {
+      const i = index + 1;
+      const smiles = record[`reagent${i}_smiles`];
+      console.log(`Reagent ${i} SMILES sending:`, smiles);
+      if (card) {
+        card.drawSmiles(smiles);
+      } else {
+        console.warn(`ReagentCardRef ${i} is NULL`);
+      }
+    });
+    console.log("=== DEBUG DRAWING END ===");
+  });
+}
 
 const addReagent = () => {
   if (visibleReagentsCount.value < 5) {
@@ -265,19 +309,6 @@ const calculateJournal = () => {
   if (prac_mass > 0 && theor_mass > 0) {
     d.product_yield_calc = ((prac_mass / theor_mass) * 100).toFixed(1);
   }
-}
-
-const loadRecordIntoForm = (record) => {
-  journalData.value = { ...record };
-  activeTab.value = 'method'; // Переключаемся на вкладку формы
-  isEditing.value = false;    // По умолчанию просто просмотр
-
-  // Определяем, сколько карточек реагентов показать
-  let count = 0;
-  for (let i = 1; i <= 5; i++) {
-    if (record[`reagent${i}_smiles`]) count = i;
-  }
-  visibleReagentsCount.value = Math.max(count, 1);
 }
 
 watch(journalData, () => {

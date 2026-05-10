@@ -128,6 +128,67 @@ const onSmilesInput = (e) => {
   emit('update:modelValue', updated)
 }
 
+const drawSmiles = async (smiles) => {
+  if (!smiles || smiles.trim() === "") {
+    const ketcher = ketcherFrame.value?.contentWindow?.ketcher;
+    if (ketcher) ketcher.setMolecule("");
+    // Очищаем превью, если смайлс пустой
+    const updated = { ...props.modelValue };
+    updated.product_preview_svg = '';
+    emit('update:modelValue', updated);
+    return;
+  }
+
+  const tryDraw = (attempts = 0) => {
+    const frame = ketcherFrame.value;
+    const ketcher = frame?.contentWindow?.ketcher;
+
+    if (ketcher && typeof ketcher.setMolecule === 'function') {
+      (async () => {
+        try {
+          // 1. Рисуем молекулу в скрытом фрейме
+          await ketcher.setMolecule(smiles);
+
+          // 2. Генерируем SVG код из того, что только что нарисовали
+          const blob = await ketcher.generateImage(smiles, { outputFormat: 'svg' });
+          const svgText = await blob.text();
+
+          // 3. Обновляем модель, чтобы v-html в шаблоне увидел картинку
+          const updated = { ...props.modelValue };
+
+          // Для ProductCard:
+          if (props.index === undefined) {
+             updated.product_preview_svg = svgText;
+          } else {
+             // Для ReagentCard (используем индекс):
+             updated[`reagent${props.index}_svg`] = svgText;
+          }
+
+          emit('update:modelValue', updated);
+
+          // 4. Масштаб
+          setTimeout(() => {
+            try {
+              if (ketcher.setZoom) ketcher.setZoom(1.0);
+              else if (ketcher.editor?.setZoom) ketcher.editor.setZoom(1.0);
+            } catch (e) {}
+          }, 150);
+
+          console.log("[Card Debug] Drawing & Preview Generation SUCCESS");
+        } catch (err) {
+          console.error("[Card Debug] Draw/Preview FAILED:", err);
+        }
+      })();
+    } else if (attempts < 25) {
+      setTimeout(() => tryDraw(attempts + 1), 200);
+    }
+  };
+
+  tryDraw();
+};
+
+defineExpose({ drawSmiles });
+
 const saveFromKetcher = async () => {
   console.log(`--- Debug Start: Reagent ${props.index} ---`);
   try {

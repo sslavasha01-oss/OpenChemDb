@@ -37,42 +37,29 @@
           </thead>
           <tbody>
             <tr v-for="rec in records" :key="rec.id" class="reaction-row" @click="$emit('select-record', rec)">
-              <!-- 1. Картинка -->
-              <td class="col-viz">
-                <div class="reaction-container" v-if="rec.product_svg" v-html="rec.product_svg"></div>
-                <div class="no-viz" v-else>No Structure</div>
-              </td>
+  <td class="col-viz">
+    <div class="reaction-container" v-if="rec.product_svg" v-html="rec.product_svg"></div>
+    <div class="no-viz" v-else>No Structure</div>
+  </td>
 
-              <!-- 2. ID и Дата -->
-              <td class="col-id">
-                <div class="id-badge">#{{ rec.external_id }}</div>
-                <div class="date-text">{{ formatDate(rec.date_added) }}</div>
-              </td>
+  <td class="col-id" data-label="Entry">
+    <div class="id-badge">#{{ rec.external_id }}</div>
+    <div class="date-text">{{ formatDate(rec.date_added) }}</div>
+  </td>
 
-              <!-- 3. Conditions (Условия) -->
-              <td class="col-cond">
-                <div class="cond-text">
-                  <!-- Пока выводим заглушку, так как в схеме нет отдельного поля,
-                       либо можно выводить краткий комментарий -->
-                  {{ rec.conditions || 'n/a' }}
-                </div>
-              </td>
+  <td class="col-cond" data-label="Conditions">
+    <div class="cond-text">{{ rec.conditions || 'n/a' }}</div>
+  </td>
 
-              <!-- 4. Выход (%) -->
-              <td class="col-yield">
-                <div v-if="rec.product_yield_calc" class="yield-badge">
-                  {{ rec.product_yield_calc }}%
-                </div>
-                <div v-else class="no-yield">—</div>
-              </td>
+  <td class="col-yield" data-label="Yield">
+    <div v-if="rec.product_yield_calc" class="yield-badge">{{ rec.product_yield_calc }}%</div>
+    <div v-else class="no-yield">—</div>
+  </td>
 
-              <!-- 5. Методика -->
-              <td class="col-procedure">
-                <div class="procedure-preview">
-                  {{ rec.procedure || 'No description...' }}
-                </div>
-              </td>
-            </tr>
+  <td class="col-procedure" data-label="Procedure">
+    <div class="procedure-preview">{{ rec.procedure || 'No description...' }}</div>
+  </td>
+</tr>
           </tbody>
         </table>
       </div>
@@ -157,22 +144,54 @@ defineExpose({ refreshData })
 </script>
 
 <style scoped>
-.results-section { background: white; border-radius: 8px; padding: 15px; box-shadow: 0 2px 8px rgba(0,0,0,0.05); }
-.header { display: flex; justify-content: space-between; border-bottom: 2px solid #42b983; margin-bottom: 15px; }
+.results-section {
+  background: white;
+  border-radius: 8px;
+  padding: 15px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+  width: 100%;
+  box-sizing: border-box;
+}
 
-.table-container { width: 100%; overflow-x: auto; }
+.header { display: flex; justify-content: space-between; border-bottom: 2px solid #42b983; margin-bottom: 15px; padding-bottom: 5px; }
+
+.table-container {
+  width: 100%;
+  /* На мобилках разрешаем горизонтальный скролл, если что-то пойдет не так,
+     но основной упор делаем на перестроение в карточки */
+  overflow-x: auto;
+}
 .reaction-table { width: 100%; border-collapse: collapse; table-layout: fixed; }
-.reaction-table th { background: #f8f9fa; padding: 12px 10px; text-align: left; font-size: 0.75rem; color: #7f8c8d; text-transform: uppercase; }
-.reaction-table td { padding: 10px; border-bottom: 1px solid #eee; vertical-align: middle; }
+.reaction-table th {
+  background: #f8f9fa;
+  padding: 12px 10px;
+  text-align: left;
+  font-size: 0.75rem;
+  color: #7f8c8d;
+  text-transform: uppercase;
+}
+.reaction-table td {
+  padding: 10px;
+  border-bottom: 1px solid #eee;
+  vertical-align: middle;
+  /* Защита от раздувания: если текст без пробелов, он не сломает таблицу */
+  word-wrap: break-word;
+  overflow: hidden;
+}
 
-/* Настройка колонок */
-.col-viz { width: 180px; }      /* Картинка чуть компактнее */
-.col-id { width: 100px; }       /* ID и дата */
-.col-cond { width: 150px; }     /* Условия */
-.col-yield { width: 80px; }      /* Выход */
-.col-procedure { width: auto; }  /* Методика тянется */
+.col-viz { width: 180px; }
+.col-id { width: 100px; }
+.col-cond { width: 150px; }
+.col-yield { width: 80px; }
+.col-procedure { width: auto; }
 
-.reaction-container :deep(svg) { max-width: 100%; height: auto; max-height: 100px; }
+.reaction-container {
+  display: flex;
+  justify-content: center;
+  background: #fff;
+  border-radius: 4px;
+}
+.reaction-container :deep(svg) { max-width: 100%; height: auto; max-height: 120px; }
 
 .id-badge { background: #42b983; color: white; padding: 2px 6px; border-radius: 4px; font-weight: bold; font-size: 0.85rem; }
 .date-text { font-size: 0.7rem; color: #999; margin-top: 4px; }
@@ -186,12 +205,18 @@ defineExpose({ refreshData })
 
 .cond-text { font-size: 0.85rem; color: #666; font-style: italic; }
 
-.procedure-preview {
-  font-size: 0.85rem; color: #444; display: -webkit-box;
-  -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;
+.procedure-preview, .cond-text {
+  font-size: 0.85rem;
+  line-height: 1.4;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 
-.reaction-row { cursor: pointer; }
+.procedure-preview { -webkit-line-clamp: 3; } /* Максимум 3 строки */
+.cond-text { -webkit-line-clamp: 2; }          /* Максимум 2 строки */
+
+.reaction-row { cursor: pointer; transition: background 0.2s; }
 .reaction-row:hover { background: #f9fdfb; }
 
 /* Пагинация и спиннер без изменений */
@@ -201,4 +226,56 @@ defineExpose({ refreshData })
 .status-msg { text-align: center; padding: 40px; color: #7f8c8d; }
 .spinner { width: 30px; height: 30px; border: 3px solid #f3f3f3; border-top: 3px solid #42b983; border-radius: 50%; animation: spin 1s linear infinite; margin: 0 auto; }
 @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+
+/* --- МОБИЛЬНАЯ АДАПТАЦИЯ --- */
+@media (max-width: 768px) {
+  /* Скрываем заголовки таблицы */
+  .reaction-table thead {
+    display: none;
+  }
+
+  /* Превращаем каждую строку в отдельную "карточку" */
+  .reaction-table tr {
+    display: block;
+    border: 1px solid #eee;
+    border-radius: 10px;
+    margin-bottom: 20px;
+    padding: 10px;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.02);
+  }
+
+  /* Превращаем каждую ячейку в блок */
+  .reaction-table td {
+    display: block;
+    width: 100% !important; /* Сбрасываем десктопную ширину */
+    box-sizing: border-box;
+    border-bottom: none;
+    padding: 8px 5px;
+  }
+
+  /* Картинка продукта по центру вверху карточки */
+  .col-viz {
+    border-bottom: 1px solid #f5f5f5 !important;
+    margin-bottom: 10px;
+  }
+
+  /* Добавляем текстовые метки перед данными через псевдоэлементы */
+  .reaction-table td::before {
+    content: attr(data-label); /* Берет текст из атрибута data-label */
+    font-weight: bold;
+    font-size: 0.7rem;
+    color: #999;
+    text-transform: uppercase;
+    display: block;
+    margin-bottom: 2px;
+  }
+
+  /* Для картинки метка не нужна */
+  .col-viz::before { display: none; }
+
+  /* Улучшаем отображение бейджей на мобилках */
+  .id-badge, .yield-badge {
+    display: inline-block;
+  }
+}
 </style>
