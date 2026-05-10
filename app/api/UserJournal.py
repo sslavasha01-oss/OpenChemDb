@@ -5,9 +5,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import insert, func, update, select, desc
 from typing import Dict, List
 
-from app.models import UserJournal
+from app.models.user_journal import UserJournal
 from app.models.user import User
-from app.schemas.UserJournal import UserJournalSchema
+from app.schemas.user_journal import UserJournalSchema
 from app.core.db import get_users_db
 from app.api.deps import get_current_user
 
@@ -21,40 +21,32 @@ async def add_journal_record(
         db: AsyncSession = Depends(get_users_db)
 ):
     # Превращаем Pydantic модель в словарь, исключая служебные поля и пустые mol_data
-    data = record_data.model_dump(exclude={'id', 'external_id', 'date_added', 'date_modified'})
-
-    # Принудительно устанавливаем user_id из авторизации
-    data['user_id'] = current_user.id
+    data = record_data.model_dump(exclude={'id', 'external_id', 'date_added', 'date_modified', 'product_svg'})
 
     # Подготавливаем словарь для вставки
     # Нам нужно подменить значения для всех колонок *_mol_data на SQL-функции RDKit
     insert_data = {}
 
     for key, value in data.items():
-        if value is None:
-            insert_data[key] = None
-            continue
+        # Сначала просто копируем значение
+        insert_data[key] = value
 
-        # Обработка молекул (продукт и реагенты)
+        # А теперь, ЕСЛИ это поле с mol_data, пробуем сгенерировать его из SMILES
         if key.endswith('_mol_data'):
             smiles_key = key.replace('_mol_data', '_smiles')
             smiles_value = data.get(smiles_key)
             if smiles_value:
-                # В Postgres расширение RDKit предоставляет функцию mol_from_smiles
                 insert_data[key] = func.mol_from_smiles(smiles_value)
 
-        # Обработка реакций
-        elif key.endswith('_mol_data') or key.endswith('_mapped_data'):
-            # Важно: в миграции у тебя reaction_mol_data и reaction_mol_mapped_data
-            # Ищем соответствующие smiles поля
-            suffix = '_smiles' if key.endswith('_data') else '_mapped_smiles'
-            smiles_key = key.replace('_mol_data', '_smiles').replace('_mol_mapped_data', '_mapped_smiles')
+        # Логика для реакций
+        elif key == 'reaction_mol_data' and data.get('reaction_smiles'):
+            insert_data[key] = func.reaction_from_smiles(data['reaction_smiles'])
 
-            smiles_value = data.get(smiles_key)
-            if smiles_value:
-                # В Postgres функция называется reaction_from_smiles
-                insert_data[key] = func.reaction_from_smiles(smiles_value)
+        elif key == 'reaction_mol_mapped_data' and data.get('reaction_mapped_smiles'):
+            insert_data[key] = func.reaction_from_smiles(data['reaction_mapped_smiles'])
 
+    # Принудительно устанавливаем user_id из авторизации
+    insert_data['user_id'] = current_user.id
     # Выполняем вставку с возвратом всей строки (RETURNING *)
     # Триггер в базе сам выставит external_id
     try:

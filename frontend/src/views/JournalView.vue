@@ -11,7 +11,9 @@
     <div v-if="activeTab === 'method'" class="toolbar">
       <button @click="isEditing = true" :disabled="isEditing">Редактировать</button>
       <button @click="createNewEntry">Новая запись</button>
-      <button @click="saveEntry" class="btn-save" :disabled="!isEditing">Сохранить</button>
+      <button @click="saveEntry" class="btn-save" :disabled="!isEditing || loading">
+        {{ loading ? 'Сохранение...' : 'Сохранить' }}
+      </button>
     </div>
 
     <main class="tab-content">
@@ -72,14 +74,15 @@
 </template>
 
 <script setup>
-import {ref, watch} from 'vue'
+import { ref, watch } from 'vue'
+import axios from 'axios' // Импортируем axios
 import ProductCard from '@/components/ProductCard.vue'
 import ReagentCard from '@/components/ReagentCard.vue'
 
 const activeTab = ref('method')
 const isEditing = ref(false)
-
-const visibleReagentsCount = ref(3); // По умолчанию показываем 3
+const loading = ref(false) // Состояние загрузки
+const visibleReagentsCount = ref(3)
 
 const addReagent = () => {
   if (visibleReagentsCount.value < 5) {
@@ -87,17 +90,22 @@ const addReagent = () => {
   }
 };
 
-// Инициализация объекта по вашей схеме Pydantic
+// Функция создания пустого объекта записи
 const createEmptyEntry = () => {
   const entry = {
-    user_id: 1,
-    product_smiles: '', product_preview_svg: '', product_molar_mass: null,
-    product_moles: null, product_molar_ekv: 1.0,
-    product_theoretical_mass: null, product_praktical_mass: null,
-    product_yield_calc: null, procedure: '',
+    user_id: null, // Установит бэкенд из токена, но для схемы нужно
+    product_smiles: '',
+    product_svg: '',
+    product_preview_svg: '',
+    product_molar_mass: null,
+    product_moles: null,
+    product_molar_ekv: 1.0,
+    product_theoretical_mass: null,
+    product_praktical_mass: null,
+    product_yield_calc: null,
+    procedure: '',
   };
 
-  // Инициализируем все 5 реагентов
   for (let i = 1; i <= 5; i++) {
     entry[`reagent${i}_smiles`] = '';
     entry[`reagent${i}_svg`] = '';
@@ -105,21 +113,75 @@ const createEmptyEntry = () => {
     entry[`reagent${i}_mass`] = null;
     entry[`reagent${i}_moles`] = null;
     entry[`reagent${i}_density`] = null;
-    entry[`reagent${i}_concentration`] = 1.0; // По умолчанию 1
+    entry[`reagent${i}_concentration`] = 1.0;
     entry[`reagent${i}_volume`] = null;
-    entry[`reagent${i}_molar_ekv`] = i === 1 ? 1.0 : null; // Для первого ставим 1
+    entry[`reagent${i}_molar_ekv`] = i === 1 ? 1.0 : null;
   }
   return entry;
 }
 
 const journalData = ref(createEmptyEntry())
 
-// При создании новой записи можно сбрасывать счетчик до 3
+// 1. НАЖАТИЕ "НОВАЯ ЗАПИСЬ"
 const createNewEntry = () => {
-    journalData.value = createEmptyEntry();
-    visibleReagentsCount.value = 3;
-    isEditing.value = true;
+    if (confirm("Очистить форму и создать новую запись? Несохраненные данные будут потеряны.")) {
+        journalData.value = createEmptyEntry();
+        visibleReagentsCount.value = 3;
+        isEditing.value = true;
+    }
 };
+
+// 2. НАЖАТИЕ "СОХРАНИТЬ" (Вызов бэкенда)
+const saveEntry = async () => {
+  loading.value = true;
+  try {
+    const token = localStorage.getItem('token');
+    const source = journalData.value;
+    const cleanData = {};
+
+    // Список ключей, которые мы НЕ шлем (SVG и служебные)
+    const excludeKeys = ['product_svg', 'product_preview_svg'];
+
+    Object.keys(source).forEach(key => {
+      if (excludeKeys.includes(key) || key.endsWith('_svg')) return;
+
+      let val = source[key];
+
+      // Поля, которые бэк ждет как Decimal (числа)
+      const isNumeric = key.includes('mass') || key.includes('moles') ||
+                        key.includes('ekv') || key.includes('density') ||
+                        key.includes('concentration') || key.includes('volume') ||
+                        key.includes('yield_calc');
+
+      if (isNumeric) {
+        // Если пусто — строго null, если есть значение — parseFloat
+        cleanData[key] = (val === '' || val === null || val === undefined) ? null : parseFloat(val);
+      } else {
+        // Все остальное (SMILES, procedure) — как есть, но пустую строку в null
+        cleanData[key] = (val === '') ? null : val;
+      }
+    });
+
+    console.log("ОКОНЧАТЕЛЬНЫЙ JSON ДЛЯ ОТПРАВКИ:", JSON.stringify(cleanData, null, 2));
+
+    const response = await axios.post('/api/my-journal/add', cleanData, {
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      }
+    });
+
+    journalData.value = response.data;
+    isEditing.value = false;
+    alert("Запись успешно сохранена!");
+
+  } catch (err) {
+    console.error("Ошибка при сохранении:", err.response?.data || err);
+    alert("Ошибка! Проверьте консоль.");
+  } finally {
+    loading.value = false;
+  }
+}
 
 const calculateJournal = () => {
   const d = journalData.value;

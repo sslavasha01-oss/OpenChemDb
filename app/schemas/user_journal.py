@@ -9,7 +9,7 @@ class UserJournalSchema(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: Optional[int] = None
-    user_id: int
+    user_id: Optional[int] = None
     external_id: Optional[int] = None
     date_added: Optional[datetime] = None
     date_modified: Optional[datetime] = None
@@ -75,7 +75,7 @@ class UserJournalSchema(BaseModel):
     reagent5_molar_ekv: Optional[Decimal] = None
 
     # Meta
-    conditions: Optional[str]
+    conditions: Optional[str] = None
     referenced_record_external_id: Optional[int] = None
     references: Optional[str] = None
     doi: Optional[str] = None
