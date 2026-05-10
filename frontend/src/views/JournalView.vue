@@ -72,16 +72,16 @@
       </section>
     </main>
     <iframe
-      v-show="false"
       ref="globalKetcherFrame"
       src="/standalone/index.html?hidden_controls=all"
-    ></iframe>
+      class="invisible-ketcher">
+    </iframe>
   </div>
 
 </template>
 
 <script setup>
-import { ref, watch, nextTick } from 'vue'
+import { ref, watch, nextTick, onMounted} from 'vue'
 import axios from 'axios'
 import ProductCard from '@/components/ProductCard.vue'
 import ReagentCard from '@/components/ReagentCard.vue'
@@ -96,6 +96,31 @@ const productCardRef = ref(null);
 const reagentCardRefs = ref([]);
 
 const globalKetcherFrame = ref(null);
+
+const isKetcherInjected = ref(false);
+const isKetcherReady = ref(false);
+
+// Загружаем фрейм через секунду после входа на страницу
+onMounted(() => {
+  setTimeout(() => {
+    isKetcherInjected.value = true;
+  }, 1000);
+});
+
+const onKetcherLoad = () => {
+  // Фрейм загрузился, но Indigo внутри может еще тупить
+  const checkIndigo = setInterval(() => {
+    const ketcher = globalKetcherFrame.value?.contentWindow?.ketcher;
+    if (ketcher && ketcher.setMolecule) {
+      isKetcherReady.value = true;
+      console.log("Ketcher Engine Ready");
+      clearInterval(checkIndigo);
+    }
+  }, 500);
+
+  // Страховка от вечного цикла
+  setTimeout(() => clearInterval(checkIndigo), 10000);
+};
 
 const addReagent = () => {
   if (visibleReagentsCount.value < 5) {
@@ -413,5 +438,20 @@ watch(journalData, () => {
     min-height: 150px;
     font-size: 0.8rem;
   }
+}
+
+.invisible-ketcher {
+  position: fixed;
+  /* Даем реальные размеры, чтобы Ketcher не паниковал! */
+  width: 800px;
+  height: 600px;
+  /* Уносим в космос */
+  left: -5000px;
+  top: -5000px;
+  /* Но оставляем его "видимым" для системы рендеринга */
+  visibility: visible;
+  z-index: -1000;
+  border: none;
+  pointer-events: none;
 }
 </style>
