@@ -104,6 +104,7 @@
         <iframe ref="ketcherFrame" src="/standalone/index.html?hidden_controls=help,settings,save&api_path=/&allow_reaction=false" class="ketcher-frame"></iframe>
       </div>
     </div>
+    <iframe v-show="false" ref="hiddenKetcher" src="/standalone/index.html?hidden_controls=all"></iframe>
   </div>
 </template>
 
@@ -120,6 +121,7 @@ const emit = defineEmits(['update:modelValue'])
 
 const showKetcher = ref(false)
 const ketcherFrame = ref(null)
+const hiddenKetcher = ref(null)
 
 const onSmilesInput = (e) => {
   const newSmiles = e.target.value
@@ -130,11 +132,10 @@ const onSmilesInput = (e) => {
 
 const drawSmiles = async (smiles) => {
   if (!smiles || smiles.trim() === "") {
-    const ketcher = ketcherFrame.value?.contentWindow?.ketcher;
+    const ketcher = ketcherFrame.value?.contentWindow?.ketcher || hiddenKetcher.value?.contentWindow?.ketcher;
     if (ketcher) ketcher.setMolecule("");
-    // Очищаем превью, если смайлс пустой
     const updated = { ...props.modelValue };
-    updated.product_preview_svg = '';
+    updated[`reagent${props.index}_svg`] = '';
     emit('update:modelValue', updated);
     return;
   }
