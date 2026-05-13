@@ -128,7 +128,7 @@ const fetchRecords = async (forceRefresh = false) => {
     // Авто-выбор первой записи:
     // Если id не передан извне, мы на 1 странице и есть данные
     if (!props.selectedId && response.data.length > 0 && currentPage.value === 1) {
-      emit('select-record', response.data[0], false);
+       emit('select-record', response.data[0], false);
     }
     return response.data;
   } catch (err) {

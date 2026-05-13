@@ -411,42 +411,41 @@ const navigateRecord = async (direction) => {
 
   const currentRecords = tableRef.value.records;
   const currentIndex = currentRecords.findIndex(r => r.id === selectedRecordId.value);
-
   let nextIndex = currentIndex + direction;
 
-  // 1. ПЕРЕХОД ВПЕРЕД (на следующую страницу)
+  // ВПЕРЕД
   if (nextIndex >= currentRecords.length) {
     if (tableRef.value.currentPage < tableRef.value.totalPages) {
       loading.value = true;
-      const newRecords = await tableRef.value.changePage(tableRef.value.currentPage + 1);
+      const newPageData = await tableRef.value.changePage(tableRef.value.currentPage + 1);
       loading.value = false;
 
-      if (newRecords && newRecords.length > 0) {
-        // Ждем обновления реактивности
+      if (newPageData && newPageData.length > 0) {
         await nextTick();
-        handleTableSelect(newRecords[0], false); // false, чтобы не прыгать на вкладку "Методика" принудительно
+        // Берем данные именно из вернувшегося массива newPageData
+        handleTableSelect(newPageData[0], false);
       }
     }
     return;
   }
 
-  // 2. ПЕРЕХОД НАЗАД (на предыдущую страницу)
+  // НАЗАД
   if (nextIndex < 0) {
     if (tableRef.value.currentPage > 1) {
       loading.value = true;
-      const newRecords = await tableRef.value.changePage(tableRef.value.currentPage - 1);
+      const newPageData = await tableRef.value.changePage(tableRef.value.currentPage - 1);
       loading.value = false;
 
-      if (newRecords && newRecords.length > 0) {
+      if (newPageData && newPageData.length > 0) {
         await nextTick();
-        // Выбираем ПОСЛЕДНИЙ элемент предыдущей страницы
-        handleTableSelect(newRecords[newRecords.length - 1], false);
+        // Берем последнюю запись с новой (предыдущей) страницы
+        handleTableSelect(newPageData[newPageData.length - 1], false);
       }
     }
     return;
   }
 
-  // 3. ОБЫЧНАЯ НАВИГАЦИЯ (внутри текущей страницы)
+  // ОБЫЧНЫЙ ШАГ
   const nextRecord = currentRecords[nextIndex];
   if (nextRecord) {
     handleTableSelect(nextRecord, false);
