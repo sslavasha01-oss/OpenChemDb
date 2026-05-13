@@ -130,6 +130,7 @@ const fetchRecords = async (forceRefresh = false) => {
     if (!props.selectedId && response.data.length > 0 && currentPage.value === 1) {
       emit('select-record', response.data[0], false);
     }
+    return response.data;
   } catch (err) {
     console.error("Fetch error details:", err);
     error.value = "Load failed";
@@ -146,9 +147,10 @@ const refreshData = async () => {
   await fetchRecords(true);
 }
 
-const changePage = (newPage) => {
-  currentPage.value = newPage
-  fetchRecords()
+const changePage = async (newPage) => {
+  if (newPage < 1 || newPage > totalPages.value) return;
+  currentPage.value = newPage;
+  return await fetchRecords();
 }
 
 const formatDate = (dateStr) => {
@@ -159,7 +161,13 @@ const formatDate = (dateStr) => {
 }
 
 onMounted(() => { fetchCount(); fetchRecords(); })
-defineExpose({ refreshData, records })
+defineExpose({
+  refreshData,
+  records,
+  changePage,
+  currentPage,
+  totalPages
+})
 </script>
 
 <style scoped>

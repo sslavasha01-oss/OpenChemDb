@@ -406,19 +406,50 @@ const fastGenerateSVG = async (ketcher, smiles) => {
   }
 };
 
-const navigateRecord = (direction) => {
-  if (!tableRef.value || !tableRef.value.records.length) return;
+const navigateRecord = async (direction) => {
+  if (!tableRef.value || loading.value) return;
 
-  const records = tableRef.value.records;
-  const currentIndex = records.findIndex(r => r.id === selectedRecordId.value);
+  const currentRecords = tableRef.value.records;
+  const currentIndex = currentRecords.findIndex(r => r.id === selectedRecordId.value);
+
   let nextIndex = currentIndex + direction;
 
-  // Ограничиваем навигацию пределами списка
-  if (nextIndex < 0 || nextIndex >= records.length) return;
+  // 1. ПЕРЕХОД ВПЕРЕД (на следующую страницу)
+  if (nextIndex >= currentRecords.length) {
+    if (tableRef.value.currentPage < tableRef.value.totalPages) {
+      loading.value = true;
+      const newRecords = await tableRef.value.changePage(tableRef.value.currentPage + 1);
+      loading.value = false;
 
-  const nextRecord = records[nextIndex];
+      if (newRecords && newRecords.length > 0) {
+        // Ждем обновления реактивности
+        await nextTick();
+        handleTableSelect(newRecords[0], false); // false, чтобы не прыгать на вкладку "Методика" принудительно
+      }
+    }
+    return;
+  }
+
+  // 2. ПЕРЕХОД НАЗАД (на предыдущую страницу)
+  if (nextIndex < 0) {
+    if (tableRef.value.currentPage > 1) {
+      loading.value = true;
+      const newRecords = await tableRef.value.changePage(tableRef.value.currentPage - 1);
+      loading.value = false;
+
+      if (newRecords && newRecords.length > 0) {
+        await nextTick();
+        // Выбираем ПОСЛЕДНИЙ элемент предыдущей страницы
+        handleTableSelect(newRecords[newRecords.length - 1], false);
+      }
+    }
+    return;
+  }
+
+  // 3. ОБЫЧНАЯ НАВИГАЦИЯ (внутри текущей страницы)
+  const nextRecord = currentRecords[nextIndex];
   if (nextRecord) {
-    updateFormDataOnly(nextRecord); // Используем функцию БЕЗ переключения вкладок
+    handleTableSelect(nextRecord, false);
   }
 };
 
