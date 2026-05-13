@@ -36,7 +36,7 @@
             </tr>
           </thead>
           <tbody>
-            <tr v-for="rec in records" :key="rec.id" class="reaction-row" @click="$emit('select-record', rec)">
+            <tr v-for="rec in records" :key="rec.id" class="reaction-row" :class="{ 'selected-row': rec.id === props.selectedId }" @click="$emit('select-record', rec, true)">
   <td class="col-viz">
     <div class="reaction-container" v-if="rec.product_svg" v-html="rec.product_svg"></div>
     <div class="no-viz" v-else>No Structure</div>
@@ -88,6 +88,10 @@ const loading = ref(false)
 const error = ref(null)
 const pagesCache = ref({})
 
+const props = defineProps({
+  selectedId: [Number, String]
+})
+
 const offset = computed(() => (currentPage.value - 1) * limit)
 const totalPages = computed(() => Math.ceil(totalCount.value / limit))
 
@@ -107,16 +111,31 @@ const fetchRecords = async (forceRefresh = false) => {
     records.value = pagesCache.value[currentPage.value];
     return;
   }
-  loading.value = true
+
+  loading.value = true;
+  error.value = null; // Сбрасываем старую ошибку перед новым запросом
+
   try {
-    const token = localStorage.getItem('token')
+    const token = localStorage.getItem('token');
     const response = await axios.get('/api/my-journal/list', {
       params: { limit: limit, offset: offset.value },
       headers: { 'Authorization': `Bearer ${token}` }
-    })
-    pagesCache.value[currentPage.value] = response.data
-    records.value = response.data
-  } catch (err) { error.value = "Load failed" } finally { loading.value = false }
+    });
+
+    pagesCache.value[currentPage.value] = response.data;
+    records.value = response.data;
+
+    // Авто-выбор первой записи:
+    // Если id не передан извне, мы на 1 странице и есть данные
+    if (!props.selectedId && response.data.length > 0 && currentPage.value === 1) {
+      emit('select-record', response.data[0], false);
+    }
+  } catch (err) {
+    console.error("Fetch error details:", err);
+    error.value = "Load failed";
+  } finally {
+    loading.value = false;
+  }
 }
 
 const refreshData = async () => {
@@ -140,7 +159,7 @@ const formatDate = (dateStr) => {
 }
 
 onMounted(() => { fetchCount(); fetchRecords(); })
-defineExpose({ refreshData })
+defineExpose({ refreshData, records })
 </script>
 
 <style scoped>
@@ -277,5 +296,14 @@ defineExpose({ refreshData })
   .id-badge, .yield-badge {
     display: inline-block;
   }
+}
+
+.reaction-row.selected-row {
+  background-color: #e6f7ef; /* Светло-зеленый фон */
+  border-left: 4px solid #42b983; /* Акцентная полоса слева */
+}
+/* Чтобы ховер не перекрывал выделение слишком сильно */
+.reaction-row.selected-row:hover {
+  background-color: #d8f3e5;
 }
 </style>

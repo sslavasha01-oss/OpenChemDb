@@ -7,6 +7,26 @@
       <button :class="{ active: activeTab === 'search' }" @click="activeTab = 'search'">Поиск</button>
     </nav>
 
+  <div class="header-controls">
+  <!-- Навигация (стрелки): Показываем везде, КРОМЕ вкладки 'search' -->
+  <div v-if="activeTab !== 'search'" class="global-record-nav">
+    <button @click="navigateRecord(-1)" :disabled="isEditing" class="nav-arrow">←</button>
+    <span class="selected-id-display">
+      Запись: {{ selectedRecordId ? '#' + (tableRef?.records.find(r => r.id === selectedRecordId)?.external_id || '...') : '---' }}
+    </span>
+    <button @click="navigateRecord(1)" :disabled="isEditing" class="nav-arrow">→</button>
+  </div>
+
+  <!-- Кнопка "Добавить": Показываем на 'table' И на 'method' -->
+  <button
+    v-if="activeTab === 'table' || activeTab === 'method'"
+    class="btn-add-main"
+    @click="initNewEntryFromTable"
+  >
+    <span class="icon">+</span> Новая запись
+  </button>
+</div>
+
     <!-- Панель управления (только для методики) -->
     <div v-if="activeTab === 'method'" class="toolbar">
       <button @click="isEditing = true" :disabled="isEditing">Редактировать</button>
@@ -24,9 +44,10 @@
           </button>
         </div>
 
-        <JournalTable ref="tableRef" @select-record="loadRecordIntoForm" />
+        <JournalTable ref="tableRef" :selected-id="selectedRecordId"
+         @select-record="handleTableSelect"
+          />
       </section>
-
 
       <!-- Вкладка Методика -->
       <section v-show="activeTab === 'method'" class="method-page">
@@ -100,6 +121,7 @@ const visibleReagentsCount = ref(3)
 const tableRef = ref(null)
 const productCardRef = ref(null);
 const reagentCardRefs = ref([]);
+const selectedRecordId = ref(null);
 
 const globalKetcherFrame = ref(null);
 
@@ -169,6 +191,7 @@ const journalData = ref(createEmptyEntry())
 // Функция для кнопки над таблицей
 const initNewEntryFromTable = () => {
   // Обнуляем данные
+  selectedRecordId.value = null;
   journalData.value = createEmptyEntry();
   visibleReagentsCount.value = 3;
 
@@ -325,6 +348,8 @@ const loadRecordIntoForm = (record) => {
   activeTab.value = 'method';
   isEditing.value = false;
 
+  selectedRecordId.value = record.id;
+
   // Определяем количество видимых реагентов
   let count = 0;
   for (let i = 1; i <= 5; i++) {
@@ -381,6 +406,70 @@ const fastGenerateSVG = async (ketcher, smiles) => {
   }
 };
 
+const navigateRecord = (direction) => {
+  if (!tableRef.value || !tableRef.value.records.length) return;
+
+  const records = tableRef.value.records;
+  const currentIndex = records.findIndex(r => r.id === selectedRecordId.value);
+  let nextIndex = currentIndex + direction;
+
+  // Ограничиваем навигацию пределами списка
+  if (nextIndex < 0 || nextIndex >= records.length) return;
+
+  const nextRecord = records[nextIndex];
+  if (nextRecord) {
+    updateFormDataOnly(nextRecord); // Используем функцию БЕЗ переключения вкладок
+  }
+};
+
+// 1. Эта функция ТОЛЬКО подгружает данные в форму (без переключения вкладок)
+const updateFormDataOnly = (record) => {
+  journalData.value = { ...record };
+  selectedRecordId.value = record.id;
+  isEditing.value = false;
+
+  let count = 0;
+  for (let i = 1; i <= 5; i++) {
+    if (record[`reagent${i}_smiles`]) count = i;
+  }
+  visibleReagentsCount.value = Math.max(count, 1);
+
+  // Запуск отрисовки Ketcher (вынесем в отдельный вызов ниже)
+  triggerKetcherRedraw(record);
+};
+
+// 2. Эта функция используется для клика ПО ТАБЛИЦЕ (данные + переход)
+const handleTableSelect = (record, forceTabChange = true) => {
+  updateFormDataOnly(record);
+
+  if (forceTabChange) {
+    activeTab.value = 'method';
+  }
+};
+
+// 3. Выносим отрисовку в отдельный метод (просто скопируйте логику из старой loadRecordIntoForm)
+const triggerKetcherRedraw = (record) => {
+  const waitForKetcherAndDraw = async () => {
+    const ketcher = globalKetcherFrame.value?.contentWindow?.ketcher;
+    if (ketcher && typeof ketcher.setMolecule === 'function') {
+      try {
+        if (record.product_smiles) {
+          journalData.value.product_preview_svg = await fastGenerateSVG(ketcher, record.product_smiles);
+        }
+        for (let i = 1; i <= 5; i++) {
+          const smiles = record[`reagent${i}_smiles`];
+          if (smiles) {
+            journalData.value[`reagent${i}_svg`] = await fastGenerateSVG(ketcher, smiles);
+          }
+        }
+      } catch (err) { console.error(err); }
+    } else {
+      setTimeout(waitForKetcherAndDraw, 200);
+    }
+  };
+  waitForKetcherAndDraw();
+};
+
 watch(journalData, () => {
   calculateJournal();
 }, { deep: true });
@@ -389,7 +478,7 @@ watch(journalData, () => {
 </script>
 
 <style scoped>
-.journal-container { max-width: 1200px; margin: 0 auto; padding: 20px; }
+.journal-container { max-width: 1200px; margin: 0 auto; padding: 10px; }
 .tabs-nav { display: flex; gap: 10px; margin-bottom: 20px; border-bottom: 2px solid #eee; }
 .tabs-nav button { padding: 10px 20px; cursor: pointer; border: none; background: none; font-size: 1.1rem; }
 .tabs-nav button.active { border-bottom: 3px solid #42b983; font-weight: bold; }
@@ -472,12 +561,6 @@ watch(journalData, () => {
   pointer-events: none;
 }
 
-.table-actions {
-  margin-bottom: 15px;
-  display: flex;
-  justify-content: flex-start;
-}
-
 .btn-add-main {
   background-color: #42b983;
   color: white;
@@ -498,5 +581,81 @@ watch(journalData, () => {
 
 .btn-add-main .icon {
   font-size: 1.2rem;
+}
+
+.global-record-nav {
+  display: flex;
+  align-items: center;
+  gap: 15px;
+  margin-bottom: 15px;
+  background: #fff;
+  padding: 10px;
+  border-radius: 8px;
+  border: 1px solid #eee;
+  width: fit-content;
+}
+.nav-arrow {
+  background: #42b983;
+  color: white;
+  border: none;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  cursor: pointer;
+  font-weight: bold;
+}
+.nav-arrow:disabled { background: #ccc; cursor: not-allowed; }
+.selected-id-display {
+  font-weight: bold;
+  color: #2c3e50;
+  min-width: 100px;
+  text-align: center;
+}
+
+.header-controls {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  margin-bottom: 15px; /* Уменьшили отступ */
+  flex-wrap: wrap;     /* Чтобы на мобилках не ломалось */
+}
+
+/* Корректируем навигацию, убираем лишний margin-bottom */
+.global-record-nav {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: #fff;
+  padding: 5px 10px; /* Ужали по вертикали */
+  border-radius: 8px;
+  border: 1px solid #eee;
+  width: fit-content;
+  margin-bottom: 0; /* Убрали старый отступ */
+}
+
+/* Компактная кнопка добавления */
+.btn-add-main {
+  background-color: #42b983;
+  color: white;
+  border: none;
+  padding: 8px 16px; /* Уменьшили паддинги */
+  border-radius: 8px;
+  font-weight: bold;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  transition: background 0.2s;
+  height: 42px; /* Выравниваем высоту со стрелками */
+}
+
+/* Уменьшаем отступ у основной навигации вкладок */
+.tabs-nav {
+  margin-bottom: 15px;
+}
+
+/* Убираем лишние отступы в контенте таблицы */
+.table-actions {
+  display: none; /* Мы ее перенесли выше */
 }
 </style>
