@@ -12,7 +12,7 @@
   <div v-if="activeTab !== 'search'" class="global-record-nav">
     <button @click="navigateRecord(-1)" :disabled="isEditing" class="nav-arrow">←</button>
     <span class="selected-id-display">
-      Запись: {{ selectedRecordId ? '#' + (tableRef?.records.find(r => r.id === selectedRecordId)?.external_id || '...') : '---' }}
+      Запись: {{ journalData?.external_id ? '#' + journalData.external_id : '---' }}
     </span>
     <button @click="navigateRecord(1)" :disabled="isEditing" class="nav-arrow">→</button>
   </div>
@@ -409,45 +409,60 @@ const fastGenerateSVG = async (ketcher, smiles) => {
 const navigateRecord = async (direction) => {
   if (!tableRef.value || loading.value) return;
 
-  const currentRecords = tableRef.value.records;
+  // 1. Получаем текущие записи и ищем индекс
+  const currentRecords = tableRef.value.records || [];
   const currentIndex = currentRecords.findIndex(r => r.id === selectedRecordId.value);
+
+  console.log(`[Nav] Направление: ${direction}, Текущий индекс: ${currentIndex}, ID: ${selectedRecordId.value}`);
+
   let nextIndex = currentIndex + direction;
 
-  // ВПЕРЕД
+  // --- ЛОГИКА ПЕРЕХОДА МЕЖДУ СТРАНИЦАМИ ---
+
+  // А. ВПЕРЕД (Уходим за пределы текущей страницы вниз)
   if (nextIndex >= currentRecords.length) {
     if (tableRef.value.currentPage < tableRef.value.totalPages) {
+      console.log("[Nav] Переход на следующую страницу...");
       loading.value = true;
-      const newPageData = await tableRef.value.changePage(tableRef.value.currentPage + 1);
+      const newPageRecords = await tableRef.value.changePage(tableRef.value.currentPage + 1);
       loading.value = false;
 
-      if (newPageData && newPageData.length > 0) {
+      if (newPageRecords && newPageRecords.length > 0) {
         await nextTick();
-        // Берем данные именно из вернувшегося массива newPageData
-        handleTableSelect(newPageData[0], false);
+        // Выбираем первую запись новой страницы
+        handleTableSelect(newPageRecords[0], false);
       }
+    } else {
+      console.log("[Nav] Это последняя страница, дальше нельзя.");
     }
     return;
   }
 
-  // НАЗАД
+  // Б. НАЗАД (Уходим за пределы текущей страницы вверх)
   if (nextIndex < 0) {
     if (tableRef.value.currentPage > 1) {
+      console.log("[Nav] Переход на предыдущую страницу...");
       loading.value = true;
-      const newPageData = await tableRef.value.changePage(tableRef.value.currentPage - 1);
+      const newPageRecords = await tableRef.value.changePage(tableRef.value.currentPage - 1);
       loading.value = false;
 
-      if (newPageData && newPageData.length > 0) {
+      if (newPageRecords && newPageRecords.length > 0) {
         await nextTick();
-        // Берем последнюю запись с новой (предыдущей) страницы
-        handleTableSelect(newPageData[newPageData.length - 1], false);
+        // Выбираем ПОСЛЕДНЮЮ запись предыдущей страницы
+        const lastRecord = newPageRecords[newPageRecords.length - 1];
+        console.log("[Nav] Выбираем последнюю запись:", lastRecord.id);
+        handleTableSelect(lastRecord, false);
       }
+    } else {
+      console.log("[Nav] Это первая страница, назад нельзя.");
     }
     return;
   }
 
-  // ОБЫЧНЫЙ ШАГ
+  // В. ОБЫЧНЫЙ ШАГ ВНУТРИ СТРАНИЦЫ
   const nextRecord = currentRecords[nextIndex];
   if (nextRecord) {
+    console.log("[Nav] Переход внутри страницы к ID:", nextRecord.id);
     handleTableSelect(nextRecord, false);
   }
 };

@@ -109,7 +109,7 @@ const fetchCount = async () => {
 const fetchRecords = async (forceRefresh = false) => {
   if (!forceRefresh && pagesCache.value[currentPage.value]) {
     records.value = pagesCache.value[currentPage.value];
-    return;
+    return records.value; // ВАЖНО: возвращаем данные!
   }
 
   loading.value = true;
