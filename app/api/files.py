@@ -60,7 +60,7 @@ async def view_book_file(file_path: str):
 @router.get("/list", response_model=List[str])
 async def list_files_in_directory(dir_path: str):
     """
-    Возвращает список всех файлов в указанной директории внутри SOP.
+    Возвращает список всех файлов в указанной директории и её поддиректориях внутри SOP.
     Пути возвращаются в формате, готовом для эндпоинта /view.
     Пример dir_path: SOP/Яхонтов. Синтетические лекарственные средства
     """
@@ -77,26 +77,26 @@ async def list_files_in_directory(dir_path: str):
 
     # 4. Проверка безопасности: не даем выйти выше safe_base
     if not str(target_dir).startswith(str(safe_base)):
-        raise HTTPException(status_code=403, detail="Доступ запрещен")
+        raise HTTPException(status_code=403, detail="Access denied")
 
     # 5. Проверяем, существует ли директория
     if not target_dir.exists() or not target_dir.is_dir():
-        raise HTTPException(status_code=404, detail="Директория не найдена")
+        raise HTTPException(status_code=404, detail="Directory not found")
 
-    # 6. Сканируем файлы
+    # 6. Сканируем файлы рекурсивно
     files_list = []
     try:
-        for entry in target_dir.iterdir():
+        # Используем rglob("*") для рекурсивного обхода всех поддиректорий
+        for entry in target_dir.rglob("*"):
             if entry.is_file():
                 # Формируем путь обратно с префиксом SOP/ для совместимости
-                # .relative_to(safe_base.parent) вернет "SOP/каталог/файл.pdf"
                 relative_path = entry.relative_to(safe_base.parent)
                 files_list.append(str(relative_path).replace("\\", "/"))
 
-        # Сортируем список (полезно для страниц 001, 002...)
+        # Сортируем список (файлы из поддиректорий тоже красиво выстроятся по алфавиту)
         files_list.sort()
 
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Ошибка при чтении: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error reading the dir: {str(e)}")
 
     return files_list
