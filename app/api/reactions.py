@@ -19,29 +19,6 @@ async def search_reaction_ids_smiles(
         exact: bool = False,
         db: AsyncSession = Depends(get_archive_db)
 ):
-    # Вспомогательная функция для канонизации
-    def canonicalize_reaction_smiles(smi: str):
-        if not smi:
-            return None
-        # Парсим реакцию
-        rxn = rdChemReactions.ReactionFromSmarts(smi)
-        if rxn:
-            # Чтобы ароматизировать кекулевские структуры в реакции,
-            # нужно пройтись по всем реагентам и продуктам
-            for i in range(rxn.GetNumReactantTemplates()):
-                mol = rxn.GetReactantTemplate(i)
-                if mol:
-                    Chem.SanitizeMol(mol)  # Вот здесь происходит магия ароматизации
-
-            for i in range(rxn.GetNumProductTemplates()):
-                mol = rxn.GetProductTemplate(i)
-                if mol:
-                    Chem.SanitizeMol(mol)
-
-            # Теперь генерируем SMILES. По умолчанию он будет ароматическим и каноничным.
-            return rdChemReactions.ReactionToSmiles(rxn)
-        return smi
-
     # 1. Сначала чистим ввод
     clean_smiles = canonicalize_reaction_smiles(smiles)
 
@@ -83,6 +60,8 @@ async def search_reaction_ids_smiles(
 
         where_clause = " AND ".join(conditions) if conditions else "is_deleted = false"
 
+    await db.execute(sa.text("SET LOCAL statement_timeout = 3000;"))
+
     query = sa.text(f"""
             SELECT id FROM archive_reactions
             WHERE {where_clause}
@@ -112,10 +91,11 @@ async def search_reaction_ids_smarts(
     use_mapped = ":" in smiles
     column_name = "reaction_mapped_data" if use_mapped else "reaction_raw_data"
 
+    await db.execute(sa.text("SET LOCAL statement_timeout = 3000;"))
+
     processed_query = smiles
     # Выбираем оператор
     operator = "@>"
-
     # 3. SQL ЗАПРОС
     # Используем reaction_from_smarts — он переварит и SMILES, и SMARTS
     query = sa.text(f"""
@@ -222,3 +202,57 @@ def generate_reaction_svg(smiles: str) -> str:
         print(f"RDKit Render Error for {smiles[:20]}: {e}")
 
     return ""
+
+
+def canonicalize_reaction_smiles(smi: str):
+    if not smi:
+        return None
+
+    # Вспомогательная функция для канонизации отдельного блока (реагентов или продуктов)
+    def canonicalize_side(side_str: str) -> str:
+        if not side_str.strip():
+            return ""
+
+        canonical_mols = []
+        # Разделяем компоненты (например, если несколько молекул через точку)
+        parts = side_str.split('.')
+
+        for part in parts:
+            part = part.strip()
+            if not part:
+                continue
+
+            # MolFromSmiles из коробки идеально парсит И Кекуле, И ароматику,
+            # автоматически приводя всё к единому ароматическому виду.
+            mol = Chem.MolFromSmiles(part)
+            if mol:
+                # Генерируем каноничный SMILES для этой конкретной молекулы
+                canonical_mols.append(Chem.MolToSmiles(mol))
+            else:
+                # Если вдруг RDKit не смог распарсить, оставляем как было
+                canonical_mols.append(part)
+
+        # Сортируем компоненты, чтобы порядок молекул (A.B и B.A) тоже был каноничным
+        canonical_mols.sort()
+        return ".".join(canonical_mols)
+
+    # Разделяем саму реакцию на реагенты, агенты и продукты
+    # SMILES реакции может содержать один или два знака '>' (разделители)
+    if ">>" in smi:
+        left, right = smi.split(">>", 1)
+        # Проверяем, нет ли там еще агентов (трехкомпонентный SMILES: R>A>P)
+        if ">" in left:
+            reactants, agents = left.split(">", 1)
+            return f"{canonicalize_side(reactants)}>{canonicalize_side(agents)}>{canonicalize_side(right)}"
+        else:
+            return f"{canonicalize_side(left)}>>{canonicalize_side(right)}"
+    elif ">" in smi:
+        # На случай если пришел формат R>A>P, но без двойного знака
+        parts = smi.split(">")
+        if len(parts) == 3:
+            return f"{canonicalize_side(parts[0])}>{canonicalize_side(parts[1])}>{canonicalize_side(parts[2])}"
+        elif len(parts) == 2:
+            return f"{canonicalize_side(parts[0])}>>{canonicalize_side(parts[1])}"
+
+    # Если это вообще не реакция, а просто набор молекул
+    return canonicalize_side(smi)
