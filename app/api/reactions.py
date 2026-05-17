@@ -168,6 +168,81 @@ async def get_reactions_by_ids(
     return reactions
 
 
+from xml.etree.ElementTree import fromstring as xml_fromstring
+
+
+def crop_svg_borders(svg_text: str, padding: int = 15) -> str:
+    """
+    Парсит SVG, находит точные физические границы (Bounding Box) всех
+    отрисованных элементов и переписывает viewBox ровно под них.
+    """
+    try:
+        # Находим исходные размеры холста
+        size_match = re.search(r'width="(\d+)px"\s+height="(\d+)px"', svg_text)
+        if not size_match:
+            return svg_text
+
+        init_w = int(size_match.group(1))
+        init_h = int(size_match.group(2))
+
+        # Вырезаем пространство имен, чтобы ElementTree не падал
+        svg_no_ns = re.sub(r' xmlns="[^"]+"', '', svg_text, count=1)
+        root = xml_fromstring(svg_no_ns)
+
+        min_x, min_y = float('inf'), float('inf')
+        max_x, max_y = float('-inf'), float('-inf')
+
+        # Сканируем координаты всех элементов (пути, текст, фигуры)
+        for elem in root.iter():
+            if elem.tag == 'svg' or (
+                    elem.tag == 'rect' and elem.get('style') and 'fill:#FFFFFF' in elem.get('style') and elem.get(
+                    'x') == '0'):
+                continue
+
+            xs, ys = [], []
+
+            if elem.tag in ('rect', 'text'):
+                if elem.get('x'): xs.append(float(elem.get('x')))
+                if elem.get('y'): ys.append(float(elem.get('y')))
+            elif elem.tag == 'circle':
+                if elem.get('cx'): xs.append(float(elem.get('cx')))
+                if elem.get('cy'): ys.append(float(elem.get('cy')))
+            elif elem.tag == 'path':
+                d = elem.get('d', '')
+                coords = [float(x) for x in re.findall(r'[-+]?\d*\.\d+|\d+', d)]
+                xs.extend(coords[0::2])
+                ys.extend(coords[1::2])
+
+            if xs:
+                min_x = min(min_x, min(xs))
+                max_x = max(max_x, max(xs))
+            if ys:
+                min_y = min(min_y, min(ys))
+                max_y = max(max_y, max(ys))
+
+        # Если контент пустой, просто делаем SVG адаптивным
+        if min_x == float('inf') or min_y == float('inf'):
+            return svg_text.replace(f'width="{init_w}px" height="{init_h}px"',
+                                    f'viewBox="0 0 {init_w} {init_h}" width="100%" height="auto"')
+
+        # Формируем viewBox строго по границам контента + пэддинг
+        crop_x = max(0, min_x - padding)
+        crop_y = max(0, min_y - padding)
+        crop_w = min(init_w, (max_x - min_x) + padding * 2)
+        crop_h = min(init_h, (max_y - min_y) + padding * 2)
+
+        # Заменяем фиксированные px на адаптивный viewBox
+        svg_cropped = svg_text.replace(
+            f'width="{init_w}px" height="{init_h}px"',
+            f'viewBox="{crop_x:.1f} {crop_y:.1f} {crop_w:.1f} {crop_h:.1f}" width="100%" height="auto"'
+        )
+        return svg_cropped
+
+    except Exception as e:
+        print(f"Error inside crop_svg_borders: {e}")
+        return svg_text
+
+
 def generate_reaction_svg(smiles: str) -> str:
     if not smiles:
         return ""
@@ -176,7 +251,7 @@ def generate_reaction_svg(smiles: str) -> str:
         rxn = rdChemReactions.ReactionFromSmarts(smiles, useSmiles=True)
 
         if rxn:
-            # 1. Генерируем чистые 2D-координаты
+            # 1. Генерируем 2D-координаты для абсолютно всех участников
             for i in range(rxn.GetNumReactantTemplates()):
                 mol = rxn.GetReactantTemplate(i)
                 mol.RemoveAllConformers()
@@ -187,39 +262,29 @@ def generate_reaction_svg(smiles: str) -> str:
                 mol.RemoveAllConformers()
                 AllChem.Compute2DCoords(mol)
 
-            # 2. Считаем атомы
-            total_atoms = 0
-            for i in range(rxn.GetNumReactantTemplates()):
-                total_atoms += rxn.GetReactantTemplate(i).GetNumAtoms()
-            for i in range(rxn.GetNumProductTemplates()):
-                total_atoms += rxn.GetProductTemplate(i).GetNumAtoms()
+            for i in range(rxn.GetNumAgentTemplates()):
+                mol = rxn.GetAgentTemplate(i)
+                mol.RemoveAllConformers()
+                AllChem.Compute2DCoords(mol)
 
-            # МАСШТАБИРОВАНИЕ: Меняем шаг на атом.
-            # Для больших реакций делаем холст ниже, чтобы убрать пустоту сверху/снизу (letterboxing)
-            # Для маленьких реакций разрешаем холсту быть узким (от 400px), чтобы убрать пустоту по бокам.
-            # Для гигантских реакций расширяем лимит до 4000px, чтобы они не сжимались в точку.
-            canvas_width = max(400, min(total_atoms * 22, 4000))
-            # Чуть увеличим высоту для сложных структур, чтобы не было letterboxing (пустоты сверху/снизу)
-            canvas_height = 300 if total_atoms > 100 else 180
+            # 2. РЕНДЕРИНГ: Используем стабильный большой холст.
+            # RDKit отрисует даже гигантские схемы с высокой четкостью и без каши,
+            # а избыток белого пространства гарантированно срежет функция кропа.
+            master_w, master_h = 2400, 700
 
-            d2d = Draw.MolDraw2DSVG(canvas_width, canvas_height)
+            d2d = Draw.MolDraw2DSVG(master_w, master_h)
             opts = d2d.drawOptions()
             opts.fixedFontSize = 14
             opts.annotationFontScale = 0.8
-            opts.padding = 0.02  # Максимально прижимаем структуру к краям холста
+            opts.padding = 0.02
 
             d2d.DrawReaction(rxn)
             d2d.FinishDrawing()
 
-            svg = d2d.GetDrawingText()
+            raw_svg = d2d.GetDrawingText()
 
-            # ЧИСТЫЙ ВЕКТОР: Заменяем fixed width/height на адаптивный viewBox.
-            # Теперь SVG говорит браузеру: "Я растягиваюсь на 100% ширины, а высоту подстрой сам".
-            svg_adaptive = svg.replace(
-                f'width="{canvas_width}px" height="{canvas_height}px"',
-                f'viewBox="0 0 {canvas_width} {canvas_height}" width="100%" height="auto"'
-            )
-            return svg_adaptive
+            # Обрезаем все пустые поля под ноль
+            return crop_svg_borders(raw_svg, padding=15)
 
         # Fallback для одной молекулы
         mol = Chem.MolFromSmiles(smiles)
@@ -227,17 +292,14 @@ def generate_reaction_svg(smiles: str) -> str:
             mol.RemoveAllConformers()
             AllChem.Compute2DCoords(mol)
 
-            num_atoms = mol.GetNumAtoms()
-            w = max(300, min(num_atoms * 18, 800))
-            h = max(200, min(num_atoms * 14, 400))
-
-            d2d = Draw.MolDraw2DSVG(w, h)
+            master_w, master_h = 600, 500
+            d2d = Draw.MolDraw2DSVG(master_w, master_h)
             d2d.drawOptions().padding = 0.02
             d2d.DrawMolecule(mol)
             d2d.FinishDrawing()
 
-            svg = d2d.GetDrawingText()
-            return svg.replace(f'width="{w}px" height="{h}px"', f'viewBox="0 0 {w} {h}" width="100%" height="auto"')
+            raw_svg = d2d.GetDrawingText()
+            return crop_svg_borders(raw_svg, padding=12)
 
     except Exception as e:
         print(f"RDKit Render Error for {smiles[:20]}: {e}")

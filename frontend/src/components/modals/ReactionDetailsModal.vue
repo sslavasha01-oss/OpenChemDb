@@ -120,7 +120,7 @@ watch([() => props.isOpen, () => props.reaction], async ([isOpen, rxn]) => {
         if (svgWidth > containerWidth) {
           // Рассчитываем оптимальную точку старта:
           // Убираем пустые поля RDKit, центрируя контент, но сдвигая к началу (на 25-30% от общей ширины)
-          const startPoint = (svgWidth - containerWidth) * 0.35;
+          const startPoint = (svgWidth - containerWidth) * 0.15;
 
           // Плавно или мгновенно скроллим туда
           container.scrollLeft = startPoint;
@@ -190,22 +190,18 @@ const onEvalSuccess = () => {
 /* Контейнер для SVG */
 .modal-reaction-scroll {
   width: 100%;
-  height: auto;
-  min-height: 250px;
-  max-height: 380px;
-  overflow-x: auto;       /* Включаем нативный скролл */
-  overflow-y: hidden;
-  padding: 15px;
+  overflow-x: auto;       /* Включаем нативный горизонтальный скролл */
+  overflow-y: hidden;     /* Полностью запрещаем вертикальный скролл и вылезание */
+  padding: 20px 15px;
   background: white;
-  /* Убираем flex, чтобы блочная модель и скролл работали предсказуемо */
   display: block;
 }
 
 .modal-reaction-scroll :deep(svg) {
-  height: 100% !important;
-  width: auto !important;
+  /* Вместо изменения высоты контейнера, жестко ограничиваем высоту самого SVG */
+  height: 220px !important; /* Оптимальная высота, чтобы структура была крупной, но не гигантской */
+  width: auto !important;   /* Ширина пусть разворачивается на полную длину реакции */
   display: block;
-  /* Больше никаких отрицательных маргинов — реакция теперь доступна для скролла на все 100% */
   margin: 0;
 }
 
