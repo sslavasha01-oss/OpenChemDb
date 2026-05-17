@@ -9,6 +9,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.db import get_archive_db  # Твой генератор сессий для archive_db
 from app.core.settings import settings
 from fastapi import HTTPException
+import re
+
+ATOM_MAPPING_REGEX = re.compile(r"\[[^\]]+:\d+\]")
 
 router = APIRouter(prefix="/reactions", tags=["reactions"])
 
@@ -23,7 +26,7 @@ async def search_reaction_ids_smiles(
     clean_smiles = canonicalize_reaction_smiles(smiles)
 
     # Определяем колонку
-    use_mapped = ":" in smiles
+    use_mapped = bool(ATOM_MAPPING_REGEX.search(smiles))
     reaction_column = "reaction_mapped_data" if use_mapped else "reaction_raw_data"
 
     if not exact:
@@ -88,9 +91,9 @@ async def search_reaction_ids_smarts(
     Если в smiles есть маппинг (символ ':'), ищем по mapped_data, иначе по raw_data.
     """
     # Определяем, есть ли маппинг в запросе
-    use_mapped = ":" in smiles
+    use_mapped = bool(ATOM_MAPPING_REGEX.search(smiles))
     column_name = "reaction_mapped_data" if use_mapped else "reaction_raw_data"
-
+    print(use_mapped)
     await db.execute(sa.text("SET LOCAL statement_timeout = 3000;"))
 
     processed_query = smiles
