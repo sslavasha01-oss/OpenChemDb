@@ -64,12 +64,20 @@
             <label>Теор. масса (г)</label>
             <input type="number" :value="modelValue.product_theoretical_mass" disabled>
           </div>
+        </div> </div> </div> <div class="card-footer-row">
+      <div class="field-group conditions-field">
+        <label>Условия реакции (Conditions)</label>
+        <input
+          type="text"
+          v-model="modelValue.conditions"
+          :disabled="!isEditing"
+          placeholder="EtOH, r.t., 2h, или Pd(PPh3)4, 80°C..."
+        >
+      </div>
 
-          <div class="field-group yield">
-            <label>Выход (%)</label>
-            <input type="number" :value="modelValue.product_yield_calc" disabled class="yield-input">
-          </div>
-        </div>
+      <div class="field-group yield-field">
+        <label>Выход (%)</label>
+        <input type="number" :value="modelValue.product_yield_calc" disabled class="yield-input">
       </div>
     </div>
 
@@ -359,5 +367,34 @@ const openEditor = async () => {
   .card-body { flex-direction: column; }
   .structure-zone { width: 100%; }
   .metrics-grid { grid-template-columns: repeat(2, 1fr); }
+}
+
+/* Нижняя панель для условий и выхода */
+.card-footer-row {
+  display: flex;
+  gap: 20px;
+  padding: 0 15px 15px 15px; /* Отступы слева, справа и снизу */
+  margin-top: -5px; /* Слегка подтягиваем к верхнему блоку */
+}
+
+/* Условия занимают максимум пространства */
+.conditions-field {
+  flex: 1;
+}
+
+/* Выход фиксируем по ширине, чтобы он гармонировал с верхними инпутами */
+.yield-field {
+  width: 150px;
+}
+
+/* Адаптив для планшетов/мобилок: перестраиваем в стек */
+@media (max-width: 768px) {
+  .card-footer-row {
+    flex-direction: column;
+    gap: 10px;
+  }
+  .yield-field {
+    width: 100%;
+  }
 }
 </style>
