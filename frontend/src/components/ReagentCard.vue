@@ -5,7 +5,6 @@
     </div>
 
     <div class="card-body">
-      <!-- Структура (маленькая, так как карточка вертикальная) -->
       <div
         class="structure-zone-mini"
         :class="{ 'editable-zone': isEditing }"
@@ -17,16 +16,29 @@
         <div v-else class="svg-render" v-html="modelValue[`reagent${index}_svg`]"></div>
       </div>
 
-      <!-- Поля ввода (вертикальный список) -->
       <div class="fields-column">
+
         <div class="field-group">
           <label>SMILES</label>
-          <input
-            type="text"
-            :value="modelValue[`reagent${index}_smiles`]"
-            @input="onSmilesInput"
-            :disabled="!isEditing"
-          >
+          <div class="smiles-input-group">
+            <input
+              type="text"
+              :value="modelValue[`reagent${index}_smiles`]"
+              @input="onSmilesInput"
+              :disabled="!isEditing"
+              placeholder="C1=CC=..."
+              class="smiles-compact-input"
+            >
+            <button
+              v-if="modelValue[`reagent${index}_smiles`]"
+              type="button"
+              class="btn-copy-smiles"
+              @click.stop="copyToClipboard(modelValue[`reagent${index}_smiles`])"
+              title="Скопировать SMILES"
+            >
+              📋
+            </button>
+          </div>
         </div>
 
         <div class="field-group readonly">
@@ -34,7 +46,6 @@
           <input type="number" :value="modelValue[`reagent${index}_molar_mass`]" disabled>
         </div>
 
-        <!-- Масса: для 1-го редактируемая, для остальных - расчетная -->
         <div class="field-group" :class="{ readonly: index !== 1 }">
           <label>Масса (г)</label>
           <input
@@ -91,7 +102,6 @@
       </div>
     </div>
 
-    <!-- Модалка (используем тот же подход, что в продукте) -->
     <div v-show="showKetcher" class="modal-overlay">
       <div class="modal-content">
         <div class="modal-header">
@@ -113,7 +123,7 @@ import { ref, nextTick } from 'vue'
 
 const props = defineProps({
   modelValue: Object,
-  index: Number, // 1, 2, 3, 4, 5
+  index: Number,
   isEditing: Boolean
 })
 
@@ -125,9 +135,21 @@ const hiddenKetcher = ref(null)
 
 const onSmilesInput = (e) => {
   const newSmiles = e.target.value
-  const updated = { ...props.modelValue }
-  updated[`reagent${props.index}_smiles`] = newSmiles
-  emit('update:modelValue', updated)
+
+  // Обновляем модель в родителе, чтобы данные не потерялись
+  const updatedValue = { ...props.modelValue, product_smiles: newSmiles };
+  emit('update:modelValue', updatedValue);
+
+  // Пингуем Ketcher, чтобы он перерисовал структуру и посчитал массу в фоне
+  drawSmiles(newSmiles);
+}
+
+// Безопасный метод копирования (без вызова неопределенного navigator внутри шаблона)
+const copyToClipboard = (text) => {
+  if (navigator && navigator.clipboard) {
+    navigator.clipboard.writeText(text);
+    alert('SMILES скопирован!');
+  }
 }
 
 const drawSmiles = async (smiles) => {
@@ -141,7 +163,6 @@ const drawSmiles = async (smiles) => {
   }
 
   const tryDraw = (attempts = 0) => {
-    // Если открыта модалка — рисуем в ней, если нет — в скрытом фрейме
     const frame = showKetcher.value ? ketcherFrame.value : hiddenKetcher.value;
     const ketcher = frame?.contentWindow?.ketcher;
 
@@ -149,11 +170,8 @@ const drawSmiles = async (smiles) => {
       (async () => {
         try {
           await ketcher.setMolecule(smiles);
-
-          // Масштаб 100% для внутреннего редактора
           if (ketcher.editor?.setZoom) ketcher.editor.setZoom(1.0);
 
-          // Генерируем картинку
           const blob = await ketcher.generateImage(smiles, { outputFormat: 'svg' });
           const svgText = await blob.text();
 
@@ -174,54 +192,34 @@ const drawSmiles = async (smiles) => {
 defineExpose({ drawSmiles });
 
 const saveFromKetcher = async () => {
-  console.log(`--- Debug Start: Reagent ${props.index} ---`);
   try {
     const ketcher = ketcherFrame.value?.contentWindow?.ketcher;
-    if (!ketcher) {
-      console.error("Ketcher instance not found in iframe");
-      return;
-    }
+    if (!ketcher) return;
 
-    // 1. Извлекаем SMILES
     const smiles = await ketcher.getSmiles();
-
-    // 2. Генерируем превью SVG
     const blob = await ketcher.generateImage(smiles, { outputFormat: 'svg' });
     const svgText = await blob.text();
-
-    // 3. Пытаемся получить Molfile для точного расчета веса
     const molfile = await ketcher.getMolfile();
 
     let massVal = null;
 
     if (ketcher.structService) {
-      console.log("Calling structService.calculate...");
       try {
-        // Пробуем передать именно Molfile, так как в нем четко разделены фрагменты
         const result = await ketcher.structService.calculate({
           struct: molfile,
           properties: ['molecular-weight']
         });
-
-        console.log("Full calculation result object:", result);
         massVal = result?.['molecular-weight'];
-        console.log("Extracted M.W.:", massVal);
       } catch (calcError) {
         console.error("StructService calculation failed:", calcError);
       }
-    } else {
-      console.warn("Ketcher structService is not available");
     }
 
-    // 4. Подготовка объекта для обновления
     const updated = { ...props.modelValue };
-
-    // Используем пока старые ключи, как ты и просил
     updated[`reagent${props.index}_smiles`] = smiles;
     updated[`reagent${props.index}_svg`] = svgText;
 
     if (massVal) {
-      // Если в строке несколько масс (через ';'), разбиваем их и суммируем
       const totalMass = String(massVal)
         .split(';')
         .reduce((sum, part) => {
@@ -229,20 +227,13 @@ const saveFromKetcher = async () => {
           return sum + (isNaN(num) ? 0 : num);
         }, 0);
 
-      const parsedMass = totalMass.toFixed(2);
-      updated[`reagent${props.index}_molar_mass`] = parsedMass;
-      console.log("Calculated Total M.W. (Sum):", parsedMass);
-    } else {
-      console.warn("Molar mass is null, field will not be updated");
+      updated[`reagent${props.index}_molar_mass`] = totalMass.toFixed(2);
     }
 
-    console.log("Final object to emit:", updated);
     emit('update:modelValue', updated);
-
   } catch (err) {
     console.error("Global saveFromKetcher error:", err);
   } finally {
-    console.log(`--- Debug End: Reagent ${props.index} ---`);
     showKetcher.value = false;
   }
 }
@@ -253,84 +244,44 @@ const openEditor = async () => {
 
   const checkAndSet = async () => {
     const ketcher = ketcherFrame.value?.contentWindow?.ketcher;
-    // Ждем не просто ketcher, а наличие editor
     if (ketcher && ketcher.editor) {
-      const smiles = props.index === undefined
-        ? props.modelValue.product_smiles
-        : props.modelValue[`reagent${props.index}_smiles`];
-
+      const smiles = props.modelValue[`reagent${props.index}_smiles`];
       await ketcher.setMolecule(smiles || "");
-
-      // Сброс зума
       ketcher.editor.setZoom(1.0);
       if (ketcher.editor.centerXy) ketcher.editor.centerXy();
     } else {
-      setTimeout(checkAndSet, 50); // Проверяем каждые 50мс
+      setTimeout(checkAndSet, 50);
     }
   };
-
   checkAndSet();
 };
 </script>
 
 <style scoped>
 .reagent-card {
-  width: 100%; /* Теперь ширину контролирует сетка родителя */
+  width: 100%;
   background: white;
   border: 1px solid #e0e0e0;
   border-radius: 8px;
   box-shadow: 0 2px 4px rgba(0,0,0,0.05);
-  transition: transform 0.2s;
 }
 .limiting-reagent { border: 2px solid #42b983; }
-.limiting-reagent .card-header { background: #42b983; }
-
-/* Убираем рамку в режиме чтения, оставляем только легкую тень */
-.reagent-card:not(.limiting-reagent) {
-  border: 1px solid #eee;
-}
+.limiting-reagent .card-header { background: #42b983; color: white; }
 
 .card-header {
   padding: 8px 12px;
   background: #f8f9fa;
   border-bottom: 1px solid #eee;
-  border-radius: 8px 8px 0 0;
+  border-radius: 6px 6px 0 0;
   font-weight: bold;
   font-size: 0.9rem;
   text-align: center;
-}
-
-.structure-zone-mini {
-  height: 140px; /* Чуть увеличим для наглядности */
-  background: #fff;
-  border: 1px solid #f0f0f0;
-  border-radius: 4px;
-  margin-bottom: 5px;
-}
-
-.field-group input {
-  padding: 6px;
-  border: 1px solid #ececec;
-  background: #fff;
-}
-
-/* Скрываем границы инпутов в режиме чтения, чтобы выглядело как текст */
-input:disabled {
-  border-color: transparent !important;
-  background: transparent !important;
   color: #333;
-  font-weight: 500;
-  cursor: default;
 }
 
-/* Если поле пустое и мы не редактируем — можно его вообще притушить */
-input:disabled[value=""],
-input:disabled:not([value]) {
-  opacity: 0.3;
-}
+.card-body { padding: 10px; display: flex; flex-direction: column; gap: 8px; }
 
-.card-body { padding: 10px; display: flex; flex-direction: column; gap: 10px; }
-
+/* Чистая зона картинки без лишних элементов внутри */
 .structure-zone-mini {
   height: 120px;
   background: #fff;
@@ -340,20 +291,68 @@ input:disabled:not([value]) {
   justify-content: center;
   align-items: center;
   overflow: hidden;
+  box-sizing: border-box;
 }
+.editable-zone:hover {
+  border-color: #42b983;
+  background: #fafffd;
+  cursor: pointer;
+}
+.placeholder-mini { font-size: 1.5rem; opacity: 0.5; }
+.svg-render { width: 100%; height: 100%; display: flex; justify-content: center; align-items: center; }
+.svg-render :deep(svg) { max-width: 100%; max-height: 100%; object-fit: contain; }
 
 .fields-column { display: flex; flex-direction: column; gap: 6px; }
 
 .field-group { display: flex; flex-direction: column; }
-.field-group label { font-size: 0.7rem; color: #777; }
-.field-group input { padding: 4px; font-size: 0.85rem; border: 1px solid #ddd; border-radius: 4px; }
+.field-group label { font-size: 0.7rem; color: #777; margin-bottom: 1px; }
+.field-group input { padding: 4px 6px; font-size: 0.85rem; border: 1px solid #ddd; border-radius: 4px; height: 28px; box-sizing: border-box; }
 
+/* Группа для инпута SMILES и кнопки копирования */
+.smiles-input-group {
+  display: flex;
+  width: 100%;
+}
+.smiles-compact-input {
+  flex: 1;
+  border-top-right-radius: 0 !important;
+  border-bottom-right-radius: 0 !important;
+  border-right: none !important;
+}
+.btn-copy-smiles {
+  background: #f4f6f7;
+  border: 1px solid #ddd;
+  border-top-right-radius: 4px;
+  border-bottom-right-radius: 4px;
+  cursor: pointer;
+  padding: 0 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.85rem;
+  height: 28px;
+  box-sizing: border-box;
+}
+.btn-copy-smiles:hover {
+  background: #e5e8e9;
+}
+
+/* Стилизация для disabled полей */
+input:disabled {
+  border-color: transparent !important;
+  background: transparent !important;
+  color: #333;
+  font-weight: 500;
+  cursor: default;
+  padding-left: 2px !important;
+}
+input:disabled[value=""],
+input:disabled:not([value]) {
+  opacity: 0.3;
+}
 .readonly input { background: #f9f9f9; color: #666; }
 
-.svg-render { width: 100%; height: 100%; }
-.svg-render :deep(svg) { width: 100%; height: 100%; }
-
-/* Копируем стили модалки из ProductCard или выносим в общий CSS */
+/* Модалка Ketcher */
 .modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.7); z-index: 2000; display: flex; align-items: center; justify-content: center; }
 .modal-content { width: 80%; height: 80%; background: white; border-radius: 8px; display: flex; flex-direction: column; }
 .ketcher-frame { flex: 1; border: none; }

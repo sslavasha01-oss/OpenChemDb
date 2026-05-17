@@ -91,7 +91,6 @@
                v-show="(isEditing && i <= visibleReagentsCount) || (!isEditing && journalData[`reagent${i}_smiles`]) || i === 1"
              />
 
-             <!-- Кнопка добавления реагента (только в режиме редактирования) -->
              <button
                v-if="isEditing && visibleReagentsCount < 5"
                class="add-reagent-card"
@@ -896,4 +895,5 @@ watch(journalData, () => {
 .table-actions {
   display: none; /* Мы ее перенесли выше */
 }
+
 </style>

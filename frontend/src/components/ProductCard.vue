@@ -3,7 +3,6 @@
     <div class="card-header">Продукт реакции</div>
 
     <div class="card-body">
-      <!-- Зона структуры -->
       <div
         class="structure-zone"
         :class="{ 'editable-zone': isEditing }"
@@ -16,17 +15,20 @@
         <div v-else class="svg-render" v-html="modelValue.product_preview_svg"></div>
       </div>
 
-      <!-- Поля данных -->
       <div class="fields-zone">
+
         <div class="field-group">
           <label>SMILES</label>
-          <input
-            type="text"
-            :value="modelValue.product_smiles"
-            @input="onSmilesInput"
-            :disabled="!isEditing"
-            placeholder="C1=CC=CC=C1..."
-          >
+          <div class="smiles-input-group">
+            <input
+              type="text"
+              :value="modelValue.product_smiles"
+              @input="onSmilesInput"
+              :disabled="!isEditing"
+              placeholder="C1=CC=CC=C1..."
+              class="smiles-compact-input"
+            >
+          </div>
         </div>
 
         <div class="metrics-grid">
@@ -36,17 +38,7 @@
           </div>
 
           <div class="field-group">
-            <label>Экв.</label>
-            <input
-              type="number"
-              v-model.number="modelValue.product_molar_ekv"
-              :disabled="!isEditing"
-              step="0.01"
-            >
-          </div>
-
-          <div class="field-group">
-            <label>Практ. масса (г)</label>
+            <label>Практ. mass (г)</label>
             <input
               type="number"
               v-model.number="modelValue.product_praktical_mass"
@@ -64,7 +56,21 @@
             <label>Теор. масса (г)</label>
             <input type="number" :value="modelValue.product_theoretical_mass" disabled>
           </div>
-        </div> </div> </div> <div class="card-footer-row">
+
+          <div class="field-group">
+            <label>Экв.</label>
+            <input
+              type="number"
+              v-model.number="modelValue.product_molar_ekv"
+              :disabled="!isEditing"
+              step="0.01"
+            >
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card-footer-row">
       <div class="field-group conditions-field">
         <label>Условия реакции (Conditions)</label>
         <input
@@ -81,7 +87,6 @@
       </div>
     </div>
 
-    <!-- Скрытый iframe для фоновой генерации SVG из SMILES -->
     <iframe
       v-show="false"
       ref="hiddenKetcher"
@@ -111,15 +116,27 @@ const props = defineProps({
   isEditing: Boolean
 })
 
+const emit = defineEmits(['update:modelValue', 'calculate'])
+
 const showKetcher = ref(false)
 const ketcherFrame = ref(null)
-const isKetcherReady = ref(false)
+const hiddenKetcher = ref(null)
+
+const onSmilesInput = (e) => {
+  const newSmiles = e.target.value
+
+  // Обновляем модель в родителе, чтобы данные не потерялись
+  const updatedValue = { ...props.modelValue, product_smiles: newSmiles };
+  emit('update:modelValue', updatedValue);
+
+  // Пингуем Ketcher, чтобы он перерисовал структуру и посчитал массу в фоне
+  drawSmiles(newSmiles);
+}
 
 const drawSmiles = async (smiles) => {
   if (!smiles || smiles.trim() === "") {
     const ketcher = ketcherFrame.value?.contentWindow?.ketcher;
     if (ketcher) ketcher.setMolecule("");
-    // Очищаем превью, если смайлс пустой
     const updated = { ...props.modelValue };
     updated.product_preview_svg = '';
     emit('update:modelValue', updated);
@@ -133,79 +150,38 @@ const drawSmiles = async (smiles) => {
     if (ketcher && typeof ketcher.setMolecule === 'function') {
       (async () => {
         try {
-          // 1. Рисуем молекулу в скрытом фрейме
           await ketcher.setMolecule(smiles);
-
-          // 2. Генерируем SVG код из того, что только что нарисовали
           const blob = await ketcher.generateImage(smiles, { outputFormat: 'svg' });
           const svgText = await blob.text();
 
-          // 3. Обновляем модель, чтобы v-html в шаблоне увидел картинку
           const updated = { ...props.modelValue };
-
-          // Для ProductCard:
-          if (props.index === undefined) {
-             updated.product_preview_svg = svgText;
-          } else {
-             // Для ReagentCard (используем индекс):
-             updated[`reagent${props.index}_svg`] = svgText;
-          }
-
+          updated.product_preview_svg = svgText;
           emit('update:modelValue', updated);
 
-          // 4. Масштаб
           setTimeout(() => {
             try {
               if (ketcher.setZoom) ketcher.setZoom(1.0);
               else if (ketcher.editor?.setZoom) ketcher.editor.setZoom(1.0);
             } catch (e) {}
           }, 150);
-
-          console.log("[Card Debug] Drawing & Preview Generation SUCCESS");
         } catch (err) {
-          console.error("[Card Debug] Draw/Preview FAILED:", err);
+          console.error("[Product Draw Error]:", err);
         }
       })();
     } else if (attempts < 25) {
       setTimeout(() => tryDraw(attempts + 1), 200);
     }
   };
-
   tryDraw();
 };
 
 defineExpose({ drawSmiles });
 
-// В обработчике открытия окна (клик на картинку)
-const openKetcher = () => {
-  showModal.value = true;
-  // Если Ketcher уже загружен, просто рисуем текущий смайлс
-  if (isKetcherReady.value) {
-    drawSmiles(props.modelValue.product_smiles);
-  }
-};
-
-const emit = defineEmits(['update:modelValue', 'calculate'])
-
-const hiddenKetcher = ref(null)
-
-// 1. Обработка ручного ввода SMILES
-const onSmilesInput = (e) => {
-  const newSmiles = e.target.value
-  // Правильный способ обновления v-model:
-  const updatedValue = { ...props.modelValue, product_smiles: newSmiles };
-  emit('update:modelValue', updatedValue);
-
-}
-
-// 3. Сохранение из редактора
 const saveFromKetcher = async () => {
-  console.log("--- Debug Start: Product ---");
   try {
     const ketcher = ketcherFrame.value?.contentWindow?.ketcher;
     if (!ketcher) return;
 
-    // 1. Получаем данные из редактора
     const smiles = await ketcher.getSmiles();
     const blob = await ketcher.generateImage(smiles, { outputFormat: 'svg' });
     const svgText = await blob.text();
@@ -213,23 +189,19 @@ const saveFromKetcher = async () => {
 
     let massVal = null;
 
-    // 2. Расчет массы через сервис
     if (ketcher.structService) {
       const result = await ketcher.structService.calculate({
         struct: molfile,
         properties: ['molecular-weight']
       });
-      console.log("Product calculation result:", result);
       massVal = result?.['molecular-weight'];
     }
 
-    // 3. Формируем обновленный объект
     const updatedValue = { ...props.modelValue };
     updatedValue.product_smiles = smiles;
-    updatedValue.product_preview_svg = svgText; // Возвращаемся к стандартному полю
+    updatedValue.product_preview_svg = svgText;
 
     if (massVal) {
-      // Суммируем фрагменты, если их несколько (через ';')
       const totalMass = String(massVal)
         .split(';')
         .reduce((sum, part) => {
@@ -238,16 +210,12 @@ const saveFromKetcher = async () => {
         }, 0);
 
       updatedValue.product_molar_mass = totalMass.toFixed(2);
-      console.log("Calculated Total Product M.W.:", updatedValue.product_molar_mass);
     }
 
-    // 4. Отправляем наверх
     emit('update:modelValue', updatedValue);
-
   } catch (err) {
-    console.error("Error saving product from Ketcher:", err);
+    console.error("Error saving product:", err);
   } finally {
-    console.log("--- Debug End: Product ---");
     showKetcher.value = false;
   }
 };
@@ -258,57 +226,20 @@ const openEditor = async () => {
 
   const checkAndSet = async () => {
     const ketcher = ketcherFrame.value?.contentWindow?.ketcher;
-    // Ждем не просто ketcher, а наличие editor
     if (ketcher && ketcher.editor) {
-      const smiles = props.index === undefined
-        ? props.modelValue.product_smiles
-        : props.modelValue[`reagent${props.index}_smiles`];
-
+      const smiles = props.modelValue.product_smiles;
       await ketcher.setMolecule(smiles || "");
-
-      // Сброс зума
       ketcher.editor.setZoom(1.0);
       if (ketcher.editor.centerXy) ketcher.editor.centerXy();
     } else {
-      setTimeout(checkAndSet, 50); // Проверяем каждые 50мс
+      setTimeout(checkAndSet, 50);
     }
   };
-
   checkAndSet();
 };
 </script>
 
 <style scoped>
-.structure-zone {
-  width: 300px;
-  height: 250px;
-  border: 1px solid #eee;
-  background: white;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 8px;
-  transition: all 0.2s;
-}
-.editable-zone:hover {
-  border-color: #42b983;
-  background: #fafffd;
-  cursor: pointer;
-}
-.svg-render { width: 100%; height: 100%; padding: 10px; }
-.svg-render :deep(svg) { width: 100%; height: 100%; }
-
-.readonly input {
-  background: #f0f0f0;
-  border-color: #eee;
-  color: #555;
-}
-
-.metrics-grid {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 12px;
-}
 .card {
   border: 1px solid #ccc;
   border-radius: 12px;
@@ -325,76 +256,98 @@ const openEditor = async () => {
 .card-body {
   display: flex;
   gap: 20px;
-  padding: 15px;
+  padding: 15px 15px 5px 15px; /* Уменьшили нижний отступ тела */
 }
 
+/* Компактный квадрат структуры */
 .structure-zone {
-  width: 250px;
-  height: 200px;
+  width: 160px;
+  height: 160px;
   border: 1px dashed #bbb;
   border-radius: 8px;
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
   cursor: pointer;
   background: #fcfcfc;
+  box-sizing: border-box;
 }
+.editable-zone:hover {
+  border-color: #42b983;
+  background: #fafffd;
+}
+.placeholder { text-align: center; color: #777; padding: 5px; }
+.placeholder .icon { font-size: 1.4rem; }
+.placeholder p { font-size: 0.7rem; margin: 4px 0 0 0; line-height: 1.1; }
 
-.fields-zone { flex: 1; }
-.metrics-grid {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 10px;
-  margin-top: 15px;
-}
+.svg-render { width: 100%; height: 100%; padding: 6px; display: flex; justify-content: center; align-items: center; }
+.svg-render :deep(svg) { max-width: 100%; max-height: 100%; object-fit: contain; }
+
+.fields-zone { flex: 1; display: flex; flex-direction: column; gap: 8px; }
 
 .field-group { display: flex; flex-direction: column; }
-.field-group label { font-size: 0.8rem; color: #666; margin-bottom: 2px; }
+.field-group label { font-size: 0.75rem; color: #666; margin-bottom: 2px; }
 .field-group input {
-  padding: 6px;
+  padding: 5px 8px;
   border: 1px solid #ddd;
   border-radius: 4px;
+  font-size: 0.85rem;
+  height: 28px;
+  box-sizing: border-box;
 }
 
-.yield-input { background: #e8f5e9; font-weight: bold; color: #2e7d32; }
-
-/* Модалка Ketcher */
-.modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.7); z-index: 1000; display: flex; align-items: center; justify-content: center; }
-.modal-content { width: 90%; height: 90%; background: white; display: flex; flex-direction: column; border-radius: 8px; }
-.ketcher-frame { flex: 1; border: none; }
-
-@media (max-width: 768px) {
-  .card-body { flex-direction: column; }
-  .structure-zone { width: 100%; }
-  .metrics-grid { grid-template-columns: repeat(2, 1fr); }
-}
-
-/* Нижняя панель для условий и выхода */
-.card-footer-row {
+/* Компактная инпут-группа SMILES */
+.smiles-input-group {
   display: flex;
-  gap: 20px;
-  padding: 0 15px 15px 15px; /* Отступы слева, справа и снизу */
-  margin-top: -5px; /* Слегка подтягиваем к верхнему блоку */
+  width: 100%;
 }
-
-/* Условия занимают максимум пространства */
-.conditions-field {
+.smiles-compact-input {
   flex: 1;
 }
 
-/* Выход фиксируем по ширине, чтобы он гармонировал с верхними инпутами */
-.yield-field {
-  width: 150px;
+/* Сетка метрик: 3 колонки вместо 2 ужимают высоту в полтора раза */
+.metrics-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
 }
 
-/* Адаптив для планшетов/мобилок: перестраиваем в стек */
+/* Оформление инпутов чтения */
+input:disabled {
+  border-color: transparent !important;
+  background: transparent !important;
+  color: #333;
+  font-weight: 500;
+  cursor: default;
+  padding-left: 2px !important;
+}
+.readonly input { background: #f9f9f9; color: #666; }
+.yield-input { background: #e8f5e9 !important; font-weight: bold; color: #2e7d32; border-radius: 4px; border: 1px solid #c8e6c9 !important; text-align: center; }
+
+/* Нижний ряд: условия и выход */
+.card-footer-row {
+  display: flex;
+  gap: 15px;
+  padding: 0 15px 15px 15px;
+  margin-top: 5px;
+}
+.conditions-field { flex: 1; }
+.yield-field { width: 120px; }
+
+/* Модалка Ketcher */
+.modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.7); z-index: 2000; display: flex; align-items: center; justify-content: center; }
+.modal-content { width: 85%; height: 85%; background: white; display: flex; flex-direction: column; border-radius: 8px; overflow: hidden; }
+.ketcher-frame { flex: 1; border: none; }
+.modal-header { padding: 10px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #eee; }
+.btn-apply { background: #42b983; color: white; border: none; padding: 5px 15px; border-radius: 4px; cursor: pointer; font-weight: bold; }
+.btn-cancel { background: #999; color: white; border: none; padding: 5px 15px; border-radius: 4px; cursor: pointer; }
+
 @media (max-width: 768px) {
-  .card-footer-row {
-    flex-direction: column;
-    gap: 10px;
-  }
-  .yield-field {
-    width: 100%;
-  }
+  .card-body { flex-direction: column; }
+  .structure-zone { width: 100%; height: 140px; }
+  .metrics-grid { grid-template-columns: repeat(2, 1fr); }
+  .card-footer-row { flex-direction: column; gap: 10px; }
+  .yield-field { width: 100%; }
 }
 </style>
