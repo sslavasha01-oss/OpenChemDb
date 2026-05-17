@@ -3,7 +3,7 @@ from typing import List
 import sqlalchemy as sa
 from fastapi import APIRouter, Depends, Query
 from rdkit import Chem
-from rdkit.Chem import rdChemReactions, Draw
+from rdkit.Chem import rdChemReactions, Draw, AllChem
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db import get_archive_db  # Твой генератор сессий для archive_db
@@ -173,35 +173,73 @@ def generate_reaction_svg(smiles: str) -> str:
         return ""
 
     try:
-        # 1. Сначала пробуем распарсить как реакцию через Smarts (это надежнее)
         rxn = rdChemReactions.ReactionFromSmarts(smiles, useSmiles=True)
 
         if rxn:
-            # Даем RDKit достаточно места, но CSS потом сожмет его до 50%
-            d2d = Draw.MolDraw2DSVG(800, 300)
+            # 1. Генерируем чистые 2D-координаты
+            for i in range(rxn.GetNumReactantTemplates()):
+                mol = rxn.GetReactantTemplate(i)
+                mol.RemoveAllConformers()
+                AllChem.Compute2DCoords(mol)
 
+            for i in range(rxn.GetNumProductTemplates()):
+                mol = rxn.GetProductTemplate(i)
+                mol.RemoveAllConformers()
+                AllChem.Compute2DCoords(mol)
+
+            # 2. Считаем атомы
+            total_atoms = 0
+            for i in range(rxn.GetNumReactantTemplates()):
+                total_atoms += rxn.GetReactantTemplate(i).GetNumAtoms()
+            for i in range(rxn.GetNumProductTemplates()):
+                total_atoms += rxn.GetProductTemplate(i).GetNumAtoms()
+
+            # МАСШТАБИРОВАНИЕ: Меняем шаг на атом.
+            # Для больших реакций делаем холст ниже, чтобы убрать пустоту сверху/снизу (letterboxing)
+            # Для маленьких реакций разрешаем холсту быть узким (от 400px), чтобы убрать пустоту по бокам.
+            # Для гигантских реакций расширяем лимит до 4000px, чтобы они не сжимались в точку.
+            canvas_width = max(400, min(total_atoms * 22, 4000))
+            # Чуть увеличим высоту для сложных структур, чтобы не было letterboxing (пустоты сверху/снизу)
+            canvas_height = 300 if total_atoms > 100 else 180
+
+            d2d = Draw.MolDraw2DSVG(canvas_width, canvas_height)
             opts = d2d.drawOptions()
-            opts.prepareMolsBeforeDrawing = True  # Магическая кнопка для чистки координат
             opts.fixedFontSize = 14
+            opts.annotationFontScale = 0.8
+            opts.padding = 0.02  # Максимально прижимаем структуру к краям холста
 
             d2d.DrawReaction(rxn)
             d2d.FinishDrawing()
 
             svg = d2d.GetDrawingText()
-            # Важный хак: делаем SVG адаптивным, убирая фиксированные width/height из тега
-            return svg.replace('width="800px"', 'width="100%"').replace('height="300px"', 'height="auto"')
 
-        # 2. Fallback: если это не реакция, а просто молекула
+            # ЧИСТЫЙ ВЕКТОР: Заменяем fixed width/height на адаптивный viewBox.
+            # Теперь SVG говорит браузеру: "Я растягиваюсь на 100% ширины, а высоту подстрой сам".
+            svg_adaptive = svg.replace(
+                f'width="{canvas_width}px" height="{canvas_height}px"',
+                f'viewBox="0 0 {canvas_width} {canvas_height}" width="100%" height="auto"'
+            )
+            return svg_adaptive
+
+        # Fallback для одной молекулы
         mol = Chem.MolFromSmiles(smiles)
         if mol:
-            d2d = Draw.MolDraw2DSVG(400, 200)
+            mol.RemoveAllConformers()
+            AllChem.Compute2DCoords(mol)
+
+            num_atoms = mol.GetNumAtoms()
+            w = max(300, min(num_atoms * 18, 800))
+            h = max(200, min(num_atoms * 14, 400))
+
+            d2d = Draw.MolDraw2DSVG(w, h)
+            d2d.drawOptions().padding = 0.02
             d2d.DrawMolecule(mol)
             d2d.FinishDrawing()
+
             svg = d2d.GetDrawingText()
-            return svg.replace('width="400px"', 'width="100%"').replace('height="200px"', 'height="auto"')
+            return svg.replace(f'width="{w}px" height="{h}px"', f'viewBox="0 0 {w} {h}" width="100%" height="auto"')
 
     except Exception as e:
-        # Если RDKit совсем упал, в логах будет видно почему
         print(f"RDKit Render Error for {smiles[:20]}: {e}")
 
     return ""

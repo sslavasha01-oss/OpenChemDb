@@ -12,7 +12,7 @@
             <div class="viz-header">
               <h4>Reaction Structure</h4>
             </div>
-            <div class="full-img-wrap" v-html="reaction?.svg_content || ''"></div>
+            <div ref="scrollContainer" class="modal-reaction-scroll" v-html="reaction?.svg_content || ''"></div>
           </div>
 
           <div class="text-data-block">
@@ -90,15 +90,48 @@
 </template>
 
 <script setup>
-import { ref } from 'vue'
+import { ref, watch, nextTick } from 'vue'
 import SocialActivity from '@/components/shared/SocialActivity.vue'
 import EvaluationModal from '@/components/modals/EvaluationModal.vue'
 
+const scrollContainer = ref(null)
 const isEvalModalOpen = ref(false)
 const socialRef = ref(null)
 
 const props = defineProps({ isOpen: Boolean, reaction: Object })
 const emit = defineEmits(['close'])
+
+// Следим за открытием модалки или сменой реакции
+watch([() => props.isOpen, () => props.reaction], async ([isOpen, rxn]) => {
+  if (isOpen && rxn) {
+    // Ждем, пока Vue отрендерит SVG в DOM
+    await nextTick()
+
+    if (scrollContainer.value) {
+      const container = scrollContainer.value;
+      const svgElement = container.querySelector('svg');
+
+      if (svgElement) {
+        // Получаем реальную ширину сгенерированного RDKit холста
+        const svgWidth = svgElement.getBoundingClientRect().width;
+        const containerWidth = container.clientWidth;
+
+        // Если холст шире экрана (реакция большая и ушла в скролл)
+        if (svgWidth > containerWidth) {
+          // Рассчитываем оптимальную точку старта:
+          // Убираем пустые поля RDKit, центрируя контент, но сдвигая к началу (на 25-30% от общей ширины)
+          const startPoint = (svgWidth - containerWidth) * 0.35;
+
+          // Плавно или мгновенно скроллим туда
+          container.scrollLeft = startPoint;
+        } else {
+          container.scrollLeft = 0;
+        }
+      }
+    }
+  }
+})
+
 
 // Функция для замены <NL> на переносы строк
 const formatText = (text) => {
@@ -155,18 +188,37 @@ const onEvalSuccess = () => {
 }
 
 /* Контейнер для SVG */
-.full-img-wrap {
-  width: 100%;
-  min-height: 250px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 20px;
-}
-.full-img-wrap :deep(svg) {
+.modal-reaction-scroll {
   width: 100%;
   height: auto;
-  max-height: 400px;
+  min-height: 250px;
+  max-height: 380px;
+  overflow-x: auto;       /* Включаем нативный скролл */
+  overflow-y: hidden;
+  padding: 15px;
+  background: white;
+  /* Убираем flex, чтобы блочная модель и скролл работали предсказуемо */
+  display: block;
+}
+
+.modal-reaction-scroll :deep(svg) {
+  height: 100% !important;
+  width: auto !important;
+  display: block;
+  /* Больше никаких отрицательных маргинов — реакция теперь доступна для скролла на все 100% */
+  margin: 0;
+}
+
+/* Аккуратный скроллбар */
+.modal-reaction-scroll::-webkit-scrollbar {
+  height: 6px;
+}
+.modal-reaction-scroll::-webkit-scrollbar-thumb {
+  background-color: #42b983;
+  border-radius: 3px;
+}
+.modal-reaction-scroll::-webkit-scrollbar-track {
+  background: #f1f1f1;
 }
 
 /* Стили для текстовых боксов SMILES */

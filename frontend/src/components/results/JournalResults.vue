@@ -295,11 +295,14 @@ defineExpose({performNewSearch})
   border-radius: 4px;
   display: flex;
   justify-content: center;
+  align-items: center;
+  padding: 4px;
 }
 
 .reaction-container :deep(svg) {
-  max-width: 100%;
+  width: 100%;
   height: auto;
+  max-height: 140px; /* Ограничиваем по высоте, чтобы строка таблицы не была слишком высокой */
   display: block;
 }
 
