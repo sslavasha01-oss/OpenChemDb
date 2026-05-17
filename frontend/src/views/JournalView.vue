@@ -703,6 +703,27 @@ watch(isGuest, (newIsGuest) => {
   }
 });
 
+// Отслеживаем смену аккаунта (когда переключили в навбаре)
+watch(() => userStore.currentAccountIndex, async (newIndex) => {
+  // 1. Обновляем токен в localStorage для аксиоса/запросов формы
+  const currentAcc = userStore.currentUser;
+  if (currentAcc && currentAcc.token) {
+    localStorage.setItem('token', currentAcc.token);
+  } else {
+    localStorage.removeItem('token');
+  }
+
+  // 2. Сбрасываем форму метода, чтобы не висели данные предыдущего юзера
+  journalData.value = createEmptyEntry();
+  selectedRecordId.value = null;
+
+  // 3. Если мы находимся на вкладке таблицы — принудительно обновляем её данные под нового юзера
+  await nextTick();
+  if (tableRef.value && activeTab.value === 'table' && !isGuest.value) {
+    tableRef.value.refreshData();
+  }
+});
+
 </script>
 
 <style scoped>

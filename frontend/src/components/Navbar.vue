@@ -60,7 +60,7 @@ const toggleAccountMenu = () => { // <--- И это
                 :class="['account-item', { active: index === userStore.currentAccountIndex }]"
                 @click="userStore.switchAccount(index); showAccountMenu = false"
             >
-              {{ acc.name }} <small v-if="acc.role === 'admin'">(Admin)</small>
+              {{ acc.name }} <small v-if="acc.role === 'ADMIN'">(Admin)</small>
             </div>
             <hr>
             <router-link to="/login" @click="showAccountMenu = false">Add Account</router-link>

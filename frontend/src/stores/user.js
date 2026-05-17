@@ -20,8 +20,8 @@ export const useUserStore = defineStore('user', {
         // Флаг: залогинен ли хотя бы один юзер
         isLoggedIn: (state) => state.accounts.length > 0,
 
-        // Проверка роли текущего юзера
-        isAdmin: (state) => state.currentUser?.role === 'ADMIN'
+        // Проверка роли текущего юзера (привели к единому регистру)
+        isAdmin: (state) => state.currentUser?.role?.toUpperCase() === 'ADMIN'
     },
 
     actions: {
@@ -54,6 +54,8 @@ export const useUserStore = defineStore('user', {
 
         // Выход из текущего аккаунта
         logout() {
+            if (this.accounts.length === 0) return
+
             this.accounts.splice(this.currentAccountIndex, 1)
 
             // Сбрасываем индекс на первый доступный или на 0
@@ -63,10 +65,19 @@ export const useUserStore = defineStore('user', {
             this.save()
         },
 
-        // Сохранение всего состояния в LocalStorage
+        // Сохранение всего состояния в LocalStorage + менеджмент основного токена
         save() {
             localStorage.setItem('chem_accounts', JSON.stringify(this.accounts))
             localStorage.setItem('chem_current_index', this.currentAccountIndex.toString())
+
+            // МЕНЕДЖМЕНТ ТОКЕНА: Синхронизируем базовый 'token' с активным аккаунтом
+            const activeUser = this.currentUser
+            if (activeUser && activeUser.token) {
+                localStorage.setItem('token', activeUser.token)
+            } else {
+                // Если аккаунтов не осталось или у юзера нет токена — тотальная зачистка
+                localStorage.removeItem('token')
+            }
         }
     }
 })
