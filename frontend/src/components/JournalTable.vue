@@ -96,6 +96,11 @@ const offset = computed(() => (currentPage.value - 1) * limit)
 const totalPages = computed(() => Math.ceil(totalCount.value / limit))
 
 const fetchCount = async () => {
+    // Если токена нет или в сторе пустые аккаунты — просто выходим
+  if (!localStorage.getItem('token')) {
+    console.log("[Table] Запрос отменен: пользователь не авторизован");
+    return;
+  }
   if (totalCount.value > 0) return;
   try {
     const token = localStorage.getItem('token')
@@ -116,7 +121,13 @@ const fetchRecords = async (forceRefresh = false) => {
   error.value = null; // Сбрасываем старую ошибку перед новым запросом
 
   try {
+    if (!localStorage.getItem('token')) {
+      console.log("[Table] Запрос отменен: пользователь не авторизован");
+      return;
+    }
     const token = localStorage.getItem('token');
+    // Если токена нет или в сторе пустые аккаунты — просто выходим
+
     const response = await axios.get('/api/my-journal/list', {
       params: { limit: limit, offset: offset.value },
       headers: { 'Authorization': `Bearer ${token}` }

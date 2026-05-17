@@ -94,7 +94,7 @@ async def search_reaction_ids_smarts(
     use_mapped = bool(ATOM_MAPPING_REGEX.search(smiles))
     column_name = "reaction_mapped_data" if use_mapped else "reaction_raw_data"
     print(use_mapped)
-    await db.execute(sa.text("SET LOCAL statement_timeout = 3000;"))
+    await db.execute(sa.text("SET LOCAL statement_timeout = 4000;"))
 
     processed_query = smiles
     # Выбираем оператор

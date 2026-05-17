@@ -382,9 +382,9 @@ watch(searchMode, (newMode) => {
 
 .modal-content {
   background: white;
-  width: 100%;
-  max-width: 1200px;
-  height: 90vh;
+  width: 95vw;
+  max-width: 1600px;
+  height: 95vh;
   border-radius: 12px;
   display: flex;
   flex-direction: column;
@@ -392,7 +392,7 @@ watch(searchMode, (newMode) => {
 }
 
 .modal-header {
-  padding: 15px 20px;
+  padding: 12px 20px;
   background: #f8f9fa;
   display: flex;
   justify-content: space-between;
@@ -404,6 +404,8 @@ watch(searchMode, (newMode) => {
   flex: 1;
   border: none;
   width: 100%;
+  height: 100%;
+  display: block;
 }
 
 .btn-save {

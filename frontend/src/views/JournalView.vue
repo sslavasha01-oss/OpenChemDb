@@ -60,7 +60,7 @@
     </div>
 
     <main class="tab-content">
-        <section v-if="activeTab === 'table' && !isGuest">
+        <section v-show="activeTab === 'table' && !isGuest">
         <div class="table-actions">
           <button class="btn-add-main" @click="initNewEntryFromTable">
             <span class="icon">+</span> Добавить новую запись в журнал
