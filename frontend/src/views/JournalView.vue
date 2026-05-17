@@ -8,31 +8,51 @@
     </nav>
 
   <div class="header-controls">
-  <!-- Навигация (стрелки): Показываем везде, КРОМЕ вкладки 'search' -->
-  <div v-if="activeTab !== 'search'" class="global-record-nav">
-    <button @click="navigateRecord(-1)" :disabled="isEditing" class="nav-arrow">←</button>
-    <span class="selected-id-display">
-      Запись: {{ journalData?.external_id ? '#' + journalData.external_id : '---' }}
-    </span>
-    <button @click="navigateRecord(1)" :disabled="isEditing" class="nav-arrow">→</button>
-  </div>
+      <!-- Навигация (стрелки): Показываем везде, КРОМЕ вкладки 'search' -->
+      <div v-if="activeTab !== 'search'" class="global-record-nav">
+        <button @click="navigateRecord(-1)" :disabled="isEditing" class="nav-arrow">←</button>
+        <span class="selected-id-display">
+          Запись: {{ journalData?.external_id ? '#' + journalData.external_id : '---' }}
+        </span>
+        <button @click="navigateRecord(1)" :disabled="isEditing" class="nav-arrow">→</button>
+      </div>
 
-  <!-- Кнопка "Добавить": Показываем на 'table' И на 'method' -->
-  <button
-    v-if="activeTab === 'table' || activeTab === 'method'"
-    class="btn-add-main"
-    @click="initNewEntryFromTable"
-  >
-    <span class="icon">+</span> Новая запись
-  </button>
-</div>
+      <!-- 1. Новая запись (Показываем на 'table' И на 'method') -->
+      <button
+        v-if="activeTab === 'table' || activeTab === 'method'"
+        class="btn-add-main"
+        @click="initNewEntryFromTable"
+      >
+        <span class="icon">+</span> Новая запись
+      </button>
 
-    <!-- Панель управления (только для методики) -->
-    <div v-if="activeTab === 'method'" class="toolbar">
-      <button @click="isEditing = true" :disabled="isEditing">Редактировать</button>
-      <button @click="createNewEntry">Новая запись</button>
-      <button @click="saveEntry" class="btn-save" :disabled="!isEditing || loading">
+      <!-- 2. Редактировать / Отменить (Только на вкладке 'method') -->
+      <button
+        v-if="activeTab === 'method'"
+        :class="isEditing ? 'btn-cancel-main' : 'btn-edit-main'"
+        @click="handleEditToggle"
+      >
+        {{ isEditing ? 'Отменить' : 'Редактировать' }}
+      </button>
+
+      <!-- 3. Сохранить (Только на вкладке 'method' и только в режиме редактирования) -->
+      <button
+        v-if="activeTab === 'method' && isEditing"
+        class="btn-save"
+        @click="saveEntry"
+        :disabled="loading"
+      >
         {{ loading ? 'Сохранение...' : 'Сохранить' }}
+      </button>
+
+      <!-- 4. Удалить (Только на вкладке 'method' и только если запись УЖЕ существует в БД) -->
+      <button
+        v-if="activeTab === 'method' && journalData?.external_id"
+        class="btn-delete-main"
+        :disabled="isEditing || loading"
+        @click="deleteEntry"
+      >
+        Удалить
       </button>
     </div>
 
@@ -209,7 +229,7 @@ const createNewEntry = () => {
     }
 };
 
-// 2. НАЖАТИЕ "СОХРАНИТЬ" (Вызов бэкенда)
+// НАЖАТИЕ "СОХРАНИТЬ" (Создание или Обновление записи)
 const saveEntry = async () => {
   loading.value = true;
   try {
@@ -217,39 +237,54 @@ const saveEntry = async () => {
     const source = journalData.value;
     const cleanData = {};
 
-    // Список ключей, которые мы НЕ шлем (SVG и служебные)
-    const excludeKeys = ['product_svg', 'product_preview_svg'];
+    // Исключаем SVG и системные поля, которые бэк в PUT/POST не ждет в body
+    const excludeKeys = ['product_svg', 'product_preview_svg', 'id', 'user_id', 'date_added', 'date_modified'];
 
     Object.keys(source).forEach(key => {
       if (excludeKeys.includes(key) || key.endsWith('_svg')) return;
 
       let val = source[key];
 
-      // Поля, которые бэк ждет как Decimal (числа)
       const isNumeric = key.includes('mass') || key.includes('moles') ||
                         key.includes('ekv') || key.includes('density') ||
                         key.includes('concentration') || key.includes('volume') ||
                         key.includes('yield_calc');
 
       if (isNumeric) {
-        // Если пусто — строго null, если есть значение — parseFloat
         cleanData[key] = (val === '' || val === null || val === undefined) ? null : parseFloat(val);
       } else {
-        // Все остальное (SMILES, procedure) — как есть, но пустую строку в null
         cleanData[key] = (val === '') ? null : val;
       }
     });
 
-    const response = await axios.post('/api/my-journal/add', cleanData, {
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        'Content-Type': 'application/json'
-      }
-    });
+    let response;
+    const hasExternalId = source.external_id != null;
+
+    if (hasExternalId) {
+      // Если запись уже существует — отправляем PUT на /update/{external_id}
+      response = await axios.put(`/api/my-journal/update/${source.external_id}`, cleanData, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      });
+    } else {
+      // Если это новая запись — отправляем POST на /add
+      response = await axios.post('/api/my-journal/add', cleanData, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      });
+    }
 
     journalData.value = response.data;
     isEditing.value = false;
-    alert("Запись успешно сохранена!");
+
+    // Сразу же принудительно пинаем Ketcher, чтобы он перерисовал SVG из свежих SMILES
+    triggerKetcherRedraw(response.data);
+    alert(hasExternalId ? "Запись успешно обновлена!" : "Запись успешно сохранена!");
+
     if (tableRef.value) {
       tableRef.value.refreshData();
     }
@@ -515,6 +550,113 @@ const triggerKetcherRedraw = (record) => {
   waitForKetcherAndDraw();
 };
 
+// Хранилище для копии данных на случай отмены редактирования
+const journalDataBackup = ref(null);
+
+// Логика кнопки Редактировать / Отменить
+const handleEditToggle = () => {
+  if (!isEditing.value) {
+    // Включаем редактирование: делаем глубокую копию текущего состояния
+    journalDataBackup.value = JSON.parse(JSON.stringify(journalData.value));
+    isEditing.value = true;
+  } else {
+    // Отменяем редактирование: восстанавливаем данные из бэкапа
+    if (journalDataBackup.value) {
+      journalData.value = JSON.parse(JSON.stringify(journalDataBackup.value));
+      triggerKetcherRedraw(journalData.value); // Возвращаем старые картинки в Кетчер
+    }
+    isEditing.value = false;
+    journalDataBackup.value = null;
+  }
+};
+
+// Ровная функция удаления записи с умным переходом по страницам
+const deleteEntry = async () => {
+  const extId = journalData.value?.external_id;
+  if (!extId) return;
+
+  if (confirm(`Вы уверены, что хотите полностью удалить запись #${extId}?`)) {
+    loading.value = true;
+    try {
+      const token = localStorage.getItem('token');
+      await axios.delete(`/api/my-journal/delete/${extId}`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+
+      alert(`Запись #${extId} успешно удалена.`);
+
+      if (!tableRef.value) {
+        throw new Error("Компонент таблицы (tableRef) не найден");
+      }
+
+      const currentRecords = tableRef.value.records || [];
+      const currentIndex = currentRecords.findIndex(r => r.id === selectedRecordId.value);
+
+      let nextRecordToLoad = null;
+      let needPageChange = false;
+      let targetPage = tableRef.value.currentPage;
+
+      // 1. Пытаемся найти следующую запись на ТЕКУЩЕЙ странице
+      if (currentIndex !== -1 && currentIndex < currentRecords.length - 1) {
+        nextRecordToLoad = currentRecords[currentIndex + 1];
+      }
+      // 2. Если следующей на этой странице нет — значит, мы удалили последнюю запись в списке страницы
+      else {
+        // Если есть следующая страница — целимся на её первую запись
+        if (tableRef.value.currentPage < tableRef.value.totalPages) {
+          targetPage = tableRef.value.currentPage + 1;
+          needPageChange = true;
+        }
+        // Если следующей страницы нет, но есть предыдущая (мы были на самом конце журнала)
+        else if (tableRef.value.currentPage > 1) {
+          targetPage = tableRef.value.currentPage - 1;
+          needPageChange = true;
+        }
+      }
+
+      // 3. Обновляем/переключаем страницы и загружаем данные
+      if (needPageChange) {
+        console.log(`[Delete Nav] Переходим на страницу: ${targetPage}`);
+        // Вызываем метод смены страницы, который возвращает новые записи
+        const newPageRecords = await tableRef.value.changePage(targetPage);
+
+        if (newPageRecords && newPageRecords.length > 0) {
+          await nextTick();
+          // Если ушли вперед — берем первую запись новой страницы, если назад — последнюю
+          const isMovingForward = targetPage > tableRef.value.currentPage;
+          nextRecordToLoad = isMovingForward ? newPageRecords[0] : newPageRecords[newPageRecords.length - 1];
+        }
+      } else {
+        // Если остались в пределах текущей страницы, просто рефрешим её данные в фоне
+        await tableRef.value.refreshData();
+        // На случай, если после refreshData индексы съехали, перепроверяем запись
+        const freshRecords = tableRef.value.records || [];
+        // Если наша намеченная запись всё ещё существует в массиве — отлично, берем её
+        if (nextRecordToLoad) {
+          nextRecordToLoad = freshRecords.find(r => r.id === nextRecordToLoad.id) || freshRecords[currentIndex] || null;
+        }
+      }
+
+      // 4. Загружаем финальный результат в форму без прыжков по вкладкам
+      if (nextRecordToLoad) {
+        updateFormDataOnly(nextRecordToLoad);
+      } else {
+        // Если в журнале вообще шаром покати (ноль записей во всей базе)
+        selectedRecordId.value = null;
+        journalData.value = createEmptyEntry();
+        visibleReagentsCount.value = 3;
+        isEditing.value = false;
+      }
+
+    } catch (err) {
+      console.error("Ошибка при удалении:", err.response?.data || err);
+      alert("Не удалось удалить запись. Проверьте консоль.");
+    } finally {
+      loading.value = false;
+    }
+  }
+};
+
 watch(journalData, () => {
   calculateJournal();
 }, { deep: true });
@@ -529,8 +671,59 @@ watch(journalData, () => {
 .tabs-nav button.active { border-bottom: 3px solid #42b983; font-weight: bold; }
 
 .toolbar { margin-bottom: 20px; display: flex; gap: 10px; background: #f9f9f9; padding: 10px; border-radius: 8px; }
-.btn-save { background: #42b983; color: white; border-radius: 4px; border: none; padding: 5px 15px; cursor: pointer; }
+.btn-save {
+  height: 42px;
+  border-radius: 8px;
+  padding: 8px 16px;
+  font-weight: bold;
+}
 .btn-save:disabled { background: #ccc; }
+
+.btn-edit-main {
+  background-color: #34495e;
+  color: white;
+  border: none;
+  padding: 8px 16px;
+  border-radius: 8px;
+  font-weight: bold;
+  cursor: pointer;
+  height: 42px;
+  transition: background 0.2s;
+}
+.btn-edit-main:hover:not(:disabled) { background-color: #2c3e50; }
+
+/* Кнопка "Отменить" */
+.btn-cancel-main {
+  background-color: #e67e22;
+  color: white;
+  border: none;
+  padding: 8px 16px;
+  border-radius: 8px;
+  font-weight: bold;
+  cursor: pointer;
+  height: 42px;
+  transition: background 0.2s;
+}
+.btn-cancel-main:hover { background-color: #d35400; }
+
+/* Кнопка "Удалить" */
+.btn-delete-main {
+  background-color: #e74c3c;
+  color: white;
+  border: none;
+  padding: 8px 16px;
+  border-radius: 8px;
+  font-weight: bold;
+  cursor: pointer;
+  height: 42px;
+  transition: background 0.2s;
+}
+.btn-delete-main:hover:not(:disabled) { background-color: #c0392b; }
+.btn-delete-main:disabled {
+  background-color: #ccc;
+  color: #666;
+  cursor: not-allowed;
+}
 
 .product-row { margin-bottom: 20px; width: 100%; }
 .procedure-section { margin-top: 20px; }

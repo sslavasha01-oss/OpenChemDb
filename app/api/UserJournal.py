@@ -1,8 +1,8 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, status
 from rdkit import Chem
 from rdkit.Chem import Draw
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import insert, func, update, select, desc
+from sqlalchemy import insert, func, update, select, desc, delete
 from typing import Dict, List
 
 from app.models.user_journal import UserJournal
@@ -143,6 +143,38 @@ async def update_journal_record(
         await db.rollback()
         # В продакшене лучше логировать e, а пользователю отдавать generic error
         raise HTTPException(status_code=500, detail=f"Update failed: {str(e)}")
+
+
+@router.delete("/delete/{external_id}", status_code=status.HTTP_200_OK)
+async def delete_journal_record(
+        external_id: int,
+        current_user: User = Depends(get_current_user),
+        db: AsyncSession = Depends(get_users_db)
+):
+    try:
+        stmt = (
+            delete(UserJournal.__table__)
+            .where(
+                UserJournal.user_id == current_user.id,
+                UserJournal.external_id == external_id
+            )
+            .returning(UserJournal.id) # Возвращаем id для подтверждения удаления
+        )
+
+        result = await db.execute(stmt)
+        deleted_id = result.scalar_one_or_none()
+
+        if not deleted_id:
+            raise HTTPException(status_code=404, detail="Record not found")
+
+        await db.commit()
+        return {"status": "success", "message": f"Record #{external_id} deleted successfully"}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        await db.rollback()
+        raise HTTPException(status_code=500, detail=f"Delete failed: {str(e)}")
 
 
 @router.get("/list", response_model=List[UserJournalSchema])
