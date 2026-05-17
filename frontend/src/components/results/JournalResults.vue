@@ -33,19 +33,31 @@
             <td class="col-yield" data-label="Yield">{{ res.yield_text || '—' }}%</td>
             <td class="col-ref" data-label="Source" @click.stop>
               <div class="ref-block">
-                <span class="ref-text">{{ formatText(res.references) }}</span>
+  <div class="ref-text-wrapper">
+  <span class="ref-text">{{ formatText(res.references) }}</span>
 
-    <div class="doi-wrapper" v-if="res.doi">
-      <a
-        v-for="doi in parseDois(res.doi)"
-        :key="doi"
-        :href="'https://doi.org/' + doi"
-        target="_blank"
-        class="doi-link"
-      >
-        {{ doi }}
-      </a>
+  <div class="dropdown-container">
+    <button class="more-btn" @click.stop="toggleDropdown(res.id)" title="Actions">...</button>
+    <div v-if="activeDropdownId === res.id" class="dropdown-menu" v-click-outside="closeDropdown">
+      <div class="dropdown-info-text">{{ formatText(res.references) }}</div>
+      <button class="dropdown-action-btn" @click.stop="copyToClipboard(res.references, res.id)">
+        {{ copiedId === res.id ? '✓ Copied' : '📋 Copy' }}
+      </button>
     </div>
+  </div>
+</div>
+
+  <div class="doi-wrapper" v-if="res.doi">
+    <a
+      v-for="doi in parseDois(res.doi)"
+      :key="doi"
+      :href="'https://doi.org/' + doi"
+      target="_blank"
+      class="doi-link"
+    >
+      {{ doi }}
+    </a>
+  </div>
                 <div class="eval-bar">
                   <button class="eval-btn check" :class="{ 'empty': !evaluations[res.external_id]?.CHECK }" @click="openEvalModal(res.external_id)">
                     <span class="icon">✅</span>
@@ -136,8 +148,51 @@ const isEvalModalOpen = ref(false)
 const selectedEntryId = ref(null)
 const hasSearched = ref(false)
 
+const activeDropdownId = ref(null)
+const copiedId = ref(null)
+
 const totalPages = computed(() => Math.ceil(allIds.value.length / pageSize))
 const currentResults = computed(() => cachedData.value[currentPage.value] || [])
+
+
+// Кастомная директива (click-outside) чтобы закрывать меню при клике в любое другое место
+const vClickOutside = {
+  mounted(el, binding) {
+    el.clickOutsideEvent = (event) => {
+      if (!(el === event.target || el.contains(event.target))) {
+        binding.value(event);
+      }
+    };
+    document.addEventListener("click", el.clickOutsideEvent);
+  },
+  unmounted(el) {
+    document.removeEventListener("click", el.clickOutsideEvent);
+  },
+};
+
+// Функции управления меню и копирования в буфер
+const toggleDropdown = (id) => {
+  activeDropdownId.value = activeDropdownId.value === id ? null : id
+}
+
+const closeDropdown = () => {
+  activeDropdownId.value = null
+}
+
+const copyToClipboard = async (text, id) => {
+  if (!text) return
+  try {
+    const cleanText = text.replace(/<NL>/g, '\n')
+    await navigator.clipboard.writeText(cleanText)
+    copiedId.value = id
+    setTimeout(() => {
+      copiedId.value = null
+      activeDropdownId.value = null
+    }, 1200)
+  } catch (err) {
+    console.error('Failed to copy text: ', err)
+  }
+}
 
 const showDetails = (reaction) => {
   selectedReaction.value = reaction
@@ -272,43 +327,50 @@ defineExpose({performNewSearch})
 .reaction-table {
   width: 100%;
   border-collapse: collapse;
-  table-layout: fixed; /* Гарантирует жесткое соблюдение заданных процентов */
+  /* УДАЛИЛИ table-layout: fixed; */
 }
 
 .reaction-table th, .reaction-table td {
-  padding: 12px 6px; /* Минимальные боковые паддинги, чтобы выжать максимум места */
+  padding: 12px 10px; /* Чуть увеличили боковые отступы для читаемости */
   border-bottom: 1px solid #eee;
   vertical-align: middle;
   word-break: break-word;
 }
 
-/* АГРЕССИВНОЕ РАСПРЕДЕЛЕНИЕ ШИРИНЫ ДЛЯ ДЕСКТОПА */
-.col-viz   { width: 60%; } /* Выделяем царские 60% под картинку реакции */
-.col-cond  { width: 14%; text-align: left; font-size: 0.85rem; }
-.col-yield { width: 6%;  text-align: center; font-weight: bold; font-size: 0.95rem; } /* Минимальная колонка чисто под цифру */
-.col-ref   { width: 20%; } /* Компактная колонка для авторов и DOI */
+/* ДИНАМИЧЕСКИЕ НАСТРОЙКИ КОЛОНОК (Вместо фиксированных процентов) */
+.col-viz   { width: auto; min-width: 350px; max-width: 70%; } /* Растет только если схема длинная */
+.col-cond  { width: 120px; text-align: left; font-size: 0.85rem; color: #555; }
+.col-yield { width: 55px;  text-align: center; font-weight: bold; font-size: 0.95rem; }
+.col-ref   { width: 220px; text-align: left; }
 
 .reaction-container {
-  width: 100%;
+  display: inline-block; /* Позволяет ячейке схлопываться до реальной ширины SVG */
   background: #fff;
-  display: block;
   padding: 2px 0;
 }
 
 .reaction-container :deep(svg) {
   width: auto;
-  max-width: 100%; /* Картинка займет до 60% ширины экрана, если это длинная схема */
+  max-width: 100%; /* Позволяет схеме растянуться почти на весь экран */
 
-  /* Увеличиваем лимит высоты. Теперь длинные молекулы не будут превращаться в ниточку,
-     а маленькие и средние реакции станут крупными и четкими */
-  max-height: 130px;
+  /* Поднимаем планку высоты до 180px. Теперь длинные молекулы развернутся вширь,
+     а сложные/высокие циклы не будут сплющиваться в кашу */
+  max-height: 180px;
 
   display: block;
-  margin: 0; /* Прижимаем к левому краю */
+  margin: 0; /* Выравнивание по левому краю ячейки */
 }
 
-.ref-block { display: flex; flex-direction: column; gap: 4px; }
-.ref-text { font-size: 0.8rem; color: #333; line-height: 1.3; }
+.ref-block { display: flex; flex-direction: column; gap: 2px; }
+.ref-text {
+  font-size: 0.75rem;
+  color: #333;
+  line-height: 1.2;
+  display: -webkit-box;
+  -webkit-line-clamp: 4; /* Ограничиваем слишком длинные названия журналов, если они растягивают строку */
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
 
 /* ПАГИНАЦИЯ */
 .pagination { margin-top: 25px; display: flex; justify-content: center; align-items: center; gap: 20px; }
@@ -317,12 +379,12 @@ defineExpose({performNewSearch})
 .pag-btn:disabled { opacity: 0.3; cursor: not-allowed; border-color: #ccc; color: #ccc; }
 .page-numbers .current { color: #42b983; font-size: 1.1rem; font-weight: bold; }
 
-/* Кнопки оценок */
+/* Оценки */
 .eval-bar { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
-.eval-btn { background: #f9f9f9; border: 1px solid #eee; border-radius: 5px; padding: 2px 5px; cursor: pointer; font-size: 0.75rem; }
+.eval-btn { background: #f9f9f9; border: 1px solid #eee; border-radius: 5px; padding: 2px 5px; cursor: pointer; font-size: 0.7rem; }
 
-/* МОБИЛЬНАЯ АДАПТАЦИЯ (КАРТОЧКИ — ТУТ ОСТАВЛЯЕМ БЕЗ ИЗМЕНЕНИЙ) */
-@media (max-width: 768px) {
+/* МОБИЛЬНАЯ АДАПТАЦИЯ (ПЕРЕВОД В КАРТОЧКИ) */
+@media (max-width: 992px) { /* Подняли брейкпоинт до 992px, так как при 75% на средних экранах тексту будет тесно */
   .table-container { overflow-x: visible; }
 
   .reaction-table,
@@ -378,7 +440,7 @@ defineExpose({performNewSearch})
   }
 
   .reaction-container :deep(svg) {
-    max-height: 140px;
+    max-height: 160px;
     margin: 0 auto;
   }
 }
@@ -396,7 +458,7 @@ defineExpose({performNewSearch})
 .doi-link {
   color: #3498db;
   text-decoration: none;
-  font-size: 0.75rem;
+  font-size: 0.7rem;
   word-break: break-all;
   display: block;
 }
@@ -405,19 +467,92 @@ defineExpose({performNewSearch})
   text-decoration: underline;
 }
 
-.error-msg {
-  color: #e74c3c;
-  padding: 15px;
-  text-align: center;
-  background: #fdf2f2;
-  border-radius: 8px;
-  border: 1px solid #facccc;
-  margin: 10px 0;
+.error-msg { color: #e74c3c; padding: 15px; text-align: center; background: #fdf2f2; border-radius: 8px; border: 1px solid #facccc; margin: 10px 0; }
+.loading-state, .empty-state { text-align: center; padding: 30px; color: #666; }
+
+/* Позиционируем троеточие поверх текста в конце третьей строки */
+.ref-text-wrapper {
+  position: relative;
+  display: block;
+  width: 100%;
+  padding-right: 20px; /* Делаем небольшой отступ справа под кнопку */
+  box-sizing: border-box;
 }
 
-.loading-state, .empty-state {
-  text-align: center;
-  padding: 30px;
-  color: #666;
+.ref-text {
+  font-size: 0.8rem;
+  color: #333;
+  line-height: 1.4;
+  display: -webkit-box;
+  -webkit-line-clamp: 3; /* Надежно режем до 3 строк */
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
+
+/* Контейнер кнопки прижимаем к правому нижнему углу текстового блока */
+.dropdown-container {
+  position: absolute;
+  right: 2px;
+  bottom: 0px;
+  background: white; /* Перекрываем родной текст ссылки под кнопкой */
+  padding-left: 4px;
+}
+
+.more-btn {
+  background: none;
+  border: none;
+  color: #3498db;
+  font-size: 0.9rem;
+  font-weight: bold;
+  cursor: pointer;
+  padding: 0 2px;
+  line-height: 1;
+  border-radius: 3px;
+}
+.more-btn:hover { background: #e8f4fd; }
+
+/* Всплывающее меню теперь вылетает наружу и не режется */
+.dropdown-menu {
+  position: absolute;
+  right: 0;
+  bottom: 20px; /* Открывается вверх над кнопкой, чтобы не перекрывать нижние строки/оценки */
+  background: white;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+  z-index: 110;
+  width: 220px;
+  padding: 10px;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+}
+
+.dropdown-info-text {
+  display: block;
+  font-size: 0.75rem;
+  color: #444;
+  max-height: 100px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  margin-bottom: 8px;
+  line-height: 1.3;
+  border-bottom: 1px solid #eee;
+  padding-bottom: 6px;
+  text-align: left;
+}
+
+.dropdown-action-btn {
+  align-self: center;
+  background: #42b983;
+  color: white;
+  border: none;
+  padding: 4px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.75rem;
+  font-weight: bold;
+  white-space: nowrap;
+}
+.dropdown-action-btn:hover { background: #3aa876; }
 </style>
