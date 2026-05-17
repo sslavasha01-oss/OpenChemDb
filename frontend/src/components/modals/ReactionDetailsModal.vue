@@ -8,31 +8,48 @@
 
       <div class="modal-body">
         <section class="viz-container">
-          <div class="viz-block">
-            <div class="viz-header">
-              <h4>Reaction Structure</h4>
-            </div>
-            <div ref="scrollContainer" class="modal-reaction-scroll" v-html="reaction?.svg_content || ''"></div>
-          </div>
+  <div class="viz-block">
+    <div class="viz-header">
+      <h4>Reaction Structure</h4>
+    </div>
 
-          <div class="text-data-block">
-            <div class="viz-header">
-              <h4>Reaction SMILES</h4>
-            </div>
-            <div class="smiles-display-box">
-              <code>{{ reaction?.reaction_raw_smiles }}</code>
-            </div>
-          </div>
+    <div class="reaction-display-wrapper">
+      <div
+        v-if="!isKetcherRender"
+        ref="scrollContainer"
+        class="modal-reaction-scroll"
+        v-html="reaction?.svg_content || ''"
+      ></div>
 
-          <div class="text-data-block" v-if="reaction?.reaction_mapped_smiles">
-            <div class="viz-header">
-              <h4>Mapped SMILES</h4>
-            </div>
-            <div class="smiles-display-box">
-              <code>{{ reaction?.reaction_mapped_smiles }}</code>
-            </div>
-          </div>
-        </section>
+      <div
+        v-else
+        class="modal-reaction-scroll ketcher-rendered"
+        v-html="ketcherSvg || 'Rendering via Ketcher...'"
+      ></div>
+
+      <div class="ketcher-toggle-container">
+        <button
+          class="ketcher-toggle-btn"
+          :class="{ 'active': isKetcherRender }"
+          @click="toggleKetcherRender"
+          :title="isKetcherRender ? 'Switch to RDKit' : 'Render with Ketcher'"
+        >
+          <span class="ketcher-icon">⚗️</span>
+          <span class="ketcher-text">{{ isKetcherRender ? 'RDKit' : 'Ketcher' }}</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <div class="text-data-block">
+    <div class="viz-header">
+      <h4>Reaction SMILES</h4>
+    </div>
+    <div class="smiles-display-box">
+      <code>{{ reaction?.reaction_raw_smiles }}</code>
+    </div>
+  </div>
+  </section>
 
         <div class="main-info-grid">
           <div class="meta-item"><strong>External ID:</strong> {{ reaction?.external_id || 'N/A' }}</div>
@@ -98,40 +115,84 @@ const scrollContainer = ref(null)
 const isEvalModalOpen = ref(false)
 const socialRef = ref(null)
 
+// Новые реактивные переменные для Кетчера
+const isKetcherRender = ref(false)
+const ketcherSvg = ref('')
+
 const props = defineProps({ isOpen: Boolean, reaction: Object })
 const emit = defineEmits(['close'])
 
-// Следим за открытием модалки или сменой реакции
+// Сбрасываем рендер при смене реакции или закрытии/открытии модалки
 watch([() => props.isOpen, () => props.reaction], async ([isOpen, rxn]) => {
+  isKetcherRender.value = false
+  ketcherSvg.value = ''
+
   if (isOpen && rxn) {
-    // Ждем, пока Vue отрендерит SVG в DOM
     await nextTick()
-
-    if (scrollContainer.value) {
-      const container = scrollContainer.value;
-      const svgElement = container.querySelector('svg');
-
-      if (svgElement) {
-        // Получаем реальную ширину сгенерированного RDKit холста
-        const svgWidth = svgElement.getBoundingClientRect().width;
-        const containerWidth = container.clientWidth;
-
-        // Если холст шире экрана (реакция большая и ушла в скролл)
-        if (svgWidth > containerWidth) {
-          // Рассчитываем оптимальную точку старта:
-          // Убираем пустые поля RDKit, центрируя контент, но сдвигая к началу (на 25-30% от общей ширины)
-          const startPoint = (svgWidth - containerWidth) * 0.15;
-
-          // Плавно или мгновенно скроллим туда
-          container.scrollLeft = startPoint;
-        } else {
-          container.scrollLeft = 0;
-        }
-      }
-    }
+    handleScrollCentering()
   }
 })
 
+// Вынесли логику центрирования RDKit в отдельную функцию
+const handleScrollCentering = () => {
+  if (scrollContainer.value) {
+    const container = scrollContainer.value;
+    const svgElement = container.querySelector('svg');
+    if (svgElement) {
+      const svgWidth = svgElement.getBoundingClientRect().width;
+      const containerWidth = container.clientWidth;
+      if (svgWidth > containerWidth) {
+        const startPoint = (svgWidth - containerWidth) * 0.15;
+        container.scrollLeft = startPoint;
+      } else {
+        container.scrollLeft = 0;
+      }
+    }
+  }
+}
+
+// Функция переключения режима рендеринга
+const toggleKetcherRender = async () => {
+  if (isKetcherRender.value) {
+    isKetcherRender.value = false
+    // Возвращаем центрирование для RDKit
+    await nextTick()
+    handleScrollCentering()
+    return
+  }
+
+  isKetcherRender.value = true
+  if (!ketcherSvg.value && props.reaction?.reaction_raw_smiles) {
+    await generateKetcherImage(props.reaction.reaction_raw_smiles)
+  }
+}
+
+// Генерация через Ketcher API
+const generateKetcherImage = async (smiles) => {
+  if (!smiles || smiles.trim().length === 0) {
+    ketcherSvg.value = ''
+    return
+  }
+
+  try {
+    // Напрямую ищем iframe Кетчера, который гарантированно живёт на странице поиска
+    const iframe = document.querySelector('.ketcher-frame') || document.querySelector('iframe')
+    const ketcher = iframe?.contentWindow?.ketcher
+
+    if (ketcher && typeof ketcher.generateImage === 'function') {
+      // Вызываем в точности как в SearchView. Сами опции Indigo подхватит из фрейма
+      const blob = await ketcher.generateImage(smiles, { outputFormat: 'svg' })
+      const text = await blob.text()
+      ketcherSvg.value = text
+    } else {
+      console.warn("Ketcher visualizer frame or method not found")
+      ketcherSvg.value = `<small style="color:#e74c3c; padding: 20px; display:block;">Ketcher editor iframe not found</small>`
+    }
+  } catch (e) {
+    console.warn("Failed to update preview from SMILES in modal:", e)
+    ketcherSvg.value = `<small style="color:#e74c3c; padding: 20px; display:block;">Render Error</small>`
+  }
+}
 
 // Функция для замены <NL> на переносы строк
 const formatText = (text) => {
@@ -277,5 +338,84 @@ hr { border: 0; border-top: 1px solid #eee; margin: 30px 0; }
 .procedure-box {
   white-space: pre-wrap;
   word-break: break-word;
+}
+
+/* Обертка для визуализации, чтобы зафиксировать позицию кнопки */
+.reaction-display-wrapper {
+  position: relative;
+  width: 100%;
+  background: white;
+}
+
+/* Специфические настройки под рендер Кетчера */
+.modal-reaction-scroll.ketcher-rendered {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 250px;
+  max-height: 350px;
+  padding: 15px;
+  background: white;
+  box-sizing: border-box;
+  overflow: hidden; /* Запрещаем появление полос прокрутки, если Кетчер сгенерировал большой холст */
+}
+
+/* Переопределяем поведение SVG строго внутри контейнера Кетчера */
+.modal-reaction-scroll.ketcher-rendered :deep(svg) {
+  width: 100% !important;
+  height: 100% !important;
+  max-width: 100% !important;
+  max-height: 300px !important; /* Контролируем, чтобы по высоте не вылетало */
+  object-fit: contain; /* Вписываем холст целиком с сохранением пропорций */
+  display: block;
+  margin: 0 auto;
+}
+
+/* Контейнер кнопки в правом нижнем углу */
+.ketcher-toggle-container {
+  position: absolute;
+  right: 15px;
+  bottom: 15px;
+  z-index: 10;
+}
+
+.ketcher-toggle-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: #ffffff;
+  border: 1px solid #e0e0e0;
+  padding: 5px 10px;
+  border-radius: 20px;
+  cursor: pointer;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.08);
+  transition: all 0.2s ease;
+}
+
+.ketcher-toggle-btn:hover {
+  border-color: #42b983;
+  background: #f4fbf8;
+  box-shadow: 0 3px 8px rgba(66, 185, 131, 0.15);
+}
+
+/* Активное состояние (когда горит рендер кетчера) */
+.ketcher-toggle-btn.active {
+  background: #42b983;
+  border-color: #42b983;
+  color: white;
+}
+.ketcher-toggle-btn.active:hover {
+  background: #3aa876;
+}
+
+.ketcher-icon {
+  font-size: 0.95rem;
+}
+
+.ketcher-text {
+  font-size: 0.75rem;
+  font-weight: bold;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
 }
 </style>
