@@ -2,14 +2,13 @@
   <div class="journal-container">
     <!-- Навигация по вкладкам -->
     <nav class="tabs-nav">
-      <button :class="{ active: activeTab === 'table' }" @click="activeTab = 'table'">Таблица</button>
+      <button :class="{ active: activeTab === 'table' }" :disabled="isGuest" @click="activeTab = 'table'">Таблица</button>
       <button :class="{ active: activeTab === 'method' }" @click="activeTab = 'method'">Методика</button>
-      <button :class="{ active: activeTab === 'search' }" @click="activeTab = 'search'">Поиск</button>
+      <button :class="{ active: activeTab === 'search' }" :disabled="isGuest" @click="activeTab = 'search'">Поиск</button>
     </nav>
 
   <div class="header-controls">
-      <!-- Навигация (стрелки): Показываем везде, КРОМЕ вкладки 'search' -->
-      <div v-if="activeTab !== 'search'" class="global-record-nav">
+      <div v-if="!isGuest && activeTab !== 'search'" class="global-record-nav">
         <button @click="navigateRecord(-1)" :disabled="isEditing" class="nav-arrow">←</button>
         <span class="selected-id-display">
           Запись: {{ journalData?.external_id ? '#' + journalData.external_id : '---' }}
@@ -17,47 +16,51 @@
         <button @click="navigateRecord(1)" :disabled="isEditing" class="nav-arrow">→</button>
       </div>
 
-      <!-- 1. Новая запись (Показываем на 'table' И на 'method') -->
-      <button
-        v-if="activeTab === 'table' || activeTab === 'method'"
-        class="btn-add-main"
-        @click="initNewEntryFromTable"
-      >
-        <span class="icon">+</span> Новая запись
-      </button>
+      <template v-if="!isGuest">
+        <button
+          v-if="activeTab === 'table' || activeTab === 'method'"
+          class="btn-add-main"
+          @click="initNewEntryFromTable"
+        >
+          <span class="icon">+</span> Новая запись
+        </button>
 
-      <!-- 2. Редактировать / Отменить (Только на вкладке 'method') -->
-      <button
-        v-if="activeTab === 'method'"
-        :class="isEditing ? 'btn-cancel-main' : 'btn-edit-main'"
-        @click="handleEditToggle"
-      >
-        {{ isEditing ? 'Отменить' : 'Редактировать' }}
-      </button>
+        <button
+          v-if="activeTab === 'method'"
+          :class="isEditing ? 'btn-cancel-main' : 'btn-edit-main'"
+          @click="handleEditToggle"
+        >
+          {{ isEditing ? 'Отменить' : 'Редактировать' }}
+        </button>
 
-      <!-- 3. Сохранить (Только на вкладке 'method' и только в режиме редактирования) -->
-      <button
-        v-if="activeTab === 'method' && isEditing"
-        class="btn-save"
-        @click="saveEntry"
-        :disabled="loading"
-      >
-        {{ loading ? 'Сохранение...' : 'Сохранить' }}
-      </button>
+        <button
+          v-if="activeTab === 'method' && isEditing"
+          class="btn-save"
+          @click="saveEntry"
+          :disabled="loading"
+        >
+          {{ loading ? 'Сохранение...' : 'Сохранить' }}
+        </button>
 
-      <!-- 4. Удалить (Только на вкладке 'method' и только если запись УЖЕ существует в БД) -->
-      <button
-        v-if="activeTab === 'method' && journalData?.external_id"
-        class="btn-delete-main"
-        :disabled="isEditing || loading"
-        @click="deleteEntry"
-      >
-        Удалить
-      </button>
+        <button
+          v-if="activeTab === 'method' && journalData?.external_id"
+          class="btn-delete-main"
+          :disabled="isEditing || loading"
+          @click="deleteEntry"
+        >
+          Удалить
+        </button>
+      </template>
+
+      <template v-else>
+        <button class="btn-cancel-main" @click="journalData = createEmptyEntry()">
+          Очистить калькулятор
+        </button>
+      </template>
     </div>
 
     <main class="tab-content">
-        <section v-show="activeTab === 'table'">
+        <section v-if="activeTab === 'table' && !isGuest">
         <div class="table-actions">
           <button class="btn-add-main" @click="initNewEntryFromTable">
             <span class="icon">+</span> Добавить новую запись в журнал
@@ -71,6 +74,16 @@
 
       <!-- Вкладка Методика -->
       <section v-show="activeTab === 'method'" class="method-page">
+
+        <div v-if="isGuest" class="guest-alert-banner">
+          <span class="banner-icon">⚗️</span>
+          <p class="banner-text">
+            <strong>Режим калькулятора:</strong> Здесь вы можете рассчитать стехиометрию химической реакции.
+            Для полноценного ведения лаб-журнала, сохранения истории и поиска по структурам, пожалуйста,
+            <router-link to="/login" class="banner-link">залогиньтесь в систему</router-link>.
+          </p>
+        </div>
+
         <div class="product-row">
           <ProductCard
             ref="productCardRef"
@@ -127,14 +140,23 @@
 </template>
 
 <script setup>
-import { ref, watch, nextTick, onMounted} from 'vue'
+import { ref, watch, nextTick, onMounted, computed} from 'vue'
 import axios from 'axios'
 import ProductCard from '@/components/ProductCard.vue'
 import ReagentCard from '@/components/ReagentCard.vue'
 import JournalTable from '@/components/JournalTable.vue'
+import { useUserStore } from '@/stores/user'
 
-const activeTab = ref('table')
-const isEditing = ref(false)
+const userStore = useUserStore()
+const isGuest = computed(() => !userStore.isLoggedIn)
+
+const _isEditingInternal = ref(false)
+const isEditing = computed({
+  get: () => isGuest.value ? true : _isEditingInternal.value,
+  set: (val) => { _isEditingInternal.value = val }
+})
+
+const activeTab = ref(isGuest.value ? 'method' : 'table')
 const loading = ref(false) // Состояние загрузки
 const visibleReagentsCount = ref(3)
 const tableRef = ref(null)
@@ -672,6 +694,14 @@ watch(journalData, () => {
   calculateJournal();
 }, { deep: true });
 
+watch(isGuest, (newIsGuest) => {
+  if (newIsGuest) {
+    activeTab.value = 'method';
+    // Очищаем форму от остатков данных предыдущего пользователя
+    journalData.value = createEmptyEntry();
+    visibleReagentsCount.value = 3;
+  }
+});
 
 </script>
 
@@ -906,6 +936,45 @@ watch(journalData, () => {
 /* Убираем лишние отступы в контенте таблицы */
 .table-actions {
   display: none; /* Мы ее перенесли выше */
+}
+
+/* Стили для гостевого режима */
+.tabs-nav button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  border-bottom: none;
+}
+.tabs-nav button:disabled:hover {
+  color: inherit;
+  background: none;
+}
+
+.guest-alert-banner {
+  display: flex;
+  align-items: center;
+  gap: 15px;
+  background-color: #e8f4fd;
+  border-left: 4px solid #3498db;
+  padding: 12px 16px;
+  border-radius: 4px;
+  margin-bottom: 20px;
+}
+.banner-icon {
+  font-size: 1.5rem;
+}
+.banner-text {
+  margin: 0;
+  color: #2c3e50;
+  font-size: 0.95rem;
+  line-height: 1.4;
+}
+.banner-link {
+  color: #3498db;
+  text-decoration: underline;
+  font-weight: bold;
+}
+.banner-link:hover {
+  color: #2980b9;
 }
 
 </style>
