@@ -127,24 +127,25 @@ const props = defineProps({
   isEditing: Boolean
 })
 
-const emit = defineEmits(['update:modelValue'])
+const emit = defineEmits(['update:modelValue', 'calculate'])
 
 const showKetcher = ref(false)
 const ketcherFrame = ref(null)
 const hiddenKetcher = ref(null)
 
+// 1. Обработка ручного ввода SMILES
 const onSmilesInput = (e) => {
   const newSmiles = e.target.value
 
-  // Обновляем модель в родителе, чтобы данные не потерялись
-  const updatedValue = { ...props.modelValue, product_smiles: newSmiles };
+  const updatedValue = { ...props.modelValue };
+  updatedValue[`reagent${props.index}_smiles`] = newSmiles;
   emit('update:modelValue', updatedValue);
 
-  // Пингуем Ketcher, чтобы он перерисовал структуру и посчитал массу в фоне
+  // Пингуем скрытый Ketcher для перерисовки и пересчета массы в фоне
   drawSmiles(newSmiles);
 }
 
-// Безопасный метод копирования (без вызова неопределенного navigator внутри шаблона)
+// Копирование в буфер
 const copyToClipboard = (text) => {
   if (navigator && navigator.clipboard) {
     navigator.clipboard.writeText(text);
@@ -152,32 +153,67 @@ const copyToClipboard = (text) => {
   }
 }
 
+// 2. Фоновая отрисовка и расчет при РУЧНОМ вводе (использует hiddenKetcher)
 const drawSmiles = async (smiles) => {
   if (!smiles || smiles.trim() === "") {
-    const ketcher = ketcherFrame.value?.contentWindow?.ketcher || hiddenKetcher.value?.contentWindow?.ketcher;
+    const ketcher = hiddenKetcher.value?.contentWindow?.ketcher || ketcherFrame.value?.contentWindow?.ketcher;
     if (ketcher) ketcher.setMolecule("");
     const updated = { ...props.modelValue };
     updated[`reagent${props.index}_svg`] = '';
+    updated[`reagent${props.index}_molar_mass`] = '';
     emit('update:modelValue', updated);
+    emit('calculate');
     return;
   }
 
   const tryDraw = (attempts = 0) => {
-    const frame = showKetcher.value ? ketcherFrame.value : hiddenKetcher.value;
+    // Для фонового ввода ВСЕГДА берем скрытый фрейм, чтобы не ломать фокус
+    const frame = hiddenKetcher.value || ketcherFrame.value;
     const ketcher = frame?.contentWindow?.ketcher;
 
     if (ketcher && typeof ketcher.setMolecule === 'function') {
       (async () => {
         try {
           await ketcher.setMolecule(smiles);
-          if (ketcher.editor?.setZoom) ketcher.editor.setZoom(1.0);
 
           const blob = await ketcher.generateImage(smiles, { outputFormat: 'svg' });
           const svgText = await blob.text();
 
+          const molfile = await ketcher.getMolfile();
+          let massVal = null;
+
+          if (ketcher.structService) {
+            try {
+              const result = await ketcher.structService.calculate({
+                struct: molfile,
+                properties: ['molecular-weight']
+              });
+              massVal = result?.['molecular-weight'];
+            } catch (calcError) {
+              console.error("Background mass calculation failed:", calcError);
+            }
+          }
+
           const updated = { ...props.modelValue };
           updated[`reagent${props.index}_svg`] = svgText;
+
+          if (massVal) {
+            const totalMass = String(massVal)
+              .split(';')
+              .reduce((sum, part) => {
+                const num = parseFloat(part.trim());
+                return sum + (isNaN(num) ? 0 : num);
+              }, 0);
+
+            updated[`reagent${props.index}_molar_mass`] = totalMass.toFixed(2);
+          }
+
           emit('update:modelValue', updated);
+
+          nextTick(() => {
+            emit('calculate');
+          });
+
         } catch (err) {
           console.error("Reagent Draw Error:", err);
         }
@@ -191,11 +227,13 @@ const drawSmiles = async (smiles) => {
 
 defineExpose({ drawSmiles });
 
+// 3. ВОЗВРАЩЕН И ИСПРАВЛЕН: Метод сохранения из модального окна Ketcher
 const saveFromKetcher = async () => {
   try {
     const ketcher = ketcherFrame.value?.contentWindow?.ketcher;
     if (!ketcher) return;
 
+    // Вытаскиваем всё строго из открытого ketcherFrame
     const smiles = await ketcher.getSmiles();
     const blob = await ketcher.generateImage(smiles, { outputFormat: 'svg' });
     const svgText = await blob.text();
@@ -230,7 +268,14 @@ const saveFromKetcher = async () => {
       updated[`reagent${props.index}_molar_mass`] = totalMass.toFixed(2);
     }
 
+    // Сначала пушим обновленные данные в модель
     emit('update:modelValue', updated);
+
+    // Сразу же запускаем пересчет математики в журнале
+    nextTick(() => {
+      emit('calculate');
+    });
+
   } catch (err) {
     console.error("Global saveFromKetcher error:", err);
   } finally {
@@ -238,6 +283,7 @@ const saveFromKetcher = async () => {
   }
 }
 
+// 4. Безопасное открытие редактора
 const openEditor = async () => {
   showKetcher.value = true;
   await nextTick();
@@ -247,7 +293,12 @@ const openEditor = async () => {
     if (ketcher && ketcher.editor) {
       const smiles = props.modelValue[`reagent${props.index}_smiles`];
       await ketcher.setMolecule(smiles || "");
-      ketcher.editor.setZoom(1.0);
+
+      try {
+        if (typeof ketcher.setZoom === 'function') ketcher.setZoom(1.0);
+        else if (ketcher.editor && typeof ketcher.editor.setZoom === 'function') ketcher.editor.setZoom(1.0);
+      } catch (e) {}
+
       if (ketcher.editor.centerXy) ketcher.editor.centerXy();
     } else {
       setTimeout(checkAndSet, 50);

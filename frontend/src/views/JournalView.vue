@@ -354,25 +354,37 @@ const calculateJournal = () => {
       }
     }
 
-    // --- 4. РАСЧЕТ ПРОДУКТА (Теоретический) ---
+    // --- 4. РАСЧЕТ ПРОДУКТА (Теоретическая масса) ---
     const prod_mw = parseFloat(d.product_molar_mass);
     const prod_ekv = parseFloat(d.product_molar_ekv) || 1.0;
 
     if (prod_mw > 0) {
-      // Теор. моли продукта: n(prod) = n(base) * eq(prod)
-      const theoProdMoles = baseMoles * prod_ekv;
-      d.product_moles = theoProdMoles.toFixed(4);
-
-      // Теор. масса: m = n * MW
-      d.product_theoretical_mass = (theoProdMoles * prod_mw).toFixed(3);
+      // Теор. масса: n(base) * eq(prod) * MW(prod)
+      d.product_theoretical_mass = (baseMoles * prod_ekv * prod_mw).toFixed(3);
+    } else {
+      d.product_theoretical_mass = null;
     }
+  } else {
+    d.product_theoretical_mass = null;
   }
 
-  // Выход (%)
+  // --- 5. РАСЧЕТ ПРОДУКТА (Практические моли и Выход) ---
+  const prod_mw = parseFloat(d.product_molar_mass);
   const prac_mass = parseFloat(d.product_praktical_mass);
   const theor_mass = parseFloat(d.product_theoretical_mass);
+
+  // Практические моли: m(практ) / MW
+  if (prac_mass > 0 && prod_mw > 0) {
+    d.product_moles = (prac_mass / prod_mw).toFixed(4);
+  } else {
+    d.product_moles = null;
+  }
+
+  // Выход в %
   if (prac_mass > 0 && theor_mass > 0) {
     d.product_yield_calc = ((prac_mass / theor_mass) * 100).toFixed(1);
+  } else {
+    d.product_yield_calc = null;
   }
 }
 
