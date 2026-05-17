@@ -251,7 +251,7 @@ def generate_reaction_svg(smiles: str) -> str:
         rxn = rdChemReactions.ReactionFromSmarts(smiles, useSmiles=True)
 
         if rxn:
-            # 1. Генерируем 2D-координаты для абсолютно всех участников
+            # 1. 2D-Координаты
             for i in range(rxn.GetNumReactantTemplates()):
                 mol = rxn.GetReactantTemplate(i)
                 mol.RemoveAllConformers()
@@ -267,23 +267,39 @@ def generate_reaction_svg(smiles: str) -> str:
                 mol.RemoveAllConformers()
                 AllChem.Compute2DCoords(mol)
 
-            # 2. РЕНДЕРИНГ: Используем стабильный большой холст.
-            # RDKit отрисует даже гигантские схемы с высокой четкостью и без каши,
-            # а избыток белого пространства гарантированно срежет функция кропа.
-            master_w, master_h = 2400, 700
+            # 2. Считаем атомы для масштабирования плотности отрисовки
+            total_atoms = 0
+            for i in range(rxn.GetNumReactantTemplates()):
+                total_atoms += rxn.GetReactantTemplate(i).GetNumAtoms()
+            for i in range(rxn.GetNumProductTemplates()):
+                total_atoms += rxn.GetProductTemplate(i).GetNumAtoms()
+            for i in range(rxn.GetNumAgentTemplates()):
+                total_atoms += rxn.GetAgentTemplate(i).GetNumAtoms()
+
+            # ДИНАМИЧЕСКИЙ МАСТЕР-ХОЛСТ:
+            # Для маленьких реакций (до 40 атомов) берем небольшой холст.
+            # За счет этого RDKit нарисует жирные связи и КРУПНЫЕ буквы.
+            if total_atoms < 45:
+                master_w, master_h = 900, 350
+                font_size = 15
+            elif total_atoms < 100:
+                master_w, master_h = 1600, 500
+                font_size = 14
+            else:
+                # Для гигантов оставляем огромную поляну
+                master_w, master_h = 2600, 750
+                font_size = 13
 
             d2d = Draw.MolDraw2DSVG(master_w, master_h)
             opts = d2d.drawOptions()
-            opts.fixedFontSize = 14
-            opts.annotationFontScale = 0.8
-            opts.padding = 0.02
+            opts.fixedFontSize = font_size
+            opts.annotationFontScale = 0.85
+            opts.padding = 0.01  # Максимально прижимаем к краям до кропа
 
             d2d.DrawReaction(rxn)
             d2d.FinishDrawing()
 
             raw_svg = d2d.GetDrawingText()
-
-            # Обрезаем все пустые поля под ноль
             return crop_svg_borders(raw_svg, padding=15)
 
         # Fallback для одной молекулы
@@ -292,9 +308,9 @@ def generate_reaction_svg(smiles: str) -> str:
             mol.RemoveAllConformers()
             AllChem.Compute2DCoords(mol)
 
-            master_w, master_h = 600, 500
-            d2d = Draw.MolDraw2DSVG(master_w, master_h)
-            d2d.drawOptions().padding = 0.02
+            d2d = Draw.MolDraw2DSVG(500, 400)
+            d2d.drawOptions().fixedFontSize = 15
+            d2d.drawOptions().padding = 0.01
             d2d.DrawMolecule(mol)
             d2d.FinishDrawing()
 

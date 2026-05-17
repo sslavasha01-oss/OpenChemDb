@@ -266,61 +266,62 @@ defineExpose({performNewSearch})
 
 .table-container {
   width: 100%;
-  overflow-x: hidden; /* На десктопе скрываем */
+  overflow-x: hidden;
 }
 
 .reaction-table {
   width: 100%;
   border-collapse: collapse;
-  table-layout: fixed;
+  table-layout: fixed; /* Гарантирует жесткое соблюдение заданных процентов */
 }
 
 .reaction-table th, .reaction-table td {
-  padding: 12px 8px;
+  padding: 12px 6px; /* Минимальные боковые паддинги, чтобы выжать максимум места */
   border-bottom: 1px solid #eee;
   vertical-align: middle;
   word-break: break-word;
 }
 
-/* Колонки для десктопа */
-.col-viz { width: 50%; }
-.col-cond { width: 15%; text-align: center; font-size: 0.85rem; }
-.col-yield { width: 10%; text-align: center; font-weight: bold; }
-.col-ref { width: 25%; }
+/* АГРЕССИВНОЕ РАСПРЕДЕЛЕНИЕ ШИРИНЫ ДЛЯ ДЕСКТОПА */
+.col-viz   { width: 60%; } /* Выделяем царские 60% под картинку реакции */
+.col-cond  { width: 14%; text-align: left; font-size: 0.85rem; }
+.col-yield { width: 6%;  text-align: center; font-weight: bold; font-size: 0.95rem; } /* Минимальная колонка чисто под цифру */
+.col-ref   { width: 20%; } /* Компактная колонка для авторов и DOI */
 
 .reaction-container {
   width: 100%;
   background: #fff;
-  border: 1px solid #f9f9f9;
-  border-radius: 4px;
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  padding: 4px;
+  display: block;
+  padding: 2px 0;
 }
 
 .reaction-container :deep(svg) {
-  width: 100%;
-  height: auto;
-  max-height: 140px; /* Ограничиваем по высоте, чтобы строка таблицы не была слишком высокой */
+  width: auto;
+  max-width: 100%; /* Картинка займет до 60% ширины экрана, если это длинная схема */
+
+  /* Увеличиваем лимит высоты. Теперь длинные молекулы не будут превращаться в ниточку,
+     а маленькие и средние реакции станут крупными и четкими */
+  max-height: 130px;
+
   display: block;
+  margin: 0; /* Прижимаем к левому краю */
 }
 
-.ref-block { display: flex; flex-direction: column; gap: 8px; }
-.doi-link { color: #3498db; text-decoration: none; font-size: 0.8rem; word-break: break-all; }
+.ref-block { display: flex; flex-direction: column; gap: 4px; }
+.ref-text { font-size: 0.8rem; color: #333; line-height: 1.3; }
 
 /* ПАГИНАЦИЯ */
-.pagination { margin-top: 30px; display: flex; justify-content: center; align-items: center; gap: 20px; }
-.pag-btn { padding: 8px 16px; border: 1px solid #42b983; background: white; color: #42b983; border-radius: 20px; cursor: pointer; font-weight: bold; transition: 0.3s; }
+.pagination { margin-top: 25px; display: flex; justify-content: center; align-items: center; gap: 20px; }
+.pag-btn { padding: 6px 14px; border: 1px solid #42b983; background: white; color: #42b983; border-radius: 20px; cursor: pointer; font-weight: bold; transition: 0.3s; }
 .pag-btn:hover:not(:disabled) { background: #42b983; color: white; }
 .pag-btn:disabled { opacity: 0.3; cursor: not-allowed; border-color: #ccc; color: #ccc; }
-.page-numbers .current { color: #42b983; font-size: 1.2rem; font-weight: bold; }
+.page-numbers .current { color: #42b983; font-size: 1.1rem; font-weight: bold; }
 
 /* Кнопки оценок */
-.eval-bar { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 5px; }
-.eval-btn { background: #f9f9f9; border: 1px solid #eee; border-radius: 6px; padding: 3px 8px; cursor: pointer; }
+.eval-bar { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+.eval-btn { background: #f9f9f9; border: 1px solid #eee; border-radius: 5px; padding: 2px 5px; cursor: pointer; font-size: 0.75rem; }
 
-/* МОБИЛЬНАЯ АДАПТАЦИЯ (КАРТОЧКИ) */
+/* МОБИЛЬНАЯ АДАПТАЦИЯ (КАРТОЧКИ — ТУТ ОСТАВЛЯЕМ БЕЗ ИЗМЕНЕНИЙ) */
 @media (max-width: 768px) {
   .table-container { overflow-x: visible; }
 
@@ -330,31 +331,30 @@ defineExpose({performNewSearch})
   .reaction-table th,
   .reaction-table td,
   .reaction-table tr {
-    display: block; /* Превращаем таблицу в набор блоков */
+    display: block;
   }
 
-  .reaction-table thead { display: none; } /* Скрываем заголовки */
+  .reaction-table thead { display: none; }
 
   .reaction-table tr {
-    margin-bottom: 25px;
+    margin-bottom: 20px;
     border: 1px solid #eee;
     border-radius: 12px;
-    padding: 15px;
-    box-shadow: 0 4px 10px rgba(0,0,0,0.05);
+    padding: 12px;
+    box-shadow: 0 3px 8px rgba(0,0,0,0.04);
     background: #fff;
   }
 
   .reaction-table td {
-    width: 100% !important; /* На весь экран */
+    width: 100% !important;
     box-sizing: border-box;
-    padding: 10px 0;
+    padding: 8px 0;
     border-bottom: 1px solid #f5f5f5;
     text-align: left !important;
   }
 
   .reaction-table td:last-child { border-bottom: none; }
 
-  /* Подписи для ячеек */
   .reaction-table td::before {
     content: attr(data-label);
     font-weight: bold;
@@ -362,20 +362,24 @@ defineExpose({performNewSearch})
     font-size: 0.7rem;
     color: #999;
     text-transform: uppercase;
-    margin-bottom: 4px;
+    margin-bottom: 3px;
   }
 
-  /* Реакция без подписи и первая */
   .col-viz {
     order: -1;
     border-bottom: 2px solid #eee !important;
-    padding-bottom: 15px !important;
+    padding-bottom: 12px !important;
   }
   .col-viz::before { display: none; }
 
   .reaction-container {
     border: none;
     padding: 0;
+  }
+
+  .reaction-container :deep(svg) {
+    max-height: 140px;
+    margin: 0 auto;
   }
 }
 
@@ -386,32 +390,34 @@ defineExpose({performNewSearch})
 .doi-wrapper {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 2px;
 }
 
 .doi-link {
   color: #3498db;
   text-decoration: none;
-  font-size: 0.8rem;
+  font-size: 0.75rem;
   word-break: break-all;
-  display: block; /* Каждая ссылка с новой строки */
+  display: block;
 }
 
 .doi-link:hover {
   text-decoration: underline;
 }
+
 .error-msg {
   color: #e74c3c;
-  padding: 20px;
+  padding: 15px;
   text-align: center;
   background: #fdf2f2;
   border-radius: 8px;
   border: 1px solid #facccc;
   margin: 10px 0;
 }
+
 .loading-state, .empty-state {
   text-align: center;
-  padding: 40px;
+  padding: 30px;
   color: #666;
 }
 </style>
