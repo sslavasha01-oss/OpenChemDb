@@ -1,5 +1,23 @@
 <script setup>
 import Navbar from './components/Navbar.vue'
+const initGlobalKetcher = () => {
+  const checkIndigo = setInterval(() => {
+    try {
+      const frame = document.getElementById('global-ketcher-iframe')
+      const ketcher = frame?.contentWindow?.ketcher
+      if (ketcher && typeof ketcher.setMolecule === 'function') {
+        window.ketcherSingleton = ketcher
+        window.ketcherIframeElement = frame
+        console.log("Глобальный Ketcher успешно инициализирован в корне!")
+        clearInterval(checkIndigo)
+      }
+    } catch (e) {
+      // Игнорируем CORS ошибки инициализации
+    }
+  }, 250)
+  setTimeout(() => clearInterval(checkIndigo), 15000)
+}
+
 </script>
 
 <template>
@@ -15,6 +33,12 @@ import Navbar from './components/Navbar.vue'
   <main class="container">
     <router-view />
   </main>
+  <iframe
+    id="global-ketcher-iframe"
+    src="/standalone/index.html?hidden_controls=help,settings,save&api_path=/&allow_reaction=true"
+    style="position: fixed; top: -9999px; left: -9999px; width: 1px; height: 1px; visibility: hidden;"
+    @load="initGlobalKetcher"
+  ></iframe>
 </template>
 
 <style>

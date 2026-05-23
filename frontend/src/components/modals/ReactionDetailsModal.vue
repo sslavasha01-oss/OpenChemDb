@@ -174,24 +174,42 @@ const generateKetcherImage = async (smiles) => {
     return
   }
 
-  try {
-    // Напрямую ищем iframe Кетчера, который гарантированно живёт на странице поиска
-    const iframe = document.querySelector('.ketcher-frame') || document.querySelector('iframe')
-    const ketcher = iframe?.contentWindow?.ketcher
+  const timer = setInterval(async () => {
+    try {
+      // Подхватываем глобальный синглтон или корневой фрейм сайта
+      const globalFrame = document.getElementById('global-ketcher-iframe')
+      const ketcher = window.ketcherSingleton || globalFrame?.contentWindow?.ketcher
 
-    if (ketcher && typeof ketcher.generateImage === 'function') {
-      // Вызываем в точности как в SearchView. Сами опции Indigo подхватит из фрейма
-      const blob = await ketcher.generateImage(smiles, { outputFormat: 'svg' })
-      const text = await blob.text()
-      ketcherSvg.value = text
-    } else {
-      console.warn("Ketcher visualizer frame or method not found")
-      ketcherSvg.value = `<small style="color:#e74c3c; padding: 20px; display:block;">Ketcher editor iframe not found</small>`
+      if (ketcher && typeof ketcher.generateImage === 'function') {
+        clearInterval(timer)
+        if (!window.ketcherSingleton) window.ketcherSingleton = ketcher
+
+        try {
+          // Вызываем метод в точности как в SearchView/Родителе
+          const blob = await ketcher.generateImage(smiles, { outputFormat: 'svg' })
+          const text = await blob.text()
+          ketcherSvg.value = text
+        } catch (imageError) {
+          console.warn("Ketcher details image generation temporary fail, retrying...", imageError)
+          // Повторная точечная попытка при занятости Indigo
+          setTimeout(async () => {
+            const retryBlob = await ketcher.generateImage(smiles, { outputFormat: 'svg' })
+            ketcherSvg.value = await retryBlob.text()
+          }, 100)
+        }
+      }
+    } catch (e) {
+      // Игнорируем ошибки доступа во время инициализации фрейма
     }
-  } catch (e) {
-    console.warn("Failed to update preview from SMILES in modal:", e)
-    ketcherSvg.value = `<small style="color:#e74c3c; padding: 20px; display:block;">Render Error</small>`
-  }
+  }, 250) // Проверенный интервал 250мс для стабильности на сервере
+
+  setTimeout(() => {
+    clearInterval(timer)
+    if (!ketcherSvg.value) {
+      console.warn("Ketcher visualizer connection timeout")
+      ketcherSvg.value = `<small style="color:#e74c3c; padding: 20px; display:block;">Ketcher engine timeout</small>`
+    }
+  }, 10000) // Защитный 10-секундный таймаут
 }
 
 // Функция для замены <NL> на переносы строк

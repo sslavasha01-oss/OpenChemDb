@@ -23,54 +23,79 @@ const ketcherFrame = ref(null)
 const searchMode = ref('simple')
 
 
+// Вспомогательная функция: возвращает фрейм в скрытое состояние в самый низ экрана
+const ketcherToBackground = () => {
+  const globalFrame = window.ketcherIframeElement || document.getElementById('global-ketcher-iframe')
+  if (globalFrame) {
+    globalFrame.style.cssText = "position: fixed; top: -9999px; left: -9999px; width: 1px; height: 1px; visibility: hidden; z-index: -1;"
+  }
+}
+
 const openEditor = async () => {
   showKetcher.value = true
   await nextTick()
 
+  const globalFrame = window.ketcherIframeElement || document.getElementById('global-ketcher-iframe')
+  const marker = document.getElementById('ketcher-placeholder-marker')
+
+  if (globalFrame && marker) {
+    // Получаем точные экранные координаты блока-маркера внутри модального окна
+    const rect = marker.getBoundingClientRect()
+
+    // Поверх него накладываем наш глобальный фрейм через fixed, не перезагружая iframe!
+    globalFrame.style.cssText = `
+      position: fixed;
+      top: ${rect.top}px;
+      left: ${rect.left}px;
+      width: ${rect.width}px;
+      height: ${rect.height}px;
+      border: none;
+      visibility: visible;
+      display: block;
+      z-index: 2100; /* Выше модального окна */
+    `
+  }
+
+  // Запускаем ваш оригинальный интервал 1 в 1
   const timer = setInterval(async () => {
     try {
-      const frame = ketcherFrame.value
-      const ketcher = frame?.contentWindow?.ketcher
+      const ketcher = window.ketcherSingleton || globalFrame?.contentWindow?.ketcher
 
-      // Проверяем, что объект ketcher полностью инициализирован
       if (ketcher && typeof ketcher.getSmiles === 'function') {
         clearInterval(timer)
+        if (!window.ketcherSingleton) window.ketcherSingleton = ketcher
 
         let smilesToLoad = reactionSmiles.value
 
         if (smilesToLoad) {
-          // Если мы сами добавили >> в начало (поиск продукта),
-          // для РЕДАКТОРА их ОБЯЗАТЕЛЬНО убираем, иначе он откроет пустоту
           if (smilesToLoad.startsWith('>>')) {
             smilesToLoad = smilesToLoad.substring(2)
           }
 
-          // Используем setMolecule, но оборачиваем в try,
-          // так как Indigo может быть еще занят
           try {
             await ketcher.setMolecule(smilesToLoad)
           } catch (e) {
             console.warn("Retrying setMolecule...", e)
-            // Последний шанс через 100мс
             setTimeout(() => ketcher.setMolecule(smilesToLoad), 100)
           }
+        } else {
+          // Если строка поиска пустая — обязательно очищаем холст Кетчера от старых структур!
+          await ketcher.setMolecule('')
         }
       }
     } catch (e) {
-      // Игнорируем ошибки доступа к фрейму
+      // Игнорируем ошибки доступа
     }
-  }, 250) // Интервал чуть больше для стабильности на Xeon/сервере
+  }, 250)
 
   setTimeout(() => clearInterval(timer), 5000)
 }
 
-// Главная функция: забираем данные из Ketcher
 const saveFromKetcher = async () => {
   try {
-    const ketcher = ketcherFrame.value?.contentWindow?.ketcher
+    const ketcher = window.ketcherSingleton
     if (!ketcher) return
 
-    // Выбираем метод получения данных в зависимости от режима
     const result = searchMode.value === 'advanced'
       ? await ketcher.getSmarts()
       : await ketcher.getSmiles()
@@ -85,11 +110,23 @@ const saveFromKetcher = async () => {
       reactionSmiles.value = finalStr
       const blob = await ketcher.generateImage(finalStr, {outputFormat: 'svg'})
       reactionSvg.value = await blob.text()
+    } else {
+      // Если в редакторе всё стерли и нажали Save
+      reactionSmiles.value = ''
+      reactionSvg.value = ''
     }
+    ketcherToBackground()
     showKetcher.value = false
   } catch (e) {
     console.error("Save Error:", e)
+    ketcherToBackground()
+    showKetcher.value = false
   }
+}
+
+const closeEditorWithoutSaving = () => {
+  ketcherToBackground()
+  showKetcher.value = false
 }
 
 const handleSearch = () => {
@@ -112,13 +149,9 @@ const updatePreviewFromSmiles = async (smiles) => {
   }
 
   try {
-    const frame = ketcherFrame.value
-    const ketcher = frame?.contentWindow?.ketcher
+    const ketcher = window.ketcherSingleton
 
     if (ketcher && typeof ketcher.generateImage === 'function') {
-      // Генерируем SVG. Если в SMILES нет стрелки, Ketcher нарисует просто молекулу.
-      // Если мы хотим, чтобы в превью всегда была стрелка (как продукт),
-      // можем добавить её и здесь: const s = smiles.includes('>>') ? smiles : '>>' + smiles
       const blob = await ketcher.generateImage(smiles, {outputFormat: 'svg'})
       reactionSvg.value = await blob.text()
     }
@@ -224,15 +257,11 @@ watch(searchMode, (newMode) => {
           <h3>Structure Editor</h3>
           <div class="modal-buttons">
             <button @click="saveFromKetcher" class="btn-save">Apply Structure</button>
-            <button @click="showKetcher = false" class="btn-close">Cancel</button>
+            <button @click="closeEditorWithoutSaving" class="btn-close">Cancel</button>
           </div>
         </div>
-        <iframe
-            ref="ketcherFrame"
-            src="/standalone/index.html?hidden_controls=help,settings,save&api_path=/&allow_reaction=true"
-            class="ketcher-frame"
-            @load="updatePreviewFromSmiles(reactionSmiles)"
-        ></iframe>
+        <!-- Контейнер-заглушка, куда временно переместится глобальный фрейм -->
+        <div id="ketcher-placeholder-marker" class="ketcher-frame" style="background: transparent;"></div>
       </div>
     </div>
   </div>
