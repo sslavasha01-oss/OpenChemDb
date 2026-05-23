@@ -104,10 +104,9 @@ const totalPages = computed(() => Math.ceil(totalCount.value / limit))
 
 const fetchCount = async () => {
   if (!localStorage.getItem('token')) {
-    console.log("[Table] Запрос отменен: пользователь не авторизован");
     return;
   }
-  // Если активирован поиск, количество — это длина массива найденных ID
+  // Если активирован поиск, количество — это ВСЕГДА актуальная длина массива найденных ID
   if (isSearchMode.value) {
     totalCount.value = searchResultsIds.value.length;
     return;
@@ -185,14 +184,24 @@ const fetchRecords = async (forceRefresh = false) => {
 }
 
 const refreshData = async (keepSearch = false) => {
-  isSearchMode.value = false;
+  // Очищаем кэш страниц в любом случае, так как данные в БД изменились
   pagesCache.value = {};
-  if (!keepSearch) {
+
+  // Если мы хотим сохранить результаты поиска, то НЕ сбрасываем режим поиска и ID
+  if (keepSearch && isSearchMode.value) {
+    console.log("[Journal Debug Table] Обновление данных с СОХРАНЕНИЕМ режима поиска");
+    // Пересчитываем totalCount на основе имеющихся ID (так как fetchCount для поиска завязан на них)
+    await fetchCount();
+  } else {
+    console.log("[Journal Debug Table] Полный сброс таблицы к дефолтному списку /list");
+    isSearchMode.value = false;
     totalCount.value = 0;
     currentPage.value = 1;
-    searchResultsIds.value = []; // Сбрасываем только если не просили сохранить
+    searchResultsIds.value = [];
+    await fetchCount();
   }
-  await fetchCount();
+
+  // Запрашиваем свежие данные для текущей страницы
   await fetchRecords(true);
 }
 
@@ -265,7 +274,9 @@ defineExpose({
   records,
   changePage,
   currentPage,
-  totalPages
+  totalPages,
+  isSearchMode,
+  searchResultsIds
 })
 </script>
 

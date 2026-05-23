@@ -493,6 +493,7 @@ const saveEntry = async () => {
     const hasExternalId = journalData.value.external_id != null
 
     let response
+    const isNewRecord = !hasExternalId
     if (hasExternalId) {
       response = await axios.put(`/api/my-journal/update/${journalData.value.external_id}`, cleanBodyData, {
         headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' }
@@ -509,7 +510,40 @@ const saveEntry = async () => {
     triggerKetcherRedraw(response.data)
     alert(hasExternalId ? "Запись успешно обновлена!" : "Запись успешно сохранена!")
 
-    if (tableRef.value) tableRef.value.refreshData()
+    if (tableRef.value) {
+      console.log("=== DEBUG SAVE START ===");
+      console.log("Is New Record:", isNewRecord);
+      console.log("Is Search Mode Active in Table:", tableRef.value.isSearchMode);
+      console.log("New Record ID from Server:", response.data?.id);
+
+      // 1. Устанавливаем ID выделенной записи ДО обновлений
+      if (isNewRecord && response.data?.id) {
+        selectedRecordId.value = response.data.id;
+        console.log("Step 1: Set selectedRecordId.value =", selectedRecordId.value);
+      }
+
+      // 2. Инжектим ID в массив поиска
+      if (isNewRecord && tableRef.value.isSearchMode && response.data?.id) {
+        if (!tableRef.value.searchResultsIds) tableRef.value.searchResultsIds = [];
+
+        tableRef.value.searchResultsIds.unshift(response.data.id);
+        tableRef.value.currentPage = 1;
+
+        console.log("Step 2 (Search Mode): searchResultsIds after unshift:", [...tableRef.value.searchResultsIds]);
+      }
+
+      // 3. Даем Vue обновить пропсы
+      await nextTick();
+      console.log("Step 3: nextTick passed. Table props.selectedId should be:", selectedRecordId.value);
+
+      // 4. Триггерим обновление таблицы
+      console.log("Step 4: Calling table refreshData(true)...");
+      await tableRef.value.refreshData(true);
+
+      console.log("Step 5: Table records after refresh:", tableRef.value.records);
+      console.log("Current journalData.id state:", journalData.value?.id);
+      console.log("=== DEBUG SAVE END ===");
+    }
   } catch (err) {
     console.error("Ошибка при сохранении:", err.response?.data || err)
     alert("Ошибка! Проверьте консоль.")
@@ -534,6 +568,10 @@ const deleteEntry = async () => {
       alert(`Запись #${extId} успешно удалена.`)
 
       if (!tableRef.value) throw new Error("Компонент таблицы не найден")
+
+      if (tableRef.value.isSearchMode && tableRef.value.searchResultsIds) {
+        tableRef.value.searchResultsIds = tableRef.value.searchResultsIds.filter(id => id !== selectedRecordId.value);
+      }
 
       const currentRecords = tableRef.value.records || []
       const currentIndex = currentRecords.findIndex(r => r.id === selectedRecordId.value)
@@ -574,10 +612,10 @@ const deleteEntry = async () => {
         }
       } else {
         // Если страница не менялась, просто обновляем текущую
-        await tableRef.value.refreshData()
+        tableRef.value.refreshData(true)
         const freshRecords = tableRef.value.records || []
         if (nextRecordToLoad) {
-          nextRecordToLoad = freshRecords.find(r => r.id = nextRecordToLoad.id) || freshRecords[currentIndex] || null
+          nextRecordToLoad = freshRecords.find(r => r.id === nextRecordToLoad.id) || freshRecords[currentIndex] || null
         }
       }
 
