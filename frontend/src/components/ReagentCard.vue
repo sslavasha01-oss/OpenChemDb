@@ -102,20 +102,21 @@
       </div>
     </div>
 
-    <div v-show="showKetcher" class="modal-overlay">
+    <!-- Модальное окно использует CSS-телепорт глобального фрейма -->
+    <div v-show="showKetcher" class="modal-overlay" style="z-index: 2000;">
       <div class="modal-content">
         <div class="modal-header">
           <h3>Редактор реагента {{ index }}</h3>
           <div class="modal-btns">
             <button @click="saveFromKetcher" class="btn-apply">Применить</button>
-            <button @click="showKetcher = false" class="btn-cancel">Отмена</button>
+            <button @click="closeEditorWithoutSaving" class="btn-cancel">Отмена</button>
           </div>
         </div>
-        <iframe ref="ketcherFrame" src="/standalone/index.html?hidden_controls=help,settings,save&api_path=/&allow_reaction=false" class="ketcher-frame"></iframe>
+        <!-- Маркер-ориентир для глобального фрейма -->
+        <div :id="`reagent-ketcher-placeholder-${index}`" class="ketcher-frame" style="background: transparent;"></div>
       </div>
     </div>
-    <iframe v-show="false" ref="hiddenKetcher" src="/standalone/index.html?hidden_controls=all"></iframe>
-  </div>
+    </div>
 </template>
 
 <script setup>
@@ -130,8 +131,13 @@ const props = defineProps({
 const emit = defineEmits(['update:modelValue', 'calculate'])
 
 const showKetcher = ref(false)
-const ketcherFrame = ref(null)
-const hiddenKetcher = ref(null)
+// Вспомогательная функция отправки глобального фрейма обратно в "подполье"
+const отправитьФреймВФон = () => {
+  const globalFrame = window.ketcherIframeElement || document.getElementById('global-ketcher-iframe')
+  if (globalFrame) {
+    globalFrame.style.cssText = "position: fixed; top: -5000px; left: -5000px; width: 800px; height: 600px; visibility: visible; z-index: -1000; pointer-events: none; border: none;"
+  }
+}
 
 // 1. Обработка ручного ввода SMILES
 const onSmilesInput = (e) => {
@@ -141,7 +147,7 @@ const onSmilesInput = (e) => {
   updatedValue[`reagent${props.index}_smiles`] = newSmiles;
   emit('update:modelValue', updatedValue);
 
-  // Пингуем скрытый Ketcher для перерисовки и пересчета массы в фоне
+  // Рендерим через глобальный фоновый Кетчер
   drawSmiles(newSmiles);
 }
 
@@ -153,11 +159,14 @@ const copyToClipboard = (text) => {
   }
 }
 
-// 2. Фоновая отрисовка и расчет при РУЧНОМ вводе (использует hiddenKetcher)
+// 2. Фоновая отрисовка и расчет при РУЧНОМ вводе (использует единый глобальный фрейм)
 const drawSmiles = async (smiles) => {
+  const globalFrame = window.ketcherIframeElement || document.getElementById('global-ketcher-iframe')
+
   if (!smiles || smiles.trim() === "") {
-    const ketcher = hiddenKetcher.value?.contentWindow?.ketcher || ketcherFrame.value?.contentWindow?.ketcher;
-    if (ketcher) ketcher.setMolecule("");
+    const ketcher = window.ketcherSingleton || globalFrame?.contentWindow?.ketcher;
+    if (ketcher && typeof ketcher.setMolecule === 'function') ketcher.setMolecule("");
+
     const updated = { ...props.modelValue };
     updated[`reagent${props.index}_svg`] = '';
     updated[`reagent${props.index}_molar_mass`] = '';
@@ -167,11 +176,11 @@ const drawSmiles = async (smiles) => {
   }
 
   const tryDraw = (attempts = 0) => {
-    // Для фонового ввода ВСЕГДА берем скрытый фрейм, чтобы не ломать фокус
-    const frame = hiddenKetcher.value || ketcherFrame.value;
-    const ketcher = frame?.contentWindow?.ketcher;
+    const ketcher = window.ketcherSingleton || globalFrame?.contentWindow?.ketcher;
 
     if (ketcher && typeof ketcher.setMolecule === 'function') {
+      if (!window.ketcherSingleton) window.ketcherSingleton = ketcher;
+
       (async () => {
         try {
           await ketcher.setMolecule(smiles);
@@ -214,12 +223,20 @@ const drawSmiles = async (smiles) => {
             emit('calculate');
           });
 
+          // Фикс масштаба
+          setTimeout(() => {
+            try {
+              if (typeof ketcher.setZoom === 'function') ketcher.setZoom(1.0);
+              else if (ketcher.editor?.setZoom) ketcher.editor.setZoom(1.0);
+            } catch (e) {}
+          }, 50);
+
         } catch (err) {
           console.error("Reagent Draw Error:", err);
         }
       })();
     } else if (attempts < 15) {
-      setTimeout(() => tryDraw(attempts + 1), 200);
+      setTimeout(() => tryDraw(attempts + 1), 100);
     }
   };
   tryDraw();
@@ -227,13 +244,92 @@ const drawSmiles = async (smiles) => {
 
 defineExpose({ drawSmiles });
 
-// 3. ВОЗВРАЩЕН И ИСПРАВЛЕН: Метод сохранения из модального окна Ketcher
+// 3. Безопасное открытие редактора через CSS-телепорт
+const openEditor = async () => {
+  showKetcher.value = true;
+
+  // Даем Vue обновить DOM, а затем делаем микроскопическую паузу для отрисовки браузером
+  await nextTick();
+
+  setTimeout(async () => {
+    const globalFrame = window.ketcherIframeElement || document.getElementById('global-ketcher-iframe');
+    const marker = document.getElementById(`reagent-ketcher-placeholder-${props.index}`);
+
+    if (globalFrame && marker) {
+      // На всякий случай проверяем, если маркер схлопнулся, берем размеры модалки
+      let rect = marker.getBoundingClientRect();
+
+      // Если браузер еще не успел посчитать высоту флекс-контейнера
+      if (rect.height < 100) {
+        const modalContent = marker.closest('.modal-content');
+        if (modalContent) {
+          const modalRect = modalContent.getBoundingClientRect();
+          // Высота модалки минус примерная высота шапки (60px)
+          rect = {
+            top: modalRect.top + 55,
+            left: modalRect.left + 2,
+            width: modalRect.width - 4,
+            height: modalRect.height - 60
+          };
+        }
+      }
+
+      // Перемещаем фрейм точно в цель
+      globalFrame.style.cssText = `
+        position: fixed;
+        top: ${rect.top}px;
+        left: ${rect.left}px;
+        width: ${rect.width}px;
+        height: ${rect.height}px;
+        border: none;
+        visibility: visible;
+        display: block;
+        pointer-events: auto; /* Гарантируем кликабельность Кетчера */
+        z-index: 2100; /* Выше оверлея модалки */
+      `;
+    }
+
+    // Загружаем структуру
+    const checkAndSet = async () => {
+      const ketcher = window.ketcherSingleton || globalFrame?.contentWindow?.ketcher;
+      if (ketcher && typeof ketcher.setMolecule === 'function') {
+        if (!window.ketcherSingleton) window.ketcherSingleton = ketcher;
+
+        const smiles = props.modelValue[`reagent${props.index}_smiles`];
+
+        // Очищаем редактор перед установкой, чтобы старые хвосты не наслаивались
+        try {
+          await ketcher.setMolecule("");
+        } catch (e) {}
+
+        if (smiles && smiles.trim() !== "") {
+          await ketcher.setMolecule(smiles);
+        }
+
+        // Фиксируем масштаб и центрируем
+        setTimeout(() => {
+          try {
+            if (typeof ketcher.setZoom === 'function') ketcher.setZoom(1.0);
+            else if (ketcher.editor?.setZoom) ketcher.editor.setZoom(1.0);
+
+            if (ketcher.editor?.centerXy) ketcher.editor.centerXy();
+          } catch (zoomErr) {}
+        }, 50);
+
+      } else {
+        setTimeout(checkAndSet, 50);
+      }
+    };
+    checkAndSet();
+  }, 30); // 30мс задержки как раз хватает, чтобы убрать эффект "нулевых координат"
+};
+
+// 4. Сохранение изменений из глобального Кетчера
 const saveFromKetcher = async () => {
   try {
-    const ketcher = ketcherFrame.value?.contentWindow?.ketcher;
+    const ketcher = window.ketcherSingleton
     if (!ketcher) return;
 
-    // Вытаскиваем всё строго из открытого ketcherFrame
     const smiles = await ketcher.getSmiles();
     const blob = await ketcher.generateImage(smiles, { outputFormat: 'svg' });
     const svgText = await blob.text();
@@ -268,10 +364,8 @@ const saveFromKetcher = async () => {
       updated[`reagent${props.index}_molar_mass`] = totalMass.toFixed(2);
     }
 
-    // Сначала пушим обновленные данные в модель
     emit('update:modelValue', updated);
 
-    // Сразу же запускаем пересчет математики в журнале
     nextTick(() => {
       emit('calculate');
     });
@@ -279,33 +373,15 @@ const saveFromKetcher = async () => {
   } catch (err) {
     console.error("Global saveFromKetcher error:", err);
   } finally {
+    отправитьФреймВФон();
     showKetcher.value = false;
   }
 }
 
-// 4. Безопасное открытие редактора
-const openEditor = async () => {
-  showKetcher.value = true;
-  await nextTick();
-
-  const checkAndSet = async () => {
-    const ketcher = ketcherFrame.value?.contentWindow?.ketcher;
-    if (ketcher && ketcher.editor) {
-      const smiles = props.modelValue[`reagent${props.index}_smiles`];
-      await ketcher.setMolecule(smiles || "");
-
-      try {
-        if (typeof ketcher.setZoom === 'function') ketcher.setZoom(1.0);
-        else if (ketcher.editor && typeof ketcher.editor.setZoom === 'function') ketcher.editor.setZoom(1.0);
-      } catch (e) {}
-
-      if (ketcher.editor.centerXy) ketcher.editor.centerXy();
-    } else {
-      setTimeout(checkAndSet, 50);
-    }
-  };
-  checkAndSet();
-};
+const closeEditorWithoutSaving = () => {
+  отправитьФреймВФон();
+  showKetcher.value = false;
+}
 </script>
 
 <style scoped>
@@ -406,7 +482,12 @@ input:disabled:not([value]) {
 /* Модалка Ketcher */
 .modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.7); z-index: 2000; display: flex; align-items: center; justify-content: center; }
 .modal-content { width: 80%; height: 80%; background: white; border-radius: 8px; display: flex; flex-direction: column; }
-.ketcher-frame { flex: 1; border: none; }
+.ketcher-frame {
+  flex: 1;
+  border: none;
+  min-height: 300px; /* Защита от схлопывания во flex-контексте */
+  width: 100%;
+}
 .modal-header { padding: 10px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #eee; }
 .btn-apply { background: #42b983; color: white; border: none; padding: 5px 15px; border-radius: 4px; cursor: pointer; }
 .btn-cancel { background: #999; color: white; border: none; padding: 5px 15px; border-radius: 4px; cursor: pointer; }
