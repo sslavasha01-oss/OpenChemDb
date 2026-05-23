@@ -86,22 +86,17 @@
       </div>
     </div>
 
-    <iframe
-      v-show="false"
-      ref="hiddenKetcher"
-      src="/standalone/index.html?hidden_controls=all"
-    ></iframe>
-
-    <div v-show="showKetcher" class="modal-overlay">
+    <div v-show="showKetcher" class="modal-overlay" style="z-index: 2000;">
       <div class="modal-content">
         <div class="modal-header">
           <h3>Редактор структуры продукта</h3>
           <div class="modal-btns">
             <button @click="saveFromKetcher" class="btn-apply">Применить</button>
-            <button @click="showKetcher = false" class="btn-cancel">Отмена</button>
+            <button @click="closeEditorWithoutSaving" class="btn-cancel">Отмена</button>
           </div>
         </div>
-        <iframe ref="ketcherFrame" src="/standalone/index.html?hidden_controls=help,settings,save&api_path=/&allow_reaction=false" class="ketcher-frame"></iframe>
+        <!-- Маркер-ориентир. Сюда визуально встанет глобальный фрейм -->
+        <div id="product-ketcher-placeholder" class="ketcher-frame" style="background: transparent;"></div>
       </div>
     </div>
   </div>
@@ -124,33 +119,43 @@ const hiddenKetcher = ref(null)
 // 1. Обработка ручного ввода SMILES
 const onSmilesInput = (e) => {
   const newSmiles = e.target.value
-
   const updatedValue = { ...props.modelValue, product_smiles: newSmiles };
   emit('update:modelValue', updatedValue);
 
-  // Пингуем фоновый скрытый Кетчер
+  // Рендерим через глобальный фоновый Кетчер
   drawSmiles(newSmiles);
+}
+
+// Вспомогательная функция отправки глобального фрейма обратно "в космос"
+const ketcherToBackground = () => {
+  const globalFrame = window.ketcherIframeElement || document.getElementById('global-ketcher-iframe')
+  if (globalFrame) {
+    globalFrame.style.cssText = "position: fixed; top: -5000px; left: -5000px; width: 800px; height: 600px; visibility: visible; z-index: -1000; pointer-events: none; border: none;"
+  }
 }
 
 // 2. Фоновая отрисовка структуры и расчет молярной массы продукта
 const drawSmiles = async (smiles) => {
+  const globalFrame = window.ketcherIframeElement || document.getElementById('global-ketcher-iframe')
+
   if (!smiles || smiles.trim() === "") {
-    const ketcher = hiddenKetcher.value?.contentWindow?.ketcher || ketcherFrame.value?.contentWindow?.ketcher;
-    if (ketcher) ketcher.setMolecule("");
+    const ketcher = window.ketcherSingleton || globalFrame?.contentWindow?.ketcher;
+    if (ketcher && typeof ketcher.setMolecule === 'function') ketcher.setMolecule("");
+
     const updated = { ...props.modelValue };
     updated.product_preview_svg = '';
-    updated.product_molar_mass = ''; // Очищаем массу
+    updated.product_molar_mass = '';
     emit('update:modelValue', updated);
-    emit('calculate'); // Пересчитываем пустые строки в журнале
+    emit('calculate');
     return;
   }
 
   const tryDraw = (attempts = 0) => {
-    // Для фонового ввода всегда используем скрытый фрейм, чтобы не отбирать фокус
-    const frame = hiddenKetcher.value || ketcherFrame.value;
-    const ketcher = frame?.contentWindow?.ketcher;
+    const ketcher = window.ketcherSingleton || globalFrame?.contentWindow?.ketcher;
 
     if (ketcher && typeof ketcher.setMolecule === 'function') {
+      if (!window.ketcherSingleton) window.ketcherSingleton = ketcher;
+
       (async () => {
         try {
           await ketcher.setMolecule(smiles);
@@ -188,23 +193,23 @@ const drawSmiles = async (smiles) => {
 
           emit('update:modelValue', updated);
 
-          // Триггерим математику родительского журнала (выход, моли и т.д.)
           nextTick(() => {
             emit('calculate');
           });
 
+          // Фикс зума для фоновой отрисовки
           setTimeout(() => {
             try {
               if (typeof ketcher.setZoom === 'function') ketcher.setZoom(1.0);
               else if (ketcher.editor?.setZoom) ketcher.editor.setZoom(1.0);
             } catch (e) {}
-          }, 150);
+          }, 50);
         } catch (err) {
           console.error("[Product Draw Error]:", err);
         }
       })();
     } else if (attempts < 25) {
-      setTimeout(() => tryDraw(attempts + 1), 200);
+      setTimeout(() => tryDraw(attempts + 1), 100);
     }
   };
   tryDraw();
@@ -212,10 +217,10 @@ const drawSmiles = async (smiles) => {
 
 defineExpose({ drawSmiles });
 
-// 3. Сохранение из модального окна Ketcher (работает через ketcherFrame)
+// 4. Сохранение изменений из глобального Кетчера
 const saveFromKetcher = async () => {
   try {
-    const ketcher = ketcherFrame.value?.contentWindow?.ketcher;
+    const ketcher = window.ketcherSingleton
     if (!ketcher) return;
 
     const smiles = await ketcher.getSmiles();
@@ -254,7 +259,6 @@ const saveFromKetcher = async () => {
 
     emit('update:modelValue', updatedValue);
 
-    // Триггерим пересчет после применения изменений из редактора
     nextTick(() => {
       emit('calculate');
     });
@@ -262,34 +266,63 @@ const saveFromKetcher = async () => {
   } catch (err) {
     console.error("Error saving product:", err);
   } finally {
+    ketcherToBackground();
     showKetcher.value = false;
   }
 };
 
-// 4. Безопасное открытие редактора
+// 3. Безопасное открытие редактора через CSS-телепорт
 const openEditor = async () => {
   showKetcher.value = true;
   await nextTick();
 
+  const globalFrame = window.ketcherIframeElement || document.getElementById('global-ketcher-iframe')
+  const marker = document.getElementById('product-ketcher-placeholder')
+
+  if (globalFrame && marker) {
+    // Вычисляем, где на экране открылось наше модальное окно
+    const rect = marker.getBoundingClientRect()
+
+    // Перемещаем глобальный фрейм точно на место маркера
+    globalFrame.style.cssText = `
+      position: fixed;
+      top: ${rect.top}px;
+      left: ${rect.left}px;
+      width: ${rect.width}px;
+      height: ${rect.height}px;
+      border: none;
+      visibility: visible;
+      display: block;
+      z-index: 2100; /* Поверх оверлея модалки */
+    `
+  }
+
   const checkAndSet = async () => {
-    const ketcher = ketcherFrame.value?.contentWindow?.ketcher;
-    if (ketcher && ketcher.editor) {
+    const ketcher = window.ketcherSingleton || globalFrame?.contentWindow?.ketcher;
+    if (ketcher && ketcher.setMolecule) {
+      if (!window.ketcherSingleton) window.ketcherSingleton = ketcher;
+
       const smiles = props.modelValue.product_smiles;
       await ketcher.setMolecule(smiles || "");
 
-      // Защита от падения setZoom
+      // Так как фрейм не перезагружался, зум 1.0 отработает железно и без задержек!
       try {
         if (typeof ketcher.setZoom === 'function') ketcher.setZoom(1.0);
         else if (ketcher.editor && typeof ketcher.editor.setZoom === 'function') ketcher.editor.setZoom(1.0);
       } catch (e) {}
 
-      if (ketcher.editor.centerXy) ketcher.editor.centerXy();
+      if (ketcher.editor?.centerXy) ketcher.editor.centerXy();
     } else {
       setTimeout(checkAndSet, 50);
     }
   };
   checkAndSet();
 };
+
+const closeEditorWithoutSaving = () => {
+  ketcherToBackground();
+  showKetcher.value = false;
+}
 </script>
 
 <style scoped>

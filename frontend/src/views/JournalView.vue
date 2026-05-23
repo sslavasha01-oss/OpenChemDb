@@ -131,6 +131,7 @@
       </section>
     </main>
     <iframe
+      id="global-ketcher-iframe"
       ref="globalKetcherFrame"
       src="/standalone/index.html?hidden_controls=all"
       class="invisible-ketcher">
