@@ -88,6 +88,13 @@ const loading = ref(false)
 const error = ref(null)
 const pagesCache = ref({})
 
+const isSearchMode = ref(false);
+
+// Хранилище ID для активного поиска
+const searchResultsIds = ref([])
+const isSearchActive = computed(() => searchResultsIds.value.length > 0)
+const isSearchPending = ref(false) // Новый флаг-блокиратор дефолтной загрузки
+
 const props = defineProps({
   selectedId: [Number, String]
 })
@@ -96,9 +103,13 @@ const offset = computed(() => (currentPage.value - 1) * limit)
 const totalPages = computed(() => Math.ceil(totalCount.value / limit))
 
 const fetchCount = async () => {
-    // Если токена нет или в сторе пустые аккаунты — просто выходим
   if (!localStorage.getItem('token')) {
     console.log("[Table] Запрос отменен: пользователь не авторизован");
+    return;
+  }
+  // Если активирован поиск, количество — это длина массива найденных ID
+  if (isSearchMode.value) {
+    totalCount.value = searchResultsIds.value.length;
     return;
   }
   if (totalCount.value > 0) return;
@@ -126,22 +137,45 @@ const fetchRecords = async (forceRefresh = false) => {
       return;
     }
     const token = localStorage.getItem('token');
-    // Если токена нет или в сторе пустые аккаунты — просто выходим
 
-    const response = await axios.get('/api/my-journal/list', {
-      params: { limit: limit, offset: offset.value },
-      headers: { 'Authorization': `Bearer ${token}` }
-    });
+    let responseData;
 
-    pagesCache.value[currentPage.value] = response.data;
-    records.value = response.data;
+    if (isSearchMode.value) {
+      // Режим ПОИСКА: вырезаем ID для текущей страницы
+      const pageIds = searchResultsIds.value.slice(offset.value, offset.value + limit);
+      console.log("[Journal Debug Table] Выполняется fetchRecords в режиме ПОИСКА по ID");
+      if (pageIds.length === 0) {
+        responseData = [];
+      } else {
+        // Запрашиваем полные данные порции ID (FastAPI ожидает ?ids=1&ids=2...)
+        const params = new URLSearchParams();
+        pageIds.forEach(id => params.append('ids', id));
+
+        const response = await axios.get('/api/my-journal/search/by-ids', {
+          params: params,
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        responseData = response.data;
+      }
+    } else {
+      // ОБЫЧНЫЙ режим: стандартный запрос с пагинацией
+      console.log("[Journal Debug Table] Выполняется fetchRecords в ОБЫЧНОМ режиме /list");
+      const response = await axios.get('/api/my-journal/list', {
+        params: { limit: limit, offset: offset.value },
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      responseData = response.data;
+    }
+
+    pagesCache.value[currentPage.value] = responseData;
+    records.value = responseData;
 
     // Авто-выбор первой записи:
     // Если id не передан извне, мы на 1 странице и есть данные
-    if (!props.selectedId && response.data.length > 0 && currentPage.value === 1) {
-       emit('select-record', response.data[0], false);
+    if (!props.selectedId && responseData.length > 0 && currentPage.value === 1) {
+       emit('select-record', responseData[0], false);
     }
-    return response.data;
+    return responseData;
   } catch (err) {
     console.error("Fetch error details:", err);
     error.value = "Load failed";
@@ -150,12 +184,53 @@ const fetchRecords = async (forceRefresh = false) => {
   }
 }
 
-const refreshData = async () => {
+const refreshData = async (keepSearch = false) => {
+  isSearchMode.value = false;
   pagesCache.value = {};
-  totalCount.value = 0;
-  currentPage.value = 1;
+  if (!keepSearch) {
+    totalCount.value = 0;
+    currentPage.value = 1;
+    searchResultsIds.value = []; // Сбрасываем только если не просили сохранить
+  }
   await fetchCount();
   await fetchRecords(true);
+}
+
+const runSubstructureSearch = async (reagentSmiles, productSmiles) => {
+  console.log("[Journal Debug Table] Внутри runSubstructureSearch. Smiles:", { reagentSmiles, productSmiles });
+  loading.value = true;
+  error.value = null;
+  pagesCache.value = {};
+  currentPage.value = 1;
+  searchResultsIds.value = [];
+
+  // ХАРДКОДНЫЙ ФЛАГ: МЫ В РЕЖИМЕ ПОИСКА
+  isSearchMode.value = true;
+
+  try {
+    const token = localStorage.getItem('token');
+    const response = await axios.get('/api/my-journal/search/ids', {
+      params: {
+        reagent_smiles: reagentSmiles || undefined,
+        product_smiles: productSmiles || undefined
+      },
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+
+    const newIds = response.data.ids || [];
+    console.log("[Journal Debug Table] Сервер вернул ID совпадений:", newIds);
+
+    searchResultsIds.value = newIds;
+
+    await fetchCount();
+    await fetchRecords(true);
+  } catch (err) {
+    console.error("Substructure search error:", err);
+    error.value = "Search failed";
+    isSearchMode.value = false; // Если упало, сбрасываем режим
+  } finally {
+    loading.value = false;
+  }
 }
 
 const changePage = async (newPage) => {
@@ -171,9 +246,22 @@ const formatDate = (dateStr) => {
   })
 }
 
-onMounted(() => { fetchCount(); fetchRecords(); })
+onMounted(() => {
+  console.log("[Journal Debug Table] onMounted сработал. Флаг ожидания поиска:", isSearchPending.value);
+
+  if (!isSearchPending.value && !isSearchActive.value) {
+    console.log("[Journal Debug Table] Блокировок нет, загружаем стандартный список /list");
+    fetchCount();
+    fetchRecords();
+  } else {
+    console.log("[Journal Debug Table] Загрузка /list отменена, таблица ждет результатов поиска.");
+  }
+})
+
 defineExpose({
   refreshData,
+  runSubstructureSearch,
+  isSearchPending, // Обязательно экспонируем флаг для родителя
   records,
   changePage,
   currentPage,

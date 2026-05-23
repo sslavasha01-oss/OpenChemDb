@@ -1,10 +1,12 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Query
 from rdkit import Chem
 from rdkit.Chem import Draw
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import insert, func, update, select, desc, delete
-from typing import Dict, List
+from typing import Dict, List, Optional
+import sqlalchemy as sa
 
+from app.core.settings import settings
 from app.models.user_journal import UserJournal
 from app.models.user import User
 from app.schemas.user_journal import UserJournalSchema
@@ -240,6 +242,123 @@ async def get_journal_count(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error counting records: {str(e)}")
 
+
+@router.get("/search/ids")
+async def search_journal_ids(
+        product_smiles: Optional[str] = None,
+        reagent_smiles: Optional[str] = None,
+        exact: bool = False,
+        current_user: User = Depends(get_current_user),
+        db: AsyncSession = Depends(get_users_db)
+):
+    """
+    Поиск ID записей журнала по подструктуре продукта и/или любого из 5 реагентов.
+    Возвращает список ID, отсортированных по external_id в возрастающем порядке.
+    """
+    if not product_smiles and not reagent_smiles:
+        raise HTTPException(status_code=400, detail="At least one search structure must be provided")
+
+    def canonicalize_molecule_smiles(smi: str):
+        if not smi:
+            return None
+        try:
+            mol = Chem.MolFromSmiles(smi)
+            if mol:
+                Chem.SanitizeMol(mol)
+                return Chem.MolToSmiles(mol)
+        except:
+            pass
+        return smi
+
+    # Базовые условия, общие для любого сценария
+    where_clauses = ["user_id = :user_id"]
+    params = {
+        "user_id": current_user.id,
+        "limit": settings.SEARCH_LIMIT
+    }
+
+    # Если передан продукт
+    if product_smiles:
+        clean_product = canonicalize_molecule_smiles(product_smiles)
+        where_clauses.append("product_mol_data @> :product_smiles\\:\\:mol")
+        params["product_smiles"] = clean_product
+
+    # Если передан реагент (проверяем все 5 колонок через OR)
+    if reagent_smiles:
+        clean_reagent = canonicalize_molecule_smiles(reagent_smiles)
+        reagent_clause = """(
+            reagent1_mol_data @> :reagent_smiles\\:\\:mol OR
+            reagent2_mol_data @> :reagent_smiles\\:\\:mol OR
+            reagent3_mol_data @> :reagent_smiles\\:\\:mol OR
+            reagent4_mol_data @> :reagent_smiles\\:\\:mol OR
+            reagent5_mol_data @> :reagent_smiles\\:\\:mol
+        )"""
+        where_clauses.append(reagent_clause)
+        params["reagent_smiles"] = clean_reagent
+
+    # Собираем финальный SQL-запрос
+    query_string = f"""
+        SELECT id FROM user_journal
+        WHERE {" AND ".join(where_clauses)}
+        ORDER BY external_id ASC
+        LIMIT :limit
+    """
+
+    query = sa.text(query_string)
+
+    try:
+        result = await db.execute(query, params)
+        ids = [row[0] for row in result.fetchall()]
+        return {"ids": ids, "count": len(ids)}
+    except Exception as e:
+        print(f"DB Search Error (Journal Substructure): {e}")
+        raise HTTPException(status_code=500, detail="Database error during structure search")
+
+
+@router.get("/search/by-ids", response_model=List[UserJournalSchema])
+async def get_journal_by_ids(
+        ids: List[int] = Query(...),
+        current_user: User = Depends(get_current_user),
+        db: AsyncSession = Depends(get_users_db)
+):
+    """
+    Получение полных данных журнала по списку ID с проверкой прав доступа текущего пользователя.
+    """
+    if not ids:
+        return []
+
+    # Строим безопасный запрос, исключающий доступ к чужим записям
+    query = sa.text("""
+        SELECT * FROM user_journal
+        WHERE id = ANY (:ids)
+          AND user_id = :user_id
+        ORDER BY external_id ASC
+    """)
+
+    try:
+        result = await db.execute(query, {"ids": ids, "user_id": current_user.id})
+        # .mappings() позволяет обращаться к полям по именам (как в словаре)
+        rows = result.mappings().all()
+
+        output = []
+        for row in rows:
+            # Превращаем RowMapping в обычный словарь для Pydantic
+            row_dict = dict(row)
+
+            # Валидируем через вашу Pydantic-схему
+            schema_rec = UserJournalSchema.model_validate(row_dict)
+
+            # Добавляем SVG-графику для продукта, если есть SMILES
+            if schema_rec.product_smiles:
+                schema_rec.product_svg = generate_molecule_svg(schema_rec.product_smiles)
+
+            output.append(schema_rec)
+
+        return output
+
+    except Exception as e:
+        print(f"Error fetching journal records by IDs: {e}")
+        raise HTTPException(status_code=500, detail="Failed to fetch journal records")
 
 
 def generate_molecule_svg(smiles: str) -> str:

@@ -186,7 +186,7 @@
 
         <!-- Кнопка запуска глобального поиска (по желанию можно дописать метод) -->
         <div class="search-actions-row">
-          <button class="btn-add-main" @click="alert('Тут вызываем API поиска с данными: ' + JSON.stringify(searchState))">
+          <button class="btn-add-main" @click="handleSubstructureSearch">
             <span class="icon">🔍</span> Запустить подструктурный поиск
           </button>
         </div>
@@ -379,6 +379,51 @@ const saveFromSearchKetcher = async () => {
 const closeSearchEditorWithoutSaving = () => {
   ketcherToBackground()
   showSearchKetcher.value = false
+}
+
+const handleSubstructureSearch = async () => {
+
+  const rSmiles = searchState.value.reagent_smiles?.trim();
+  const pSmiles = searchState.value.product_smiles?.trim();
+
+  if (!rSmiles && !pSmiles) {
+    alert("Пожалуйста, введите или нарисуйте хотя бы одну структуру для поиска (реагент или продукт).");
+    return;
+  }
+
+  // 1. ПЕРВЫМ ДЕЛОМ блокируем стандартный onMounted таблицы!
+  if (tableRef.value) {
+    console.log("[Journal Debug Parent] Выставляем блокировку isSearchPending = true");
+    tableRef.value.isSearchPending = true;
+  }
+
+  // 2. Только теперь переключаем вкладку
+  activeTab.value = 'table';
+
+  // 3. Ждем, пока отработает жизненный цикл Vue
+  await nextTick();
+
+  // Если компонент смонтировался только сейчас, реф появится здесь. Взводим флаг снова на всякий случай
+  if (tableRef.value) {
+    tableRef.value.isSearchPending = true;
+
+    // 3. Запускаем поиск. Внутри него произойдет fetchRecords, который и вернет нужные данные
+    try {
+      await tableRef.value.runSubstructureSearch(rSmiles, pSmiles);
+    } finally {
+      // Снимаем блокировку в самом конце, чтобы обычные действия (клик по пагинации) работали штатно
+      tableRef.value.isSearchPending = false;
+    }
+  } else {
+    // Редкий фоллбек для ленивого рендеринга
+    setTimeout(async () => {
+      if (tableRef.value) {
+        tableRef.value.isSearchPending = true;
+        await tableRef.value.runSubstructureSearch(rSmiles, pSmiles);
+        tableRef.value.isSearchPending = false;
+      }
+    }, 50);
+  }
 }
 
 onMounted(() => {
