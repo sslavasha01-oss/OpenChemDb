@@ -273,6 +273,7 @@ const saveEntry = async () => {
 }
 
 // Удаление записи
+// Удаление записи
 const deleteEntry = async () => {
   const extId = journalData.value?.external_id
   if (!extId) return
@@ -296,9 +297,14 @@ const deleteEntry = async () => {
       let needPageChange = false
       let targetPage = tableRef.value.currentPage
 
+      // Запоминаем текущую страницу до каких-либо изменений
+      const previousPage = tableRef.value.currentPage
+
+      // 1. Проверяем, есть ли следующая запись на текущей странице
       if (currentIndex !== -1 && currentIndex < currentRecords.length - 1) {
         nextRecordToLoad = currentRecords[currentIndex + 1]
       } else {
+        // 2. Если это была последняя запись на странице, нужно менять страницу
         if (tableRef.value.currentPage < tableRef.value.totalPages) {
           targetPage = tableRef.value.currentPage + 1
           needPageChange = true
@@ -309,20 +315,28 @@ const deleteEntry = async () => {
       }
 
       if (needPageChange) {
+        // Фиксируем направление движения ДО вызова смены страницы
+        const isMovingForward = targetPage > previousPage
+
         const newPageRecords = await tableRef.value.changePage(targetPage)
+
         if (newPageRecords && newPageRecords.length > 0) {
           await nextTick()
-          const isMovingForward = targetPage > tableRef.value.currentPage
+          // Теперь выборка сработает железно:
+          // Если шли вперед (на след. страницу) -> берем первую запись [0]
+          // Если шли назад (на пред. страницу) -> берем последнюю запись
           nextRecordToLoad = isMovingForward ? newPageRecords[0] : newPageRecords[newPageRecords.length - 1]
         }
       } else {
+        // Если страница не менялась, просто обновляем текущую
         await tableRef.value.refreshData()
         const freshRecords = tableRef.value.records || []
         if (nextRecordToLoad) {
-          nextRecordToLoad = freshRecords.find(r => r.id === nextRecordToLoad.id) || freshRecords[currentIndex] || null
+          nextRecordToLoad = freshRecords.find(r => r.id = nextRecordToLoad.id) || freshRecords[currentIndex] || null
         }
       }
 
+      // 3. Загружаем найденную запись в форму или очищаем, если журнал пуст
       if (nextRecordToLoad) {
         updateFormDataOnly(nextRecordToLoad)
       } else {

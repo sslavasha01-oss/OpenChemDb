@@ -39,6 +39,20 @@ const openEditor = async () => {
   const marker = document.getElementById('ketcher-placeholder-marker')
 
   if (globalFrame && marker) {
+    // === ВОТ ЭТОТ БЛОК ИСПРАВЛЯЕТ ПОЛОМКУ UI ===
+    // Если фрейм до этого использовался в режиме скрытых кнопок (hidden_controls=all)
+    // возвращаем ему чистый дефолтный URL, чтобы отрисовались все инструменты рисования
+    try {
+      if (globalFrame.src.includes('hidden_controls=all')) {
+        globalFrame.src = "/standalone/index.html";
+        // Даем микропаузу, чтобы Ketcher успел перерисовать интерфейс
+        await new Promise(resolve => setTimeout(resolve, 150));
+      }
+    } catch (e) {
+      console.warn("Не удалось сбросить скрытие контролов:", e);
+    }
+    // ===========================================
+
     // Получаем точные экранные координаты блока-маркера внутри модального окна
     const rect = marker.getBoundingClientRect()
 
