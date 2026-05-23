@@ -116,14 +116,21 @@ const showKetcher = ref(false)
 const ketcherFrame = ref(null)
 const hiddenKetcher = ref(null)
 
+let debounceTimer = null
+
 // 1. Обработка ручного ввода SMILES
 const onSmilesInput = (e) => {
   const newSmiles = e.target.value
   const updatedValue = { ...props.modelValue, product_smiles: newSmiles };
   emit('update:modelValue', updatedValue);
 
-  // Рендерим через глобальный фоновый Кетчер
-  drawSmiles(newSmiles);
+  // Сбрасываем предыдущий таймер, если пользователь продолжает печатать
+  clearTimeout(debounceTimer);
+
+  // Запускаем рендер и расчет массы только через 400мс затишья
+  debounceTimer = setTimeout(() => {
+    drawSmiles(newSmiles);
+  }, 400);
 }
 
 // Вспомогательная функция отправки глобального фрейма обратно "в космос"

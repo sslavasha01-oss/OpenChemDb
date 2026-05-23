@@ -122,6 +122,8 @@
 <script setup>
 import { ref, nextTick } from 'vue'
 
+let debounceTimer = null
+
 const props = defineProps({
   modelValue: Object,
   index: Number,
@@ -147,8 +149,13 @@ const onSmilesInput = (e) => {
   updatedValue[`reagent${props.index}_smiles`] = newSmiles;
   emit('update:modelValue', updatedValue);
 
-  // Рендерим через глобальный фоновый Кетчер
-  drawSmiles(newSmiles);
+  // Сбрасываем старый таймер, если пользователь продолжает печатать
+  clearTimeout(debounceTimer);
+
+  // Запускаем отрисовку и пересчет стехиометрии только при паузе в 400мс
+  debounceTimer = setTimeout(() => {
+    drawSmiles(newSmiles);
+  }, 400);
 }
 
 // Копирование в буфер

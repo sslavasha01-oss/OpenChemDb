@@ -21,6 +21,7 @@ const isExact = ref(false) // Состояние для чекбокса Exact M
 const showKetcher = ref(false)
 const ketcherFrame = ref(null)
 const searchMode = ref('simple')
+let debounceTimer = null
 
 
 // Вспомогательная функция: возвращает фрейм в скрытое состояние в самый низ экрана
@@ -176,10 +177,14 @@ const updatePreviewFromSmiles = async (smiles) => {
 
 // Следим за вводом в текстовое поле
 watch(reactionSmiles, (newValue) => {
-  // Обновляем только если окно редактора закрыто
-  // (чтобы не зацикливать обновление при рисовании)
   if (!showKetcher.value) {
-    updatePreviewFromSmiles(newValue)
+    // Очищаем предыдущий таймер, если пользователь продолжает печатать
+    clearTimeout(debounceTimer)
+
+    // Запускаем генерацию только через 400мс после того, как ввод прекратился
+    debounceTimer = setTimeout(() => {
+      updatePreviewFromSmiles(newValue)
+    }, 400)
   }
 })
 
