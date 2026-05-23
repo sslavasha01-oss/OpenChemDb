@@ -23,31 +23,38 @@ async def add_journal_record(
         db: AsyncSession = Depends(get_users_db)
 ):
     # Превращаем Pydantic модель в словарь, исключая служебные поля и пустые mol_data
-    data = record_data.model_dump(exclude={'id', 'external_id', 'date_added', 'date_modified', 'product_svg'})
+    data = record_data.model_dump(
+        exclude={'id', 'external_id', 'date_added', 'date_modified', 'product_svg'},
+        exclude_none=True
+    )
 
-    # Подготавливаем словарь для вставки
-    # Нам нужно подменить значения для всех колонок *_mol_data на SQL-функции RDKit
     insert_data = {}
-
     for key, value in data.items():
-        # Сначала просто копируем значение
+        # Если это служебные поля mol_data, которые фронтенд прислал пустыми — игнорируем их
+        if key.endswith('_mol_data') or key in ('reaction_mol_data', 'reaction_mol_mapped_data'):
+            continue
+
         insert_data[key] = value
 
-        # А теперь, ЕСЛИ это поле с mol_data, пробуем сгенерировать его из SMILES
-        if key.endswith('_mol_data'):
-            smiles_key = key.replace('_mol_data', '_smiles')
-            smiles_value = data.get(smiles_key)
-            if smiles_value:
-                insert_data[key] = func.mol_from_smiles(smiles_value)
+    # 2. Генерируем mol_data строго на основе наличия SMILES
+    # Продукт
+    if data.get('product_smiles'):
+        insert_data['product_mol_data'] = func.mol_from_smiles(data['product_smiles'])
 
-        # Логика для реакций
-        elif key == 'reaction_mol_data' and data.get('reaction_smiles'):
-            insert_data[key] = func.reaction_from_smiles(data['reaction_smiles'])
+    # Реагенты 1-5
+    for i in range(1, 6):
+        smiles_key = f'reagent{i}_smiles'
+        mol_key = f'reagent{i}_mol_data'
+        if data.get(smiles_key):
+            insert_data[mol_key] = func.mol_from_smiles(data[smiles_key])
 
-        elif key == 'reaction_mol_mapped_data' and data.get('reaction_mapped_smiles'):
-            insert_data[key] = func.reaction_from_smiles(data['reaction_mapped_smiles'])
+    # Реакции
+    if data.get('reaction_smiles'):
+        insert_data['reaction_mol_data'] = func.reaction_from_smiles(data['reaction_smiles'])
+    if data.get('reaction_mapped_smiles'):
+        insert_data['reaction_mol_mapped_data'] = func.reaction_from_smiles(data['reaction_mapped_smiles'])
 
-    # Принудительно устанавливаем user_id из авторизации
+    # Принудительно устанавливаем user_id
     insert_data['user_id'] = current_user.id
     # Выполняем вставку с возвратом всей строки (RETURNING *)
     # Триггер в базе сам выставит external_id
@@ -76,75 +83,79 @@ async def update_journal_record(
         current_user: User = Depends(get_current_user),
         db: AsyncSession = Depends(get_users_db)
 ):
-    # Извлекаем данные, исключая системные поля и те, что не должны меняться
-    # Мы исключаем user_id и external_id из данных для обновления,
-    # так как они используются только в WHERE
+    # 1. Извлекаем только те поля, которые фронтенд явно передал в запросе
     data = record_data.model_dump(
-        exclude={'id', 'user_id', 'external_id', 'date_added', 'date_modified'},
-        exclude_unset=True  # Обновляем только те поля, которые прислал фронт
+        exclude={'id', 'user_id', 'external_id', 'date_added', 'date_modified', 'product_svg'},
+        exclude_unset=True  # Обновляем только присланные поля
     )
 
     if not data:
         raise HTTPException(status_code=400, detail="No data provided for update")
 
+    # 2. Переносим во flat-словарь все стандартные поля (числа, текст и т.д.)
+    # При этом полностью игнорируем сырые *_mol_data из Pydantic
     update_values = {}
-
     for key, value in data.items():
-        # Обычная обработка None
-        if value is None:
-            update_values[key] = None
+        if key.endswith('_mol_data') or key in ('reaction_mol_data', 'reaction_mol_mapped_data'):
             continue
+        update_values[key] = value
 
-        # Логика для молекул (продукты и реагенты)
-        if key.endswith('_mol_data'):
-            smiles_key = key.replace('_mol_data', '_smiles')
-            # Берем SMILES либо из пришедших данных, либо (если не прислали)
-            # придется оставить как есть, но обычно фронт шлет пару.
-            smiles_value = data.get(smiles_key)
-            if smiles_value:
-                update_values[key] = func.mol_from_smiles(smiles_value)
+    # 3. Синхронно обновляем RDKit-поля на основе переданных SMILES
 
-        # Логика для реакций
-        elif key.endswith('_mol_mapped_data') or (key == 'reaction_mol_data'):
-            # Определяем ключ со SMILES для конкретного поля
-            if key == 'reaction_mol_data':
-                smiles_key = 'reaction_smiles'
-            else:
-                smiles_key = 'reaction_mapped_smiles'
+    # Продукт
+    if 'product_smiles' in data:
+        p_smiles = data['product_smiles']
+        update_values['product_mol_data'] = func.mol_from_smiles(p_smiles) if p_smiles else None
 
-            smiles_value = data.get(smiles_key)
-            if smiles_value:
-                update_values[key] = func.reaction_from_smiles(smiles_value)
+    # Реагенты 1-5
+    for i in range(1, 6):
+        smiles_key = f'reagent{i}_smiles'
+        mol_key = f'reagent{i}_mol_data'
+        if smiles_key in data:
+            r_smiles = data[smiles_key]
+            update_values[mol_key] = func.mol_from_smiles(r_smiles) if r_smiles else None
 
-        else:
-            # Все остальные поля (Decimal, Text и т.д.)
-            update_values[key] = value
+    # Реакции
+    if 'reaction_smiles' in data:
+        rxn_smiles = data['reaction_smiles']
+        update_values['reaction_mol_data'] = func.reaction_from_smiles(rxn_smiles) if rxn_smiles else None
+
+    if 'reaction_mapped_smiles' in data:
+        rxn_m_smiles = data['reaction_mapped_smiles']
+        update_values['reaction_mol_mapped_data'] = func.reaction_from_smiles(rxn_m_smiles) if rxn_m_smiles else None
 
     try:
-        # Формируем запрос
+        # Формируем SQL-запрос обновления
         stmt = (
-            update(UserJournal.__table__)
+            update(UserJournal)
             .where(
                 UserJournal.user_id == current_user.id,
                 UserJournal.external_id == external_id
             )
             .values(**update_values)
-            .returning(UserJournal.__table__)
+            .returning(UserJournal)  # Возвращаем ORM-объект целиком
         )
 
         result = await db.execute(stmt)
-        updated_row = result.mappings().first()
 
-        if not updated_row:
-            raise HTTPException(status_code=404, detail="Record not found")
+        # Используем scalar_one_or_none(), так как запись по external_id может не найтись
+        updated_record = result.scalar_one_or_none()
+
+        if not updated_record:
+            await db.rollback()
+            raise HTTPException(status_code=404, detail="Record not found or access denied")
 
         await db.commit()
-        return updated_row
 
+        # Возвращаем чистый ORM-объект, FastAPI сам провалидирует его через UserJournalSchema
+        return updated_record
+
+    except HTTPException:
+        raise
     except Exception as e:
         await db.rollback()
-        # В продакшене лучше логировать e, а пользователю отдавать generic error
-        raise HTTPException(status_code=500, detail=f"Update failed: {str(e)}")
+        print(f"UPDATE ERROR (External ID {external_id}): {e}")
+        raise HTTPException(status_code=500, detail="Database error during update")
 
 
 @router.delete("/delete/{external_id}", status_code=status.HTTP_200_OK)
@@ -305,6 +316,7 @@ async def search_journal_ids(
     """
 
     query = sa.text(query_string)
+    print(query_string)
 
     try:
         result = await db.execute(query, params)
