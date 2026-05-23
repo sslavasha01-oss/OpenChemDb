@@ -141,16 +141,33 @@
 </template>
 
 <script setup>
-import { ref, watch, nextTick, onMounted, computed} from 'vue'
+import { ref, watch, nextTick, onMounted, computed } from 'vue'
 import axios from 'axios'
 import ProductCard from '@/components/ProductCard.vue'
 import ReagentCard from '@/components/ReagentCard.vue'
 import JournalTable from '@/components/JournalTable.vue'
 import { useUserStore } from '@/stores/user'
 
+// Импортируем наши новые хуки
+import { useJournalCalculator } from '@/composables/useJournalCalculator'
+import { useJournalKetcher } from '@/composables/useJournalKetcher'
+
 const userStore = useUserStore()
 const isGuest = computed(() => !userStore.isLoggedIn)
 
+// Подключаем логику калькулятора структур
+const { journalData, createEmptyEntry, getCleanDataForApi } = useJournalCalculator()
+
+// DOM элементы и ссылки на дочерние компоненты
+const tableRef = ref(null)
+const productCardRef = ref(null)
+const reagentCardRefs = ref([])
+const globalKetcherFrame = ref(null)
+
+// Подключаем логику работы с Ketcher движком
+const { isKetcherInjected, triggerKetcherRedraw } = useJournalKetcher(globalKetcherFrame, journalData)
+
+// Управление состоянием UI
 const _isEditingInternal = ref(false)
 const isEditing = computed({
   get: () => isGuest.value ? true : _isEditingInternal.value,
@@ -158,572 +175,236 @@ const isEditing = computed({
 })
 
 const activeTab = ref(isGuest.value ? 'method' : 'table')
-const loading = ref(false) // Состояние загрузки
+const loading = ref(false)
 const visibleReagentsCount = ref(3)
-const tableRef = ref(null)
-const productCardRef = ref(null);
-const reagentCardRefs = ref([]);
-const selectedRecordId = ref(null);
+const selectedRecordId = ref(null)
+const journalDataBackup = ref(null)
 
-const globalKetcherFrame = ref(null);
-
-const isKetcherInjected = ref(false);
-const isKetcherReady = ref(false);
-
-// Загружаем фрейм через секунду после входа на страницу
 onMounted(() => {
   setTimeout(() => {
-    isKetcherInjected.value = true;
-  }, 1000);
-});
-
-const onKetcherLoad = () => {
-  // Фрейм загрузился, но Indigo внутри может еще тупить
-  const checkIndigo = setInterval(() => {
-    const ketcher = globalKetcherFrame.value?.contentWindow?.ketcher;
-    if (ketcher && ketcher.setMolecule) {
-      isKetcherReady.value = true;
-      console.log("Ketcher Engine Ready");
-      clearInterval(checkIndigo);
-    }
-  }, 500);
-
-  // Страховка от вечного цикла
-  setTimeout(() => clearInterval(checkIndigo), 10000);
-};
+    isKetcherInjected.value = true
+  }, 1000)
+})
 
 const addReagent = () => {
   if (visibleReagentsCount.value < 5) {
-    visibleReagentsCount.value++;
+    visibleReagentsCount.value++
   }
-};
-
-// Функция создания пустого объекта записи
-const createEmptyEntry = () => {
-  const entry = {
-    user_id: null, // Установит бэкенд из токена, но для схемы нужно
-    product_smiles: '',
-    product_svg: '',
-    product_preview_svg: '',
-    product_molar_mass: null,
-    product_moles: null,
-    product_molar_ekv: 1.0,
-    product_theoretical_mass: null,
-    product_praktical_mass: null,
-    product_yield_calc: null,
-    procedure: '',
-  };
-
-  for (let i = 1; i <= 5; i++) {
-    entry[`reagent${i}_smiles`] = '';
-    entry[`reagent${i}_svg`] = '';
-    entry[`reagent${i}_molar_mass`] = null;
-    entry[`reagent${i}_mass`] = null;
-    entry[`reagent${i}_moles`] = null;
-    entry[`reagent${i}_density`] = null;
-    entry[`reagent${i}_concentration`] = 1.0;
-    entry[`reagent${i}_volume`] = null;
-    entry[`reagent${i}_molar_ekv`] = i === 1 ? 1.0 : null;
-  }
-  return entry;
 }
 
-const journalData = ref(createEmptyEntry())
-
-// Функция для кнопки над таблицей
+// Переключение вкладки на создание новой пустой структуры
 const initNewEntryFromTable = () => {
-  // Обнуляем данные
-  selectedRecordId.value = null;
-  journalData.value = createEmptyEntry();
-  visibleReagentsCount.value = 3;
-
-  // Переключаем вкладку и включаем режим редактирования
-  activeTab.value = 'method';
-  isEditing.value = true;
-};
-
-// 1. НАЖАТИЕ "НОВАЯ ЗАПИСЬ"
-const createNewEntry = () => {
-    if (confirm("Очистить форму и создать новую запись? Несохраненные данные будут потеряны.")) {
-        journalData.value = createEmptyEntry();
-        visibleReagentsCount.value = 3;
-        isEditing.value = true;
-    }
-};
-
-// НАЖАТИЕ "СОХРАНИТЬ" (Создание или Обновление записи)
-const saveEntry = async () => {
-  loading.value = true;
-  try {
-    const token = localStorage.getItem('token');
-    const source = journalData.value;
-    const cleanData = {};
-
-    // Исключаем SVG и системные поля, которые бэк в PUT/POST не ждет в body
-    const excludeKeys = ['product_svg', 'product_preview_svg', 'id', 'user_id', 'date_added', 'date_modified'];
-
-    Object.keys(source).forEach(key => {
-      if (excludeKeys.includes(key) || key.endsWith('_svg')) return;
-
-      let val = source[key];
-
-      const isNumeric = key.includes('mass') || key.includes('moles') ||
-                        key.includes('ekv') || key.includes('density') ||
-                        key.includes('concentration') || key.includes('volume') ||
-                        key.includes('yield_calc');
-
-      if (isNumeric) {
-        cleanData[key] = (val === '' || val === null || val === undefined) ? null : parseFloat(val);
-      } else {
-        cleanData[key] = (val === '') ? null : val;
-      }
-    });
-
-    let response;
-    const hasExternalId = source.external_id != null;
-
-    if (hasExternalId) {
-      // Если запись уже существует — отправляем PUT на /update/{external_id}
-      response = await axios.put(`/api/my-journal/update/${source.external_id}`, cleanData, {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        }
-      });
-    } else {
-      // Если это новая запись — отправляем POST на /add
-      response = await axios.post('/api/my-journal/add', cleanData, {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        }
-      });
-    }
-
-    journalData.value = response.data;
-    isEditing.value = false;
-
-    // Сразу же принудительно пинаем Ketcher, чтобы он перерисовал SVG из свежих SMILES
-    triggerKetcherRedraw(response.data);
-    alert(hasExternalId ? "Запись успешно обновлена!" : "Запись успешно сохранена!");
-
-    if (tableRef.value) {
-      tableRef.value.refreshData();
-    }
-
-  } catch (err) {
-    console.error("Ошибка при сохранении:", err.response?.data || err);
-    alert("Ошибка! Проверьте консоль.");
-  } finally {
-    loading.value = false;
-  }
+  selectedRecordId.value = null
+  journalData.value = createEmptyEntry()
+  visibleReagentsCount.value = 3
+  activeTab.value = 'method'
+  isEditing.value = true
 }
 
-const calculateJournal = () => {
-  const d = journalData.value;
-  if (!d) return;
-
-  // --- 1. РАСЧЕТ РЕАГЕНТА 1 (Лимитирующий) ---
-  const r1_mw = parseFloat(d.reagent1_molar_mass);
-  const r1_mass = parseFloat(d.reagent1_mass);
-  const r1_dens = parseFloat(d.reagent1_density);
-  const r1_conc = parseFloat(d.reagent1_concentration) || 1.0;
-
-  if (r1_mass > 0 && r1_mw > 0) {
-    // Моли R1 считаем строго по массе: n = m / MW
-    d.reagent1_moles = (r1_mass / r1_mw).toFixed(4);
-  } else {
-    d.reagent1_moles = null;
-  }
-
-  // Объем R1: V = m / (density * concentration)
-  // Если концентрация 1.0 (100%), то просто m/density
-  if (r1_mass > 0 && r1_dens > 0) {
-    d.reagent1_volume = (r1_mass / (r1_dens * r1_conc)).toFixed(2);
-  }
-
-  // --- 2. БАЗОВЫЕ МОЛИ (n на 1 эквивалент) ---
-  const r1_moles = parseFloat(d.reagent1_moles);
-  const r1_ekv = parseFloat(d.reagent1_molar_ekv) || 1.0;
-
-  if (r1_moles > 0 && r1_ekv > 0) {
-    const baseMoles = r1_moles / r1_ekv;
-
-    // --- 3. РАСЧЕТ РЕАГЕНТОВ 2-5 ---
-    for (let i = 2; i <= 5; i++) {
-      const ekv = parseFloat(d[`reagent${i}_molar_ekv`]);
-      const mw = parseFloat(d[`reagent${i}_molar_mass`]);
-      const dens = parseFloat(d[`reagent${i}_density`]);
-      const conc = parseFloat(d[`reagent${i}_concentration`]) || 1.0;
-
-      if (ekv > 0) {
-        // n(Ri) = n(base) * eq(Ri)
-        d[`reagent${i}_moles`] = (baseMoles * ekv).toFixed(4);
-
-        if (mw > 0) {
-          // Масса чистого вещества: m = n * MW
-          const massNetto = parseFloat(d[`reagent${i}_moles`]) * mw;
-          d[`reagent${i}_mass`] = massNetto.toFixed(3);
-
-          if (dens > 0) {
-            // Объем раствора/жидкости с учетом концентрации
-            d[`reagent${i}_volume`] = (massNetto / (dens * conc)).toFixed(2);
-          }
-        }
-      } else {
-        d[`reagent${i}_moles`] = null;
-        d[`reagent${i}_mass`] = null;
-        d[`reagent${i}_volume`] = null;
-      }
-    }
-
-    // --- 4. РАСЧЕТ ПРОДУКТА (Теоретическая масса) ---
-    const prod_mw = parseFloat(d.product_molar_mass);
-    const prod_ekv = parseFloat(d.product_molar_ekv) || 1.0;
-
-    if (prod_mw > 0) {
-      // Теор. масса: n(base) * eq(prod) * MW(prod)
-      d.product_theoretical_mass = (baseMoles * prod_ekv * prod_mw).toFixed(3);
-    } else {
-      d.product_theoretical_mass = null;
-    }
-  } else {
-    d.product_theoretical_mass = null;
-  }
-
-  // --- 5. РАСЧЕТ ПРОДУКТА (Практические моли и Выход) ---
-  const prod_mw = parseFloat(d.product_molar_mass);
-  const prac_mass = parseFloat(d.product_praktical_mass);
-  const theor_mass = parseFloat(d.product_theoretical_mass);
-
-  // Практические моли: m(практ) / MW
-  if (prac_mass > 0 && prod_mw > 0) {
-    d.product_moles = (prac_mass / prod_mw).toFixed(4);
-  } else {
-    d.product_moles = null;
-  }
-
-  // Выход в %
-  if (prac_mass > 0 && theor_mass > 0) {
-    d.product_yield_calc = ((prac_mass / theor_mass) * 100).toFixed(1);
-  } else {
-    d.product_yield_calc = null;
-  }
-}
-
-const loadRecordIntoForm = (record) => {
-  // 1. Сразу переключаем интерфейс и данные
-  journalData.value = { ...record };
-  activeTab.value = 'method';
-  isEditing.value = false;
-
-  selectedRecordId.value = record.id;
-
-  // Определяем количество видимых реагентов
-  let count = 0;
-  for (let i = 1; i <= 5; i++) {
-    if (record[`reagent${i}_smiles`]) count = i;
-  }
-  visibleReagentsCount.value = Math.max(count, 1);
-
-  // 2. Запускаем умное ожидание Ketcher
-  const waitForKetcherAndDraw = async () => {
-    const ketcher = globalKetcherFrame.value?.contentWindow?.ketcher;
-
-    // Проверяем наличие ketcher и метода setMolecule
-    if (ketcher && typeof ketcher.setMolecule === 'function') {
-      console.time("Global Drawing");
-
-      try {
-        // Продукт
-        if (record.product_smiles) {
-          journalData.value.product_preview_svg = await fastGenerateSVG(ketcher, record.product_smiles);
-        }
-
-        // Реагенты
-        for (let i = 1; i <= 5; i++) {
-          const smiles = record[`reagent${i}_smiles`];
-          if (smiles) {
-            journalData.value[`reagent${i}_svg`] = await fastGenerateSVG(ketcher, smiles);
-          }
-        }
-      } catch (err) {
-        console.error("Drawing process failed:", err);
-      }
-
-      console.timeEnd("Global Drawing");
-    } else {
-      // Если Ketcher еще не загрузился (первый запуск), пробуем через 200мс снова
-      console.log("Global Ketcher not ready, retrying...");
-      setTimeout(waitForKetcherAndDraw, 200);
-    }
-  };
-
-  waitForKetcherAndDraw();
-};
-
-// Вспомогательная функция (уже есть в твоем коде, проверь наличие)
-const fastGenerateSVG = async (ketcher, smiles) => {
-  try {
-    await ketcher.setMolecule(smiles);
-    const blob = await ketcher.generateImage(smiles, { outputFormat: 'svg' });
-    const svg = await blob.text();
-    return svg;
-  } catch (e) {
-    console.error("SVG Gen Error:", e);
-    return '';
-  }
-};
-
-const navigateRecord = async (direction) => {
-  if (!tableRef.value || loading.value) return;
-
-  // 1. Получаем текущие записи и ищем индекс
-  const currentRecords = tableRef.value.records || [];
-  const currentIndex = currentRecords.findIndex(r => r.id === selectedRecordId.value);
-
-  console.log(`[Nav] Направление: ${direction}, Текущий индекс: ${currentIndex}, ID: ${selectedRecordId.value}`);
-
-  let nextIndex = currentIndex + direction;
-
-  // --- ЛОГИКА ПЕРЕХОДА МЕЖДУ СТРАНИЦАМИ ---
-
-  // А. ВПЕРЕД (Уходим за пределы текущей страницы вниз)
-  if (nextIndex >= currentRecords.length) {
-    if (tableRef.value.currentPage < tableRef.value.totalPages) {
-      console.log("[Nav] Переход на следующую страницу...");
-      loading.value = true;
-      const newPageRecords = await tableRef.value.changePage(tableRef.value.currentPage + 1);
-      loading.value = false;
-
-      if (newPageRecords && newPageRecords.length > 0) {
-        await nextTick();
-        // Выбираем первую запись новой страницы
-        handleTableSelect(newPageRecords[0], false);
-      }
-    } else {
-      console.log("[Nav] Это последняя страница, дальше нельзя.");
-    }
-    return;
-  }
-
-  // Б. НАЗАД (Уходим за пределы текущей страницы вверх)
-  if (nextIndex < 0) {
-    if (tableRef.value.currentPage > 1) {
-      console.log("[Nav] Переход на предыдущую страницу...");
-      loading.value = true;
-      const newPageRecords = await tableRef.value.changePage(tableRef.value.currentPage - 1);
-      loading.value = false;
-
-      if (newPageRecords && newPageRecords.length > 0) {
-        await nextTick();
-        // Выбираем ПОСЛЕДНЮЮ запись предыдущей страницы
-        const lastRecord = newPageRecords[newPageRecords.length - 1];
-        console.log("[Nav] Выбираем последнюю запись:", lastRecord.id);
-        handleTableSelect(lastRecord, false);
-      }
-    } else {
-      console.log("[Nav] Это первая страница, назад нельзя.");
-    }
-    return;
-  }
-
-  // В. ОБЫЧНЫЙ ШАГ ВНУТРИ СТРАНИЦЫ
-  const nextRecord = currentRecords[nextIndex];
-  if (nextRecord) {
-    console.log("[Nav] Переход внутри страницы к ID:", nextRecord.id);
-    handleTableSelect(nextRecord, false);
-  }
-};
-
-// 1. Эта функция ТОЛЬКО подгружает данные в форму (без переключения вкладок)
-const updateFormDataOnly = (record) => {
-  journalData.value = { ...record };
-  selectedRecordId.value = record.id;
-  isEditing.value = false;
-
-  let count = 0;
-  for (let i = 1; i <= 5; i++) {
-    if (record[`reagent${i}_smiles`]) count = i;
-  }
-  visibleReagentsCount.value = Math.max(count, 1);
-
-  // Запуск отрисовки Ketcher (вынесем в отдельный вызов ниже)
-  triggerKetcherRedraw(record);
-};
-
-// 2. Эта функция используется для клика ПО ТАБЛИЦЕ (данные + переход)
-const handleTableSelect = (record, forceTabChange = true) => {
-  updateFormDataOnly(record);
-
-  if (forceTabChange) {
-    activeTab.value = 'method';
-  }
-};
-
-// 3. Выносим отрисовку в отдельный метод (просто скопируйте логику из старой loadRecordIntoForm)
-const triggerKetcherRedraw = (record) => {
-  const waitForKetcherAndDraw = async () => {
-    const ketcher = globalKetcherFrame.value?.contentWindow?.ketcher;
-    if (ketcher && typeof ketcher.setMolecule === 'function') {
-      try {
-        if (record.product_smiles) {
-          journalData.value.product_preview_svg = await fastGenerateSVG(ketcher, record.product_smiles);
-        }
-        for (let i = 1; i <= 5; i++) {
-          const smiles = record[`reagent${i}_smiles`];
-          if (smiles) {
-            journalData.value[`reagent${i}_svg`] = await fastGenerateSVG(ketcher, smiles);
-          }
-        }
-      } catch (err) { console.error(err); }
-    } else {
-      setTimeout(waitForKetcherAndDraw, 200);
-    }
-  };
-  waitForKetcherAndDraw();
-};
-
-// Хранилище для копии данных на случай отмены редактирования
-const journalDataBackup = ref(null);
-
-// Логика кнопки Редактировать / Отменить
+// Переключение режимов Редактировать / Отменить
 const handleEditToggle = () => {
   if (!isEditing.value) {
-    // Включаем редактирование: делаем глубокую копию текущего состояния
-    journalDataBackup.value = JSON.parse(JSON.stringify(journalData.value));
-    isEditing.value = true;
+    journalDataBackup.value = JSON.parse(JSON.stringify(journalData.value))
+    isEditing.value = true
   } else {
-    // Отменяем редактирование: восстанавливаем данные из бэкапа
     if (journalDataBackup.value) {
-      journalData.value = JSON.parse(JSON.stringify(journalDataBackup.value));
-      triggerKetcherRedraw(journalData.value); // Возвращаем старые картинки в Кетчер
+      journalData.value = JSON.parse(JSON.stringify(journalDataBackup.value))
+      triggerKetcherRedraw(journalData.value)
     }
-    isEditing.value = false;
-    journalDataBackup.value = null;
+    isEditing.value = false
+    journalDataBackup.value = null
   }
-};
+}
 
-// Ровная функция удаления записи с умным переходом по страницам
+// Запись данных в форму и обновление счетчика видимых реактивов
+const updateFormDataOnly = (record) => {
+  journalData.value = { ...record }
+  selectedRecordId.value = record.id
+  isEditing.value = false
+
+  let count = 0
+  for (let i = 1; i <= 5; i++) {
+    if (record[`reagent${i}_smiles`]) count = i
+  }
+  visibleReagentsCount.value = Math.max(count, 1)
+  triggerKetcherRedraw(record)
+}
+
+// Выбор строки в интерактивной таблице журнала
+const handleTableSelect = (record, forceTabChange = true) => {
+  updateFormDataOnly(record)
+  if (forceTabChange) {
+    activeTab.value = 'method'
+  }
+}
+
+// Сохранение записи (POST/PUT)
+const saveEntry = async () => {
+  loading.value = true
+  try {
+    const token = localStorage.getItem('token')
+    const cleanBodyData = getCleanDataForApi()
+    const hasExternalId = journalData.value.external_id != null
+
+    let response
+    if (hasExternalId) {
+      response = await axios.put(`/api/my-journal/update/${journalData.value.external_id}`, cleanBodyData, {
+        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' }
+      })
+    } else {
+      response = await axios.post('/api/my-journal/add', cleanBodyData, {
+        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' }
+      })
+    }
+
+    journalData.value = response.data
+    isEditing.value = false
+
+    triggerKetcherRedraw(response.data)
+    alert(hasExternalId ? "Запись успешно обновлена!" : "Запись успешно сохранена!")
+
+    if (tableRef.value) tableRef.value.refreshData()
+  } catch (err) {
+    console.error("Ошибка при сохранении:", err.response?.data || err)
+    alert("Ошибка! Проверьте консоль.")
+  } finally {
+    loading.value = false
+  }
+}
+
+// Удаление записи
 const deleteEntry = async () => {
-  const extId = journalData.value?.external_id;
-  if (!extId) return;
+  const extId = journalData.value?.external_id
+  if (!extId) return
 
   if (confirm(`Вы уверены, что хотите полностью удалить запись #${extId}?`)) {
-    loading.value = true;
+    loading.value = true
     try {
-      const token = localStorage.getItem('token');
+      const token = localStorage.getItem('token')
       await axios.delete(`/api/my-journal/delete/${extId}`, {
         headers: { 'Authorization': `Bearer ${token}` }
-      });
+      })
 
-      alert(`Запись #${extId} успешно удалена.`);
+      alert(`Запись #${extId} успешно удалена.`)
 
-      if (!tableRef.value) {
-        throw new Error("Компонент таблицы (tableRef) не найден");
-      }
+      if (!tableRef.value) throw new Error("Компонент таблицы не найден")
 
-      const currentRecords = tableRef.value.records || [];
-      const currentIndex = currentRecords.findIndex(r => r.id === selectedRecordId.value);
+      const currentRecords = tableRef.value.records || []
+      const currentIndex = currentRecords.findIndex(r => r.id === selectedRecordId.value)
 
-      let nextRecordToLoad = null;
-      let needPageChange = false;
-      let targetPage = tableRef.value.currentPage;
+      let nextRecordToLoad = null
+      let needPageChange = false
+      let targetPage = tableRef.value.currentPage
 
-      // 1. Пытаемся найти следующую запись на ТЕКУЩЕЙ странице
       if (currentIndex !== -1 && currentIndex < currentRecords.length - 1) {
-        nextRecordToLoad = currentRecords[currentIndex + 1];
-      }
-      // 2. Если следующей на этой странице нет — значит, мы удалили последнюю запись в списке страницы
-      else {
-        // Если есть следующая страница — целимся на её первую запись
+        nextRecordToLoad = currentRecords[currentIndex + 1]
+      } else {
         if (tableRef.value.currentPage < tableRef.value.totalPages) {
-          targetPage = tableRef.value.currentPage + 1;
-          needPageChange = true;
-        }
-        // Если следующей страницы нет, но есть предыдущая (мы были на самом конце журнала)
-        else if (tableRef.value.currentPage > 1) {
-          targetPage = tableRef.value.currentPage - 1;
-          needPageChange = true;
+          targetPage = tableRef.value.currentPage + 1
+          needPageChange = true
+        } else if (tableRef.value.currentPage > 1) {
+          targetPage = tableRef.value.currentPage - 1
+          needPageChange = true
         }
       }
 
-      // 3. Обновляем/переключаем страницы и загружаем данные
       if (needPageChange) {
-        console.log(`[Delete Nav] Переходим на страницу: ${targetPage}`);
-        // Вызываем метод смены страницы, который возвращает новые записи
-        const newPageRecords = await tableRef.value.changePage(targetPage);
-
+        const newPageRecords = await tableRef.value.changePage(targetPage)
         if (newPageRecords && newPageRecords.length > 0) {
-          await nextTick();
-          // Если ушли вперед — берем первую запись новой страницы, если назад — последнюю
-          const isMovingForward = targetPage > tableRef.value.currentPage;
-          nextRecordToLoad = isMovingForward ? newPageRecords[0] : newPageRecords[newPageRecords.length - 1];
+          await nextTick()
+          const isMovingForward = targetPage > tableRef.value.currentPage
+          nextRecordToLoad = isMovingForward ? newPageRecords[0] : newPageRecords[newPageRecords.length - 1]
         }
       } else {
-        // Если остались в пределах текущей страницы, просто рефрешим её данные в фоне
-        await tableRef.value.refreshData();
-        // На случай, если после refreshData индексы съехали, перепроверяем запись
-        const freshRecords = tableRef.value.records || [];
-        // Если наша намеченная запись всё ещё существует в массиве — отлично, берем её
+        await tableRef.value.refreshData()
+        const freshRecords = tableRef.value.records || []
         if (nextRecordToLoad) {
-          nextRecordToLoad = freshRecords.find(r => r.id === nextRecordToLoad.id) || freshRecords[currentIndex] || null;
+          nextRecordToLoad = freshRecords.find(r => r.id === nextRecordToLoad.id) || freshRecords[currentIndex] || null
         }
       }
 
-      // 4. Загружаем финальный результат в форму без прыжков по вкладкам
       if (nextRecordToLoad) {
-        updateFormDataOnly(nextRecordToLoad);
+        updateFormDataOnly(nextRecordToLoad)
       } else {
-        // Если в журнале вообще шаром покати (ноль записей во всей базе)
-        selectedRecordId.value = null;
-        journalData.value = createEmptyEntry();
-        visibleReagentsCount.value = 3;
-        isEditing.value = false;
+        selectedRecordId.value = null
+        journalData.value = createEmptyEntry()
+        visibleReagentsCount.value = 3
+        isEditing.value = false
       }
-
     } catch (err) {
-      console.error("Ошибка при удалении:", err.response?.data || err);
-      alert("Не удалось удалить запись. Проверьте консоль.");
+      console.error("Ошибка при удалении:", err.response?.data || err)
+      alert("Не удалось удалить запись.")
     } finally {
-      loading.value = false;
+      loading.value = false
     }
   }
-};
+}
 
-watch(journalData, () => {
-  calculateJournal();
-}, { deep: true });
+// Стрелочная навигация (Вперед/Назад) по ID записей
+const navigateRecord = async (direction) => {
+  if (!tableRef.value || loading.value) return
 
+  const currentRecords = tableRef.value.records || []
+  const currentIndex = currentRecords.findIndex(r => r.id === selectedRecordId.value)
+  let nextIndex = currentIndex + direction
+
+  if (nextIndex >= currentRecords.length) {
+    if (tableRef.value.currentPage < tableRef.value.totalPages) {
+      loading.value = true
+      const newPageRecords = await tableRef.value.changePage(tableRef.value.currentPage + 1)
+      loading.value = false
+      if (newPageRecords && newPageRecords.length > 0) {
+        await nextTick()
+        handleTableSelect(newPageRecords[0], false)
+      }
+    }
+    return
+  }
+
+  if (nextIndex < 0) {
+    if (tableRef.value.currentPage > 1) {
+      loading.value = true
+      const newPageRecords = await tableRef.value.changePage(tableRef.value.currentPage - 1)
+      loading.value = false
+      if (newPageRecords && newPageRecords.length > 0) {
+        await nextTick()
+        handleTableSelect(newPageRecords[newPageRecords.length - 1], false)
+      }
+    }
+    return
+  }
+
+  const nextRecord = currentRecords[nextIndex]
+  if (nextRecord) {
+    handleTableSelect(nextRecord, false)
+  }
+}
+
+// Глобальные вотчеры на изменение состояния аккаунтов и гостя
 watch(isGuest, (newIsGuest) => {
   if (newIsGuest) {
-    activeTab.value = 'method';
-    // Очищаем форму от остатков данных предыдущего пользователя
-    journalData.value = createEmptyEntry();
-    visibleReagentsCount.value = 3;
+    activeTab.value = 'method'
+    journalData.value = createEmptyEntry()
+    visibleReagentsCount.value = 3
   }
-});
+})
 
-// Отслеживаем смену аккаунта (когда переключили в навбаре)
-watch(() => userStore.currentAccountIndex, async (newIndex) => {
-  // 1. Обновляем токен в localStorage для аксиоса/запросов формы
-  const currentAcc = userStore.currentUser;
+watch(() => userStore.currentAccountIndex, async () => {
+  const currentAcc = userStore.currentUser
   if (currentAcc && currentAcc.token) {
-    localStorage.setItem('token', currentAcc.token);
+    localStorage.setItem('token', currentAcc.token)
   } else {
-    localStorage.removeItem('token');
+    localStorage.removeItem('token')
   }
 
-  // 2. Сбрасываем форму метода, чтобы не висели данные предыдущего юзера
-  journalData.value = createEmptyEntry();
-  selectedRecordId.value = null;
+  journalData.value = createEmptyEntry()
+  selectedRecordId.value = null
 
-  // 3. Если мы находимся на вкладке таблицы — принудительно обновляем её данные под нового юзера
-  await nextTick();
+  await nextTick()
   if (tableRef.value && activeTab.value === 'table' && !isGuest.value) {
-    tableRef.value.refreshData();
+    tableRef.value.refreshData()
   }
-});
+})
 
 </script>
 

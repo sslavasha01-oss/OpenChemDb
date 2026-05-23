@@ -294,6 +294,7 @@ const openEditor = async () => {
       visibility: visible;
       display: block;
       z-index: 2100; /* Поверх оверлея модалки */
+      pointer-events: auto; /* <- ИСПРАВЛЕНО: Явно разрешаем события мыши! */
     `
   }
 
@@ -305,13 +306,17 @@ const openEditor = async () => {
       const smiles = props.modelValue.product_smiles;
       await ketcher.setMolecule(smiles || "");
 
-      // Так как фрейм не перезагружался, зум 1.0 отработает железно и без задержек!
       try {
         if (typeof ketcher.setZoom === 'function') ketcher.setZoom(1.0);
         else if (ketcher.editor && typeof ketcher.editor.setZoom === 'function') ketcher.editor.setZoom(1.0);
       } catch (e) {}
 
       if (ketcher.editor?.centerXy) ketcher.editor.centerXy();
+
+      // <- ИСПРАВЛЕНО: Принудительно передаем фокус ввода внутрь фрейма,
+      // чтобы клавиатурные сокращения и холст сразу стали активными
+      globalFrame?.contentWindow?.focus();
+
     } else {
       setTimeout(checkAndSet, 50);
     }
@@ -329,6 +334,7 @@ const closeEditorWithoutSaving = () => {
 .card {
   border: 1px solid #ccc;
   border-radius: 12px;
+  background: white;
   background: white;
   overflow: hidden;
   box-shadow: 0 2px 8px rgba(0,0,0,0.1);
