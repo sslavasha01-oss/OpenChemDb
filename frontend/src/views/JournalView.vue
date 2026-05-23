@@ -126,8 +126,84 @@
       </section>
 
       <!-- Вкладка Поиск -->
-      <section v-if="activeTab === 'search'">
-        <h2>Поиск по структуре</h2>
+      <!-- Вкладка Поиск -->
+      <section v-if="activeTab === 'search'" class="search-page">
+        <h2>Поиск по структуре подграфного соответствия</h2>
+
+        <div class="search-zones-grid">
+          <!-- Окно исходного реагента -->
+          <div class="card search-card">
+            <div class="card-header">Реагент (Исходное соединение)</div>
+            <div class="card-body">
+              <div class="structure-zone editable-zone" @click="openSearchEditor('reagent')">
+                <div v-if="!searchState.reagent_svg" class="placeholder">
+                  <span class="icon">🔍</span>
+                  <p>Нажмите, чтобы нарисовать реагент</p>
+                </div>
+                <div v-else class="svg-render" v-html="searchState.reagent_svg"></div>
+              </div>
+              <div class="fields-zone">
+                <div class="field-group">
+                  <label>SMILES исходника</label>
+                  <input
+                    type="text"
+                    :value="searchState.reagent_smiles"
+                    @input="e => onSearchSmilesInput('reagent', e)"
+                    placeholder="C1=CC=CC=C1..."
+                    class="smiles-compact-input"
+                  >
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Окно искомого продукта -->
+          <div class="card search-card">
+            <div class="card-header">Продукт реакции</div>
+            <div class="card-body">
+              <div class="structure-zone editable-zone" @click="openSearchEditor('product')">
+                <div v-if="!searchState.product_svg" class="placeholder">
+                  <span class="icon">🧪</span>
+                  <p>Нажмите, чтобы нарисовать продукт</p>
+                </div>
+                <div v-else class="svg-render" v-html="searchState.product_svg"></div>
+              </div>
+              <div class="fields-zone">
+                <div class="field-group">
+                  <label>SMILES продукта</label>
+                  <input
+                    type="text"
+                    :value="searchState.product_smiles"
+                    @input="e => onSearchSmilesInput('product', e)"
+                    placeholder="CC(=O)OC1=CC=CC=C1C(=O)O..."
+                    class="smiles-compact-input"
+                  >
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Кнопка запуска глобального поиска (по желанию можно дописать метод) -->
+        <div class="search-actions-row">
+          <button class="btn-add-main" @click="alert('Тут вызываем API поиска с данными: ' + JSON.stringify(searchState))">
+            <span class="icon">🔍</span> Запустить подструктурный поиск
+          </button>
+        </div>
+
+        <!-- Модальное окно редактора Кетчер для вкладки поиска -->
+        <div v-show="showSearchKetcher" class="modal-overlay" style="z-index: 2000;">
+          <div class="modal-content">
+            <div class="modal-header">
+              <h3>Редактирование структуры для поиска ({{ currentSearchTarget === 'reagent' ? 'Реагент' : 'Продукт' }})</h3>
+              <div class="modal-btns">
+                <button @click="saveFromSearchKetcher" class="btn-apply">Применить</button>
+                <button @click="closeSearchEditorWithoutSaving" class="btn-cancel">Отмена</button>
+              </div>
+            </div>
+            <div id="search-ketcher-placeholder" class="ketcher-frame" style="background: transparent;"></div>
+          </div>
+        </div>
       </section>
     </main>
     <iframe
@@ -179,6 +255,131 @@ const loading = ref(false)
 const visibleReagentsCount = ref(3)
 const selectedRecordId = ref(null)
 const journalDataBackup = ref(null)
+
+
+// Переменные для вкладки Поиска
+const searchState = ref({
+  reagent_smiles: '',
+  reagent_svg: '',
+  product_smiles: '',
+  product_svg: ''
+})
+const showSearchKetcher = ref(false)
+const currentSearchTarget = ref('') // 'reagent' или 'product'
+let searchDebounceTimer = null
+
+// Вспомогательная функция отправки глобального фрейма обратно "в космос"
+const ketcherToBackground = () => {
+  const globalFrame = window.ketcherIframeElement || document.getElementById('global-ketcher-iframe')
+  if (globalFrame) {
+    globalFrame.style.cssText = "position: fixed; top: -5000px; left: -5000px; width: 800px; height: 600px; visibility: visible; z-index: -1000; pointer-events: none; border: none;"
+  }
+}
+
+// Обработка ручного ввода SMILES в поиске
+const onSearchSmilesInput = (target, e) => {
+  const newSmiles = e.target.value
+  searchState.value[`${target}_smiles`] = newSmiles
+
+  clearTimeout(searchDebounceTimer)
+  searchDebounceTimer = setTimeout(() => {
+    drawSearchSmiles(target, newSmiles)
+  }, 400)
+}
+
+// Фоновая отрисовка структуры поиска
+const drawSearchSmiles = async (target, smiles) => {
+  const globalFrame = window.ketcherIframeElement || document.getElementById('global-ketcher-iframe')
+
+  if (!smiles || smiles.trim() === "") {
+    searchState.value[`${target}_svg`] = ''
+    return
+  }
+
+  const tryDraw = (attempts = 0) => {
+    const ketcher = window.ketcherSingleton || globalFrame?.contentWindow?.ketcher
+    if (ketcher && typeof ketcher.setMolecule === 'function') {
+      if (!window.ketcherSingleton) window.ketcherSingleton = ketcher;
+      (async () => {
+        try {
+          await ketcher.setMolecule(smiles)
+          const blob = await ketcher.generateImage(smiles, { outputFormat: 'svg' })
+          const svgText = await blob.text()
+          searchState.value[`${target}_svg`] = svgText
+        } catch (err) {
+          console.error(`[Search Draw Error ${target}]:`, err)
+        }
+      })()
+    } else if (attempts < 25) {
+      setTimeout(() => tryDraw(attempts + 1), 100)
+    }
+  }
+  tryDraw()
+}
+
+// Открытие Кетчера для поиска
+const openSearchEditor = async (target) => {
+  currentSearchTarget.value = target
+  showSearchKetcher.value = true
+  await nextTick()
+
+  const globalFrame = window.ketcherIframeElement || document.getElementById('global-ketcher-iframe')
+  const marker = document.getElementById('search-ketcher-placeholder')
+
+  if (globalFrame && marker) {
+    const rect = marker.getBoundingClientRect()
+    globalFrame.style.cssText = `
+      position: fixed;
+      top: ${rect.top}px;
+      left: ${rect.left}px;
+      width: ${rect.width}px;
+      height: ${rect.height}px;
+      border: none;
+      visibility: visible;
+      display: block;
+      z-index: 2100;
+      pointer-events: auto;
+    `
+  }
+
+  const checkAndSet = async () => {
+    const ketcher = window.ketcherSingleton || globalFrame?.contentWindow?.ketcher
+    if (ketcher && ketcher.setMolecule) {
+      if (!window.ketcherSingleton) window.ketcherSingleton = ketcher
+      const smiles = searchState.value[`${currentSearchTarget.value}_smiles`]
+      await ketcher.setMolecule(smiles || "")
+      globalFrame?.contentWindow?.focus()
+    } else {
+      setTimeout(checkAndSet, 50)
+    }
+  }
+  checkAndSet()
+}
+
+// Сохранение из Кетчера для поиска
+const saveFromSearchKetcher = async () => {
+  try {
+    const ketcher = window.ketcherSingleton
+    if (!ketcher) return
+
+    const smiles = await ketcher.getSmiles()
+    const blob = await ketcher.generateImage(smiles, { outputFormat: 'svg' })
+    const svgText = await blob.text()
+
+    searchState.value[`${currentSearchTarget.value}_smiles`] = smiles
+    searchState.value[`${currentSearchTarget.value}_svg`] = svgText
+  } catch (err) {
+    console.error("Error saving search structure:", err)
+  } finally {
+    ketcherToBackground()
+    showSearchKetcher.value = false
+  }
+}
+
+const closeSearchEditorWithoutSaving = () => {
+  ketcherToBackground()
+  showSearchKetcher.value = false
+}
 
 onMounted(() => {
   setTimeout(() => {
@@ -272,7 +473,6 @@ const saveEntry = async () => {
   }
 }
 
-// Удаление записи
 // Удаление записи
 const deleteEntry = async () => {
   const extId = journalData.value?.external_id
@@ -693,5 +893,118 @@ watch(() => userStore.currentAccountIndex, async () => {
 .banner-link:hover {
   color: #2980b9;
 }
+
+.search-page {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+.search-zones-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(450px, 1fr));
+  gap: 20px;
+  width: 100%;
+}
+@media (max-width: 950px) {
+  .search-zones-grid {
+    grid-template-columns: 1fr;
+  }
+}
+.search-card {
+  background: #fff;
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+.search-actions-row {
+  display: flex;
+  justify-content: center;
+  margin-top: 10px;
+}
+
+/* Дублируем базовые стили отображения структуры (если они не глобальные) */
+.card-header {
+  background: #f5f5f5;
+  padding: 10px 15px;
+  font-weight: bold;
+  border-bottom: 1px solid #ddd;
+}
+.card-body {
+  padding: 15px;
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+}
+.structure-zone {
+  border: 1px solid #ccc;
+  border-radius: 6px;
+  min-height: 200px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #fafafa;
+}
+.editable-zone {
+  cursor: pointer;
+  transition: background 0.2s;
+}
+.editable-zone:hover {
+  background: #f0f7f4;
+  border-color: #42b983;
+}
+.placeholder {
+  text-align: center;
+  color: #888;
+}
+.placeholder .icon {
+  font-size: 2.5rem;
+  display: block;
+  margin-bottom: 5px;
+}
+.fields-zone {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.field-group {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.field-group label {
+  font-size: 0.85rem;
+  font-weight: bold;
+  color: #666;
+}
+.smiles-compact-input {
+  width: 100%;
+  padding: 8px 12px;
+  border: 1px solid #ccc;
+  border-radius: 6px;
+  font-family: monospace;
+}
+.svg-render {
+  width: 100%;
+  height: 100%;
+  max-height: 220px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+.svg-render :deep(svg) {
+  max-width: 100%;
+  max-height: 200px;
+}
+
+/* Стили модалки для вкладки поиска (аналогично product card) */
+.modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.7); z-index: 2000; display: flex; align-items: center; justify-content: center; }
+.modal-content { width: 85%; height: 85%; background: white; display: flex; flex-direction: column; border-radius: 8px; overflow: hidden; }
+.ketcher-frame { flex: 1; border: none; }
+.modal-header { padding: 10px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #eee; }
+.btn-apply { background: #42b983; color: white; border: none; padding: 5px 15px; border-radius: 4px; cursor: pointer; font-weight: bold; }
+.btn-cancel { background: #999; color: white; border: none; padding: 5px 15px; border-radius: 4px; cursor: pointer; }
+
 
 </style>
