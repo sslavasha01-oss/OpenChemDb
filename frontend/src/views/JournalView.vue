@@ -128,7 +128,12 @@
       <!-- Вкладка Поиск -->
       <!-- Вкладка Поиск -->
       <section v-if="activeTab === 'search'" class="search-page">
-        <h2>Поиск по структуре подграфного соответствия</h2>
+         <!-- Кнопка запуска глобального поиска (по желанию можно дописать метод) -->
+        <div class="search-actions-row">
+          <button class="btn-add-main" @click="handleSubstructureSearch">
+            <span class="icon">🔍</span> Запустить подструктурный поиск
+          </button>
+        </div>
 
         <div class="search-zones-grid">
           <!-- Окно искомого продукта -->
@@ -182,13 +187,6 @@
             </div>
           </div>
 
-        </div>
-
-        <!-- Кнопка запуска глобального поиска (по желанию можно дописать метод) -->
-        <div class="search-actions-row">
-          <button class="btn-add-main" @click="handleSubstructureSearch">
-            <span class="icon">🔍</span> Запустить подструктурный поиск
-          </button>
         </div>
 
         <!-- Модальное окно редактора Кетчер для вкладки поиска -->
