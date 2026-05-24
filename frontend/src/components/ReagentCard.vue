@@ -1,7 +1,7 @@
 <template>
   <div class="card reagent-card" :class="{ 'limiting-reagent': index === 1 }">
     <div class="card-header">
-      Реагент {{ index }} {{ index === 1 ? '(Лимитирующий)' : '' }}
+      Reagent {{ index }} {{ index === 1 ? '(Limiting)' : '' }}
     </div>
 
     <div class="card-body">
@@ -34,7 +34,7 @@
               type="button"
               class="btn-copy-smiles"
               @click.stop="copyToClipboard(modelValue[`reagent${index}_smiles`])"
-              title="Скопировать SMILES"
+              title="Copy SMILES"
             >
               📋
             </button>
@@ -47,7 +47,7 @@
         </div>
 
         <div class="field-group" :class="{ readonly: index !== 1 }">
-          <label>Масса (г)</label>
+          <label>Mass (g)</label>
           <input
             type="number"
             v-model.number="modelValue[`reagent${index}_mass`]"
@@ -58,12 +58,12 @@
         </div>
 
         <div class="field-group readonly">
-          <label>Моли</label>
+          <label>Moles</label>
           <input type="number" :value="modelValue[`reagent${index}_moles`]" disabled>
         </div>
 
         <div class="field-group">
-          <label>Плотность (г/мл)</label>
+          <label>Density (g/mL)</label>
           <input
             type="number"
             v-model.number="modelValue[`reagent${index}_density`]"
@@ -74,7 +74,7 @@
         </div>
 
         <div class="field-group">
-          <label>Конц. (доля)</label>
+          <label>Conc. (fraction)</label>
           <input
             type="number"
             v-model.number="modelValue[`reagent${index}_concentration`]"
@@ -85,12 +85,12 @@
         </div>
 
         <div class="field-group readonly">
-          <label>Объем (мл)</label>
+          <label>Volume (mL)</label>
           <input type="number" :value="modelValue[`reagent${index}_volume`]" disabled>
         </div>
 
         <div class="field-group">
-          <label>Экв.</label>
+          <label>Eq.</label>
           <input
             type="number"
             v-model.number="modelValue[`reagent${index}_molar_ekv`]"
@@ -106,10 +106,10 @@
     <div v-show="showKetcher" class="modal-overlay" style="z-index: 2000;">
       <div class="modal-content">
         <div class="modal-header">
-          <h3>Редактор реагента {{ index }}</h3>
+          <h3>Reagent {{ index }} Editor</h3>
           <div class="modal-btns">
-            <button @click="saveFromKetcher" class="btn-apply">Применить</button>
-            <button @click="closeEditorWithoutSaving" class="btn-cancel">Отмена</button>
+            <button @click="saveFromKetcher" class="btn-apply">Apply</button>
+            <button @click="closeEditorWithoutSaving" class="btn-cancel">Cancel</button>
           </div>
         </div>
         <!-- Маркер-ориентир для глобального фрейма -->
@@ -134,7 +134,7 @@ const emit = defineEmits(['update:modelValue', 'calculate'])
 
 const showKetcher = ref(false)
 // Вспомогательная функция отправки глобального фрейма обратно в "подполье"
-const отправитьФреймВФон = () => {
+const ketcherToBackground = () => {
   const globalFrame = window.ketcherIframeElement || document.getElementById('global-ketcher-iframe')
   if (globalFrame) {
     globalFrame.style.cssText = "position: fixed; top: -5000px; left: -5000px; width: 800px; height: 600px; visibility: visible; z-index: -1000; pointer-events: none; border: none;"
@@ -162,7 +162,7 @@ const onSmilesInput = (e) => {
 const copyToClipboard = (text) => {
   if (navigator && navigator.clipboard) {
     navigator.clipboard.writeText(text);
-    alert('SMILES скопирован!');
+    alert('SMILES copied to clipboard!');
   }
 }
 
@@ -380,13 +380,13 @@ const saveFromKetcher = async () => {
   } catch (err) {
     console.error("Global saveFromKetcher error:", err);
   } finally {
-    отправитьФреймВФон();
+    ketcherToBackground();
     showKetcher.value = false;
   }
 }
 
 const closeEditorWithoutSaving = () => {
-  отправитьФреймВФон();
+  ketcherToBackground();
   showKetcher.value = false;
 }
 </script>

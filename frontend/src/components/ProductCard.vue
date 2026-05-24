@@ -1,6 +1,6 @@
 <template>
   <div class="card product-card">
-    <div class="card-header">Продукт реакции</div>
+    <div class="card-header">Reaction Product</div>
 
     <div class="card-body">
       <div
@@ -10,7 +10,7 @@
       >
         <div v-if="!modelValue.product_preview_svg" class="placeholder">
           <span class="icon">⚗️</span>
-          <p>Нажмите, чтобы нарисовать</p>
+          <p>Click to draw structure</p>
         </div>
         <div v-else class="svg-render" v-html="modelValue.product_preview_svg"></div>
       </div>
@@ -32,12 +32,12 @@
 
         <div class="metrics-grid">
           <div class="field-group readonly">
-            <label>M.W. (г/моль)</label>
+            <label>M.W. (g/mol)</label>
             <input type="number" :value="modelValue.product_molar_mass" disabled>
           </div>
 
           <div class="field-group">
-            <label>Практ. mass (г)</label>
+            <label>Prac. mass (g)</label>
             <input
               type="number"
               v-model.number="modelValue.product_praktical_mass"
@@ -47,17 +47,17 @@
           </div>
 
           <div class="field-group readonly">
-            <label>Моли</label>
+            <label>Moles</label>
             <input type="number" :value="modelValue.product_moles" disabled>
           </div>
 
           <div class="field-group readonly">
-            <label>Теор. масса (г)</label>
+            <label>Theor. mass (g)</label>
             <input type="number" :value="modelValue.product_theoretical_mass" disabled>
           </div>
 
           <div class="field-group">
-            <label>Экв.</label>
+            <label>Eq.</label>
             <input
               type="number"
               v-model.number="modelValue.product_molar_ekv"
@@ -71,17 +71,17 @@
 
     <div class="card-footer-row">
       <div class="field-group conditions-field">
-        <label>Условия реакции (Conditions)</label>
+        <label>Conditions</label>
         <input
           type="text"
           v-model="modelValue.conditions"
           :disabled="!isEditing"
-          placeholder="EtOH, r.t., 2h, или Pd(PPh3)4, 80°C..."
+          placeholder="EtOH, r.t., 2h, or Pd(PPh3)4, 80°C..."
         >
       </div>
 
       <div class="field-group yield-field">
-        <label>Выход (%)</label>
+        <label>Yield (%)</label>
         <input type="number" :value="modelValue.product_yield_calc" disabled class="yield-input">
       </div>
     </div>
@@ -89,10 +89,10 @@
     <div v-show="showKetcher" class="modal-overlay" style="z-index: 2000;">
       <div class="modal-content">
         <div class="modal-header">
-          <h3>Редактор структуры продукта</h3>
+          <h3>Product Structure Editor</h3>
           <div class="modal-btns">
-            <button @click="saveFromKetcher" class="btn-apply">Применить</button>
-            <button @click="closeEditorWithoutSaving" class="btn-cancel">Отмена</button>
+            <button @click="saveFromKetcher" class="btn-apply">Apply</button>
+            <button @click="closeEditorWithoutSaving" class="btn-cancel">Cancel</button>
           </div>
         </div>
         <!-- Маркер-ориентир. Сюда визуально встанет глобальный фрейм -->

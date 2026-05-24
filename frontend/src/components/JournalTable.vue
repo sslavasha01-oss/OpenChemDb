@@ -251,7 +251,7 @@ const changePage = async (newPage) => {
 
 const formatDate = (dateStr) => {
   if (!dateStr) return '—'
-  return new Date(dateStr).toLocaleDateString('ru-RU', {
+  return new Date(dateStr).toLocaleDateString('en-US', {
     day: '2-digit', month: '2-digit'
   })
 }

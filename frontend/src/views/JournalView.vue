@@ -2,16 +2,16 @@
   <div class="journal-container">
     <!-- Навигация по вкладкам -->
     <nav class="tabs-nav">
-      <button :class="{ active: activeTab === 'table' }" :disabled="isGuest" @click="activeTab = 'table'">Таблица</button>
-      <button :class="{ active: activeTab === 'method' }" @click="activeTab = 'method'">Методика</button>
-      <button :class="{ active: activeTab === 'search' }" :disabled="isGuest" @click="activeTab = 'search'">Поиск</button>
+      <button :class="{ active: activeTab === 'table' }" :disabled="isGuest" @click="activeTab = 'table'">Table</button>
+      <button :class="{ active: activeTab === 'method' }" @click="activeTab = 'method'">Method</button>
+      <button :class="{ active: activeTab === 'search' }" :disabled="isGuest" @click="activeTab = 'search'">Search</button>
     </nav>
 
   <div class="header-controls">
       <div v-if="!isGuest && activeTab !== 'search'" class="global-record-nav">
         <button @click="navigateRecord(-1)" :disabled="isEditing" class="nav-arrow">←</button>
         <span class="selected-id-display">
-          Запись: {{ journalData?.external_id ? '#' + journalData.external_id : '---' }}
+          Record: {{ journalData?.external_id ? '#' + journalData.external_id : '---' }}
         </span>
         <button @click="navigateRecord(1)" :disabled="isEditing" class="nav-arrow">→</button>
       </div>
@@ -22,7 +22,7 @@
           class="btn-add-main"
           @click="initNewEntryFromTable"
         >
-          <span class="icon">+</span> Новая запись
+          <span class="icon">+</span> New Entry
         </button>
 
         <button
@@ -30,7 +30,7 @@
           :class="isEditing ? 'btn-cancel-main' : 'btn-edit-main'"
           @click="handleEditToggle"
         >
-          {{ isEditing ? 'Отменить' : 'Редактировать' }}
+          {{ isEditing ? 'Cancel' : 'Edit' }}
         </button>
 
         <button
@@ -39,7 +39,7 @@
           @click="saveEntry"
           :disabled="loading"
         >
-          {{ loading ? 'Сохранение...' : 'Сохранить' }}
+          {{ loading ? 'Saving...' : 'Save' }}
         </button>
 
         <button
@@ -48,13 +48,13 @@
           :disabled="isEditing || loading"
           @click="deleteEntry"
         >
-          Удалить
+          Delete
         </button>
       </template>
 
       <template v-else>
         <button class="btn-cancel-main" @click="journalData = createEmptyEntry()">
-          Очистить калькулятор
+          Clear Calculator
         </button>
       </template>
     </div>
@@ -63,7 +63,7 @@
         <section v-show="activeTab === 'table' && !isGuest">
         <div class="table-actions">
           <button class="btn-add-main" @click="initNewEntryFromTable">
-            <span class="icon">+</span> Добавить новую запись в журнал
+            <span class="icon">+</span> Add new entry to journal
           </button>
         </div>
 
@@ -78,9 +78,9 @@
         <div v-if="isGuest" class="guest-alert-banner">
           <span class="banner-icon">⚗️</span>
           <p class="banner-text">
-            <strong>Режим калькулятора:</strong> Здесь вы можете рассчитать стехиометрию химической реакции.
-            Для полноценного ведения лаб-журнала, сохранения истории и поиска по структурам, пожалуйста,
-            <router-link to="/login" class="banner-link">залогиньтесь в систему</router-link>.
+            <strong>Calculator Mode:</strong> Here you can calculate the stoichiometry of a chemical reaction.
+          To keep a complete lab journal, save history, and search by structures, please
+          <router-link to="/login" class="banner-link">log into the system</router-link>.
           </p>
         </div>
 
@@ -110,22 +110,21 @@
                @click="addReagent"
              >
                <span class="plus-icon">+</span>
-               Добавить реагент
+               Add Reagent
              </button>
            </div>
         </div>
 
         <div class="procedure-section">
-          <h3>Методика</h3>
+          <h3>Method</h3>
           <textarea
             v-model="journalData.procedure"
             :disabled="!isEditing"
-            placeholder="Опишите ход синтеза..."
+            placeholder="Describe the synthesis procedure..."
           ></textarea>
         </div>
       </section>
 
-      <!-- Вкладка Поиск -->
       <!-- Вкладка Поиск -->
       <section v-if="activeTab === 'search'" class="search-page">
         <div class="search-actions-row" style="display: flex; justify-content: flex-end; margin-top: 10px; margin-bottom: 15px;">
@@ -137,11 +136,11 @@
                 v-model="searchState.exact_match"
                 style="width: 18px; height: 18px; cursor: pointer; margin: 0;"
               >
-              Exact match (Точное соответствие)
+              Exact match
             </label>
 
             <button class="btn-add-main" @click="handleSubstructureSearch">
-              <span class="icon">🔍</span> Запустить подструктурный поиск
+              <span class="icon">🔍</span> Run substructure search
             </button>
 
           </div>
@@ -150,18 +149,18 @@
         <div class="search-zones-grid">
           <!-- Окно искомого продукта -->
           <div class="card search-card">
-            <div class="card-header">Продукт реакции</div>
+            <div class="card-header">Reaction Product</div>
             <div class="card-body">
               <div class="structure-zone editable-zone" @click="openSearchEditor('product')">
                 <div v-if="!searchState.product_svg" class="placeholder">
                   <span class="icon">🧪</span>
-                  <p>Нажмите, чтобы нарисовать продукт</p>
+                  <p>Click to draw product</p>
                 </div>
                 <div v-else class="svg-render" v-html="searchState.product_svg"></div>
               </div>
               <div class="fields-zone">
                 <div class="field-group">
-                  <label>SMILES продукта</label>
+                  <label>Product SMILES</label>
                   <input
                     type="text"
                     :value="searchState.product_smiles"
@@ -175,18 +174,18 @@
           </div>
           <!-- Окно исходного реагента -->
           <div class="card search-card">
-            <div class="card-header">Реагент (Исходное соединение)</div>
+            <div class="card-header">Reagent (Starting Material)</div>
             <div class="card-body">
               <div class="structure-zone editable-zone" @click="openSearchEditor('reagent')">
                 <div v-if="!searchState.reagent_svg" class="placeholder">
                   <span class="icon">🔍</span>
-                  <p>Нажмите, чтобы нарисовать реагент</p>
+                  <p>Click to draw reagent</p>
                 </div>
                 <div v-else class="svg-render" v-html="searchState.reagent_svg"></div>
               </div>
               <div class="fields-zone">
                 <div class="field-group">
-                  <label>SMILES исходника</label>
+                  <label>Starting Material SMILES</label>
                   <input
                     type="text"
                     :value="searchState.reagent_smiles"
@@ -205,10 +204,10 @@
         <div v-show="showSearchKetcher" class="modal-overlay" style="z-index: 2000;">
           <div class="modal-content">
             <div class="modal-header">
-              <h3>Редактирование структуры для поиска ({{ currentSearchTarget === 'reagent' ? 'Реагент' : 'Продукт' }})</h3>
+              <h3>Edit search structure ({{ currentSearchTarget === 'reagent' ? 'Реагент' : 'Продукт' }})</h3>
               <div class="modal-btns">
-                <button @click="saveFromSearchKetcher" class="btn-apply">Применить</button>
-                <button @click="closeSearchEditorWithoutSaving" class="btn-cancel">Отмена</button>
+                <button @click="saveFromSearchKetcher" class="btn-apply">Apply</button>
+                <button @click="closeSearchEditorWithoutSaving" class="btn-cancel">Cancel</button>
               </div>
             </div>
             <div id="search-ketcher-placeholder" class="ketcher-frame" style="background: transparent;"></div>
@@ -398,7 +397,7 @@ const handleSubstructureSearch = async () => {
   const pSmiles = searchState.value.product_smiles?.trim();
 
   if (!rSmiles && !pSmiles) {
-    alert("Пожалуйста, введите или нарисуйте хотя бы одну структуру для поиска (реагент или продукт).");
+    alert("Please enter or draw at least one structure to search (reagent or product).");
     return;
   }
 
@@ -520,18 +519,12 @@ const saveEntry = async () => {
     isEditing.value = false
 
     triggerKetcherRedraw(response.data)
-    alert(hasExternalId ? "Запись успешно обновлена!" : "Запись успешно сохранена!")
+    alert(hasExternalId ? "Entry successfully updated!" : "Entry successfully saved!")
 
     if (tableRef.value) {
-      console.log("=== DEBUG SAVE START ===");
-      console.log("Is New Record:", isNewRecord);
-      console.log("Is Search Mode Active in Table:", tableRef.value.isSearchMode);
-      console.log("New Record ID from Server:", response.data?.id);
-
       // 1. Устанавливаем ID выделенной записи ДО обновлений
       if (isNewRecord && response.data?.id) {
         selectedRecordId.value = response.data.id;
-        console.log("Step 1: Set selectedRecordId.value =", selectedRecordId.value);
       }
 
       // 2. Инжектим ID в массив поиска
@@ -541,24 +534,17 @@ const saveEntry = async () => {
         tableRef.value.searchResultsIds.unshift(response.data.id);
         tableRef.value.currentPage = 1;
 
-        console.log("Step 2 (Search Mode): searchResultsIds after unshift:", [...tableRef.value.searchResultsIds]);
       }
 
       // 3. Даем Vue обновить пропсы
       await nextTick();
-      console.log("Step 3: nextTick passed. Table props.selectedId should be:", selectedRecordId.value);
 
       // 4. Триггерим обновление таблицы
-      console.log("Step 4: Calling table refreshData(true)...");
       await tableRef.value.refreshData(true);
-
-      console.log("Step 5: Table records after refresh:", tableRef.value.records);
-      console.log("Current journalData.id state:", journalData.value?.id);
-      console.log("=== DEBUG SAVE END ===");
     }
   } catch (err) {
     console.error("Ошибка при сохранении:", err.response?.data || err)
-    alert("Ошибка! Проверьте консоль.")
+    alert("Error! Please check the console.")
   } finally {
     loading.value = false
   }
@@ -569,7 +555,7 @@ const deleteEntry = async () => {
   const extId = journalData.value?.external_id
   if (!extId) return
 
-  if (confirm(`Вы уверены, что хотите полностью удалить запись #${extId}?`)) {
+  if (confirm(`Are you sure you want to completely delete record #${extId}?`)) {
     loading.value = true
     try {
       const token = localStorage.getItem('token')
@@ -577,7 +563,7 @@ const deleteEntry = async () => {
         headers: { 'Authorization': `Bearer ${token}` }
       })
 
-      alert(`Запись #${extId} успешно удалена.`)
+      alert(`Record #${extId} successfully deleted.`)
 
       if (!tableRef.value) throw new Error("Компонент таблицы не найден")
 
@@ -642,7 +628,7 @@ const deleteEntry = async () => {
       }
     } catch (err) {
       console.error("Ошибка при удалении:", err.response?.data || err)
-      alert("Не удалось удалить запись.")
+      alert("Failed to delete the record.")
     } finally {
       loading.value = false
     }
