@@ -36,17 +36,19 @@ async def add_journal_record(
 
         insert_data[key] = value
 
-    # 2. Генерируем mol_data строго на основе наличия SMILES
-    # Продукт
     if data.get('product_smiles'):
-        insert_data['product_mol_data'] = func.mol_from_smiles(data['product_smiles'])
+        canon_smi = canonicalize_molecule_smiles(data['product_smiles'])
+        insert_data['product_smiles'] = canon_smi
+        insert_data['product_mol_data'] = func.mol_from_smiles(canon_smi) if canon_smi else None
 
-    # Реагенты 1-5
+        # Реагенты 1-5
     for i in range(1, 6):
         smiles_key = f'reagent{i}_smiles'
         mol_key = f'reagent{i}_mol_data'
         if data.get(smiles_key):
-            insert_data[mol_key] = func.mol_from_smiles(data[smiles_key])
+            canon_smi = canonicalize_molecule_smiles(data[smiles_key])
+            insert_data[smiles_key] = canon_smi
+            insert_data[mol_key] = func.mol_from_smiles(canon_smi) if canon_smi else None
 
     # Реакции
     if data.get('reaction_smiles'):
@@ -100,20 +102,22 @@ async def update_journal_record(
             continue
         update_values[key] = value
 
-    # 3. Синхронно обновляем RDKit-поля на основе переданных SMILES
+    # 3. Канонизируем пришедшие SMILES и обновляем RDKit-поля
 
     # Продукт
     if 'product_smiles' in data:
-        p_smiles = data['product_smiles']
-        update_values['product_mol_data'] = func.mol_from_smiles(p_smiles) if p_smiles else None
+        canon_smi = canonicalize_molecule_smiles(data['product_smiles'])
+        update_values['product_smiles'] = canon_smi
+        update_values['product_mol_data'] = func.mol_from_smiles(canon_smi) if canon_smi else None
 
     # Реагенты 1-5
     for i in range(1, 6):
         smiles_key = f'reagent{i}_smiles'
         mol_key = f'reagent{i}_mol_data'
         if smiles_key in data:
-            r_smiles = data[smiles_key]
-            update_values[mol_key] = func.mol_from_smiles(r_smiles) if r_smiles else None
+            canon_smi = canonicalize_molecule_smiles(data[smiles_key])
+            update_values[smiles_key] = canon_smi
+            update_values[mol_key] = func.mol_from_smiles(canon_smi) if canon_smi else None
 
     # Реакции
     if 'reaction_smiles' in data:
@@ -269,18 +273,6 @@ async def search_journal_ids(
     if not product_smiles and not reagent_smiles:
         raise HTTPException(status_code=400, detail="At least one search structure must be provided")
 
-    def canonicalize_molecule_smiles(smi: str):
-        if not smi:
-            return None
-        try:
-            mol = Chem.MolFromSmiles(smi)
-            if mol:
-                Chem.SanitizeMol(mol)
-                return Chem.MolToSmiles(mol)
-        except:
-            pass
-        return smi
-
     # Базовые условия, общие для любого сценария
     where_clauses = ["user_id = :user_id"]
     params = {
@@ -401,3 +393,15 @@ def generate_molecule_svg(smiles: str) -> str:
         print(f"RDKit Render Error (Molecule) for {smiles[:20]}: {e}")
 
     return ""
+
+def canonicalize_molecule_smiles(smi: str):
+    if not smi:
+        return None
+    try:
+        mol = Chem.MolFromSmiles(smi)
+        if mol:
+            Chem.SanitizeMol(mol)
+            return Chem.MolToSmiles(mol)
+    except:
+        pass
+    return smi
