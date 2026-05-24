@@ -267,7 +267,7 @@ async def search_journal_ids(
         db: AsyncSession = Depends(get_users_db)
 ):
     """
-    Поиск ID записей журнала по подструктуре продукта и/или любого из 5 реагентов.
+    Поиск ID записей журнала по подструктуре или точному совпадению продукта и/или любого из 5 реагентов.
     Возвращает список ID, отсортированных по external_id в возрастающем порядке.
     """
     if not product_smiles and not reagent_smiles:
@@ -280,24 +280,55 @@ async def search_journal_ids(
         "limit": settings.SEARCH_LIMIT
     }
 
-    # Если передан продукт
+    # --- ЛОГИКА ДЛЯ ПРОДУКТА ---
     if product_smiles:
         clean_product = canonicalize_molecule_smiles(product_smiles)
-        where_clauses.append("product_mol_data @> :product_smiles\\:\\:mol")
-        params["product_smiles"] = clean_product
 
-    # Если передан реагент (проверяем все 5 колонок через OR)
+        if exact:
+            # Режим Exact Match через массивы каноничных SMILES
+            components = [s.strip() for s in clean_product.split('.') if s.strip()]
+            product_clause = """(
+                string_to_array(mol_to_smiles(product_mol_data)::text, '.') @> :product_components\\:\\:text[]
+                AND cardinality(string_to_array(mol_to_smiles(product_mol_data)::text, '.')) = :product_comp_count
+            )"""
+            where_clauses.append(product_clause)
+            params["product_components"] = components
+            params["product_comp_count"] = len(components)
+        else:
+            # Подструктурный поиск
+            where_clauses.append("product_mol_data @> :product_smiles\\:\\:mol")
+            params["product_smiles"] = clean_product
+
+    # --- ЛОГИКА ДЛЯ РЕАГЕНТОВ ---
     if reagent_smiles:
         clean_reagent = canonicalize_molecule_smiles(reagent_smiles)
-        reagent_clause = """(
-            reagent1_mol_data @> :reagent_smiles\\:\\:mol OR
-            reagent2_mol_data @> :reagent_smiles\\:\\:mol OR
-            reagent3_mol_data @> :reagent_smiles\\:\\:mol OR
-            reagent4_mol_data @> :reagent_smiles\\:\\:mol OR
-            reagent5_mol_data @> :reagent_smiles\\:\\:mol
-        )"""
-        where_clauses.append(reagent_clause)
-        params["reagent_smiles"] = clean_reagent
+
+        if exact:
+            # Режим Exact Match для реагентов (проверяем все 5 колонок через OR)
+            components = [s.strip() for s in clean_reagent.split('.') if s.strip()]
+
+            reagent_clauses = []
+            for i in range(1, 6):
+                clause = f"""(
+                    string_to_array(mol_to_smiles(reagent{i}_mol_data)::text, '.') @> :reagent_components\\:\\:text[]
+                    AND cardinality(string_to_array(mol_to_smiles(reagent{i}_mol_data)::text, '.')) = :reagent_comp_count
+                )"""
+                reagent_clauses.append(clause)
+
+            where_clauses.append(f"({' OR '.join(reagent_clauses)})")
+            params["reagent_components"] = components
+            params["reagent_comp_count"] = len(components)
+        else:
+            # Подструктурный поиск по реагентам
+            reagent_clause = """(
+                reagent1_mol_data @> :reagent_smiles\\:\\:mol OR
+                reagent2_mol_data @> :reagent_smiles\\:\\:mol OR
+                reagent3_mol_data @> :reagent_smiles\\:\\:mol OR
+                reagent4_mol_data @> :reagent_smiles\\:\\:mol OR
+                reagent5_mol_data @> :reagent_smiles\\:\\:mol
+            )"""
+            where_clauses.append(reagent_clause)
+            params["reagent_smiles"] = clean_reagent
 
     # Собираем финальный SQL-запрос
     query_string = f"""
@@ -314,7 +345,7 @@ async def search_journal_ids(
         ids = [row[0] for row in result.fetchall()]
         return {"ids": ids, "count": len(ids)}
     except Exception as e:
-        print(f"DB Search Error (Journal Substructure): {e}")
+        print(f"DB Search Error (Journal Molecular Search): {e}")
         raise HTTPException(status_code=500, detail="Database error during structure search")
 
 
