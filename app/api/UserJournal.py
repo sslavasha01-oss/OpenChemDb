@@ -308,7 +308,6 @@ async def search_journal_ids(
     """
 
     query = sa.text(query_string)
-    print(query_string)
 
     try:
         result = await db.execute(query, params)

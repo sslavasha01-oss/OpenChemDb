@@ -205,7 +205,7 @@ const refreshData = async (keepSearch = false) => {
   await fetchRecords(true);
 }
 
-const runSubstructureSearch = async (reagentSmiles, productSmiles) => {
+const runSubstructureSearch = async (reagentSmiles, productSmiles, exact) => {
   console.log("[Journal Debug Table] Внутри runSubstructureSearch. Smiles:", { reagentSmiles, productSmiles });
   loading.value = true;
   error.value = null;
@@ -221,7 +221,8 @@ const runSubstructureSearch = async (reagentSmiles, productSmiles) => {
     const response = await axios.get('/api/my-journal/search/ids', {
       params: {
         reagent_smiles: reagentSmiles || undefined,
-        product_smiles: productSmiles || undefined
+        product_smiles: productSmiles || undefined,
+        exact: exact ? true : undefined
       },
       headers: { 'Authorization': `Bearer ${token}` }
     });

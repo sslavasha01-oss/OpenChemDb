@@ -128,11 +128,23 @@
       <!-- Вкладка Поиск -->
       <!-- Вкладка Поиск -->
       <section v-if="activeTab === 'search'" class="search-page">
-         <!-- Кнопка запуска глобального поиска (по желанию можно дописать метод) -->
-        <div class="search-actions-row">
-          <button class="btn-add-main" @click="handleSubstructureSearch">
-            <span class="icon">🔍</span> Запустить подструктурный поиск
-          </button>
+        <div class="search-actions-row" style="display: flex; justify-content: flex-end; margin-top: 10px; margin-bottom: 15px;">
+          <div class="actions-group" style="display: flex; align-items: center; gap: 20px;">
+
+            <label class="exact-match-label" style="display: flex; align-items: center; gap: 8px; cursor: pointer; font-weight: bold; color: #2c3e50; user-select: none;">
+              <input
+                type="checkbox"
+                v-model="searchState.exact_match"
+                style="width: 18px; height: 18px; cursor: pointer; margin: 0;"
+              >
+              Exact match (Точное соответствие)
+            </label>
+
+            <button class="btn-add-main" @click="handleSubstructureSearch">
+              <span class="icon">🔍</span> Запустить подструктурный поиск
+            </button>
+
+          </div>
         </div>
 
         <div class="search-zones-grid">
@@ -260,7 +272,8 @@ const searchState = ref({
   reagent_smiles: '',
   reagent_svg: '',
   product_smiles: '',
-  product_svg: ''
+  product_svg: '',
+  exact_match: false
 })
 const showSearchKetcher = ref(false)
 const currentSearchTarget = ref('') // 'reagent' или 'product'
@@ -407,7 +420,8 @@ const handleSubstructureSearch = async () => {
 
     // 3. Запускаем поиск. Внутри него произойдет fetchRecords, который и вернет нужные данные
     try {
-      await tableRef.value.runSubstructureSearch(rSmiles, pSmiles);
+      const isExact = searchState.value.exact_match || undefined;
+      await tableRef.value.runSubstructureSearch(rSmiles, pSmiles, isExact);
     } finally {
       // Снимаем блокировку в самом конце, чтобы обычные действия (клик по пагинации) работали штатно
       tableRef.value.isSearchPending = false;
