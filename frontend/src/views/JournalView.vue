@@ -156,7 +156,7 @@
                   <span class="icon">🧪</span>
                   <p>Click to draw product</p>
                 </div>
-                <div v-else class="svg-render" v-html="searchState.product_svg"></div>
+                <div v-else class="svg-render" v-html="isolatedSearchProductSvg"></div>
               </div>
               <div class="fields-zone">
                 <div class="field-group">
@@ -181,7 +181,7 @@
                   <span class="icon">🔍</span>
                   <p>Click to draw reagent</p>
                 </div>
-                <div v-else class="svg-render" v-html="searchState.reagent_svg"></div>
+                <div v-else class="svg-render" v-html="isolatedSearchReagentSvg"></div>
               </div>
               <div class="fields-zone">
                 <div class="field-group">
@@ -265,6 +265,28 @@ const visibleReagentsCount = ref(3)
 const selectedRecordId = ref(null)
 const journalDataBackup = ref(null)
 
+// Вычисляемые свойства для нативной изоляции ID в SVG на вкладке поиска
+const isolatedSearchProductSvg = computed(() => {
+  const rawSvg = searchState.value.product_svg;
+  if (!rawSvg) return '';
+
+  const prefix = 'search-product';
+  return rawSvg
+    .replace(/id=["']([^"']+)["']/g, (match, id) => `id="${prefix}-${id}"`)
+    .replace(/href=["']#([^"']+)["']/g, (match, href) => `href="#${prefix}-${href}"`)
+    .replace(/url\(#([^)]+)\)/g, (match, url) => `url(#${prefix}-${url})`);
+});
+
+const isolatedSearchReagentSvg = computed(() => {
+  const rawSvg = searchState.value.reagent_svg;
+  if (!rawSvg) return '';
+
+  const prefix = 'search-reagent';
+  return rawSvg
+    .replace(/id=["']([^"']+)["']/g, (match, id) => `id="${prefix}-${id}"`)
+    .replace(/href=["']#([^"']+)["']/g, (match, href) => `href="#${prefix}-${href}"`)
+    .replace(/url\(#([^)]+)\)/g, (match, url) => `url(#${prefix}-${url})`);
+});
 
 // Переменные для вкладки Поиска
 const searchState = ref({

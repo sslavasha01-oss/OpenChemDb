@@ -13,7 +13,7 @@
         <div v-if="!modelValue[`reagent${index}_svg`]" class="placeholder-mini">
           <span>⚗️</span>
         </div>
-        <div v-else class="svg-render" v-html="modelValue[`reagent${index}_svg`]"></div>
+        <div v-else class="svg-render" v-html="isolatedSvg"></div>
       </div>
 
       <div class="fields-column">
@@ -120,7 +120,7 @@
 </template>
 
 <script setup>
-import { ref, nextTick } from 'vue'
+import { ref, nextTick, computed} from 'vue'
 
 let debounceTimer = null
 
@@ -129,6 +129,21 @@ const props = defineProps({
   index: Number,
   isEditing: Boolean
 })
+
+// Вычисляемое свойство, которое гарантирует уникальность ID
+// при ЛЮБОМ изменении данных (из базы, из Кетчера, откуда угодно)
+const isolatedSvg = computed(() => {
+  const rawSvg = props.modelValue?.[`reagent${props.index}_svg`];
+  if (!rawSvg) return '';
+
+  const prefix = `reagent-card-${props.index}`;
+
+  // Изолируем ID, href и url() "на лету" прямо перед рендером в DOM
+  return rawSvg
+    .replace(/id=["']([^"']+)["']/g, (match, id) => `id="${prefix}-${id}"`)
+    .replace(/href=["']#([^"']+)["']/g, (match, href) => `href="#${prefix}-${href}"`)
+    .replace(/url\(#([^)]+)\)/g, (match, url) => `url(#${prefix}-${url})`);
+});
 
 const emit = defineEmits(['update:modelValue', 'calculate'])
 
@@ -161,35 +176,6 @@ const copyToClipboard = (text) => {
   }
 }
 
-// === ОПЕРАЦИОННЫЙ СТЕНД ДЛЯ ДЕБАГА SVG ===
-const makeSvgIdsUnique = (svgText, prefix) => {
-  if (!svgText) return '';
-
-  console.groupCollapsed(`[SVG DEBUG] Изоляция элементов для Реагента #${props.index}`);
-
-  // Проверяем наличие стилей, которые могут утекать в глобальный DOM
-  const hasInlineStyles = svgText.includes('<style>');
-  console.log("Содержит тег <style>:", hasInlineStyles ? "⚠️ ДА (возможна утечка CSS!)" : "НЕТ");
-  if (hasInlineStyles) {
-    const styleContent = svgText.match(/<style[^>]*>([\s\S]*?)<\/style>/);
-    console.log("Тело стилей Кетчера:", styleContent ? styleContent[1].trim() : "не найдено");
-  }
-
-  // Считаем исходные ID до замены
-  const rawIds = (svgText.match(/id=["']([^"']+)["']/g) || []).map(m => m.replace(/id=["']|["']/g, ''));
-  console.log("Обнаруженные ID в исходном SVG:", rawIds);
-
-  // Проводим замену
-  const processed = svgText
-    .replace(/id=["']([^"']+)["']/g, (match, id) => `id="${prefix}-${id}"`)
-    .replace(/href=["']#([^"']+)["']/g, (match, href) => `href="#${prefix}-${href}"`)
-    .replace(/url\(#([^)]+)\)/g, (match, url) => `url(#${prefix}-${url})`);
-
-  console.log("Замена ID, href и url() завершена успешно.");
-  console.groupEnd();
-
-  return processed;
-};
 
 // 2. Фоновая отрисовка с детальным логированием шагов
 const drawSmiles = async (smiles) => {
@@ -238,9 +224,6 @@ const drawSmiles = async (smiles) => {
           const blob = await ketcher.generateImage(smiles, { outputFormat: 'svg' });
           const rawSvgText = await blob.text();
 
-          // Модифицируем SVG
-          const svgText = makeSvgIdsUnique(rawSvgText, `reagent-card-${props.index}`);
-
           const molfile = await ketcher.getMolfile();
           let massVal = null;
 
@@ -257,7 +240,7 @@ const drawSmiles = async (smiles) => {
           }
 
           const updated = { ...props.modelValue };
-          updated[`reagent${props.index}_svg`] = svgText;
+          updated[`reagent${props.index}_svg`] = rawSvgText;
 
           if (massVal) {
             const totalMass = String(massVal)
@@ -372,7 +355,6 @@ const saveFromKetcher = async () => {
     const blob = await ketcher.generateImage(smiles, { outputFormat: 'svg' });
     const rawSvgText = await blob.text();
 
-    const svgText = makeSvgIdsUnique(rawSvgText, `reagent-card-${props.index}`);
     const molfile = await ketcher.getMolfile();
     let massVal = null;
 
@@ -390,7 +372,7 @@ const saveFromKetcher = async () => {
 
     const updated = { ...props.modelValue };
     updated[`reagent${props.index}_smiles`] = smiles;
-    updated[`reagent${props.index}_svg`] = svgText;
+    updated[`reagent${props.index}_svg`] = rawSvgText;
 
     if (massVal) {
       const totalMass = String(massVal)
