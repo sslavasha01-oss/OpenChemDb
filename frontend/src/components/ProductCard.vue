@@ -137,7 +137,7 @@ const onSmilesInput = (e) => {
 const ketcherToBackground = () => {
   const globalFrame = window.ketcherIframeElement || document.getElementById('global-ketcher-iframe')
   if (globalFrame) {
-    globalFrame.style.cssText = "position: fixed; top: -5000px; left: -5000px; width: 800px; height: 600px; visibility: visible; z-index: -1000; pointer-events: none; border: none;"
+    globalFrame.style.cssText = "position: fixed; top: -5000px; left: -5000px; width: 800px; height: 600px; visibility: visible; border: none; pointer-events: none;"
   }
 }
 

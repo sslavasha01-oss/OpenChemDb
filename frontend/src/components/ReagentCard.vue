@@ -137,7 +137,7 @@ const showKetcher = ref(false)
 const ketcherToBackground = () => {
   const globalFrame = window.ketcherIframeElement || document.getElementById('global-ketcher-iframe')
   if (globalFrame) {
-    globalFrame.style.cssText = "position: fixed; top: -5000px; left: -5000px; width: 800px; height: 600px; visibility: visible; z-index: -1000; pointer-events: none; border: none;"
+    globalFrame.style.cssText = "position: fixed; top: -5000px; left: -5000px; width: 800px; height: 600px; visibility: visible; border: none; pointer-events: none;"
   }
 }
 
@@ -185,11 +185,17 @@ const drawSmiles = async (smiles) => {
   const tryDraw = (attempts = 0) => {
     const ketcher = window.ketcherSingleton || globalFrame?.contentWindow?.ketcher;
 
+    if (window.ketcherIsBusy) {
+      setTimeout(() => tryDraw(attempts + 1), 50);
+      return;
+    }
+
     if (ketcher && typeof ketcher.setMolecule === 'function') {
       if (!window.ketcherSingleton) window.ketcherSingleton = ketcher;
-
+        window.ketcherIsBusy = true;
       (async () => {
         try {
+          await ketcher.setMolecule("");
           await ketcher.setMolecule(smiles);
 
           const blob = await ketcher.generateImage(smiles, { outputFormat: 'svg' });
@@ -240,7 +246,10 @@ const drawSmiles = async (smiles) => {
 
         } catch (err) {
           console.error("Reagent Draw Error:", err);
-        }
+        } finally {
+        // СНИМАЕМ БЛОКИРОВКУ в любом случае
+        window.ketcherIsBusy = false;
+       }
       })();
     } else if (attempts < 15) {
       setTimeout(() => tryDraw(attempts + 1), 100);
