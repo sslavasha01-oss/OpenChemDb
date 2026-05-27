@@ -133,7 +133,7 @@ const props = defineProps({
 const emit = defineEmits(['update:modelValue', 'calculate'])
 
 const showKetcher = ref(false)
-// Вспомогательная функция отправки глобального фрейма обратно в "подполье"
+
 const ketcherToBackground = () => {
   const globalFrame = window.ketcherIframeElement || document.getElementById('global-ketcher-iframe')
   if (globalFrame) {
@@ -141,24 +141,19 @@ const ketcherToBackground = () => {
   }
 }
 
-// 1. Обработка ручного ввода SMILES
 const onSmilesInput = (e) => {
   const newSmiles = e.target.value
-
   const updatedValue = { ...props.modelValue };
   updatedValue[`reagent${props.index}_smiles`] = newSmiles;
   emit('update:modelValue', updatedValue);
 
-  // Сбрасываем старый таймер, если пользователь продолжает печатать
   clearTimeout(debounceTimer);
-
-  // Запускаем отрисовку и пересчет стехиометрии только при паузе в 400мс
   debounceTimer = setTimeout(() => {
+    console.log(`[ReagentCard #${props.index}] Ввод затих, запускаем drawSmiles для: ${newSmiles}`);
     drawSmiles(newSmiles);
   }, 400);
 }
 
-// Копирование в буфер
 const copyToClipboard = (text) => {
   if (navigator && navigator.clipboard) {
     navigator.clipboard.writeText(text);
@@ -166,11 +161,45 @@ const copyToClipboard = (text) => {
   }
 }
 
-// 2. Фоновая отрисовка и расчет при РУЧНОМ вводе (использует единый глобальный фрейм)
+// === ОПЕРАЦИОННЫЙ СТЕНД ДЛЯ ДЕБАГА SVG ===
+const makeSvgIdsUnique = (svgText, prefix) => {
+  if (!svgText) return '';
+
+  console.groupCollapsed(`[SVG DEBUG] Изоляция элементов для Реагента #${props.index}`);
+
+  // Проверяем наличие стилей, которые могут утекать в глобальный DOM
+  const hasInlineStyles = svgText.includes('<style>');
+  console.log("Содержит тег <style>:", hasInlineStyles ? "⚠️ ДА (возможна утечка CSS!)" : "НЕТ");
+  if (hasInlineStyles) {
+    const styleContent = svgText.match(/<style[^>]*>([\s\S]*?)<\/style>/);
+    console.log("Тело стилей Кетчера:", styleContent ? styleContent[1].trim() : "не найдено");
+  }
+
+  // Считаем исходные ID до замены
+  const rawIds = (svgText.match(/id=["']([^"']+)["']/g) || []).map(m => m.replace(/id=["']|["']/g, ''));
+  console.log("Обнаруженные ID в исходном SVG:", rawIds);
+
+  // Проводим замену
+  const processed = svgText
+    .replace(/id=["']([^"']+)["']/g, (match, id) => `id="${prefix}-${id}"`)
+    .replace(/href=["']#([^"']+)["']/g, (match, href) => `href="#${prefix}-${href}"`)
+    .replace(/url\(#([^)]+)\)/g, (match, url) => `url(#${prefix}-${url})`);
+
+  console.log("Замена ID, href и url() завершена успешно.");
+  console.groupEnd();
+
+  return processed;
+};
+
+// 2. Фоновая отрисовка с детальным логированием шагов
 const drawSmiles = async (smiles) => {
+  const timestamp = Date.now();
+  console.time(`[Draw Performance #${props.index}-${timestamp}]`);
+
   const globalFrame = window.ketcherIframeElement || document.getElementById('global-ketcher-iframe')
 
   if (!smiles || smiles.trim() === "") {
+    console.log(`[ReagentCard #${props.index}] Пустой SMILES, очищаем поле.`);
     const ketcher = window.ketcherSingleton || globalFrame?.contentWindow?.ketcher;
     if (ketcher && typeof ketcher.setMolecule === 'function') ketcher.setMolecule("");
 
@@ -179,6 +208,7 @@ const drawSmiles = async (smiles) => {
     updated[`reagent${props.index}_molar_mass`] = '';
     emit('update:modelValue', updated);
     emit('calculate');
+    console.timeEnd(`[Draw Performance #${props.index}-${timestamp}]`);
     return;
   }
 
@@ -186,20 +216,30 @@ const drawSmiles = async (smiles) => {
     const ketcher = window.ketcherSingleton || globalFrame?.contentWindow?.ketcher;
 
     if (window.ketcherIsBusy) {
+      console.warn(`[Collision Lock] Реагент #${props.index} ждет, Кетчер занят отрисовкой другого компонента. Попытка: ${attempts}`);
       setTimeout(() => tryDraw(attempts + 1), 50);
       return;
     }
 
     if (ketcher && typeof ketcher.setMolecule === 'function') {
       if (!window.ketcherSingleton) window.ketcherSingleton = ketcher;
-        window.ketcherIsBusy = true;
+
+      // Занимаем Кетчер
+      window.ketcherIsBusy = true;
+      console.log(`[Lock Acquired] Реагент #${props.index} монополизировал Кетчер.`);
+
       (async () => {
         try {
+          console.log(`[Ketcher API] Передаем SMILES в setMolecule для #${props.index}`);
           await ketcher.setMolecule("");
           await ketcher.setMolecule(smiles);
 
+          console.log(`[Ketcher API] Запрашиваем generateImage SVG для #${props.index}`);
           const blob = await ketcher.generateImage(smiles, { outputFormat: 'svg' });
-          const svgText = await blob.text();
+          const rawSvgText = await blob.text();
+
+          // Модифицируем SVG
+          const svgText = makeSvgIdsUnique(rawSvgText, `reagent-card-${props.index}`);
 
           const molfile = await ketcher.getMolfile();
           let massVal = null;
@@ -226,17 +266,16 @@ const drawSmiles = async (smiles) => {
                 const num = parseFloat(part.trim());
                 return sum + (isNaN(num) ? 0 : num);
               }, 0);
-
             updated[`reagent${props.index}_molar_mass`] = totalMass.toFixed(2);
           }
 
+          console.log(`[Vue Lifecycle] Эмитим обновленный SVG наверх для #${props.index}`);
           emit('update:modelValue', updated);
 
           nextTick(() => {
             emit('calculate');
           });
 
-          // Фикс масштаба
           setTimeout(() => {
             try {
               if (typeof ketcher.setZoom === 'function') ketcher.setZoom(1.0);
@@ -245,14 +284,19 @@ const drawSmiles = async (smiles) => {
           }, 50);
 
         } catch (err) {
-          console.error("Reagent Draw Error:", err);
+          console.error(`[Fatal Draw Error] Ошибка в карточке реагента #${props.index}:`, err);
         } finally {
-        // СНИМАЕМ БЛОКИРОВКУ в любом случае
-        window.ketcherIsBusy = false;
-       }
+          // Освобождаем Кетчер
+          window.ketcherIsBusy = false;
+          console.log(`[Lock Released] Реагент #${props.index} освободил Кетчер.`);
+          console.timeEnd(`[Draw Performance #${props.index}-${timestamp}]`);
+        }
       })();
     } else if (attempts < 15) {
       setTimeout(() => tryDraw(attempts + 1), 100);
+    } else {
+      console.error(`[Timeout] Не удалось дождаться инициализации Кетчера для реагента #${props.index}`);
+      console.timeEnd(`[Draw Performance #${props.index}-${timestamp}]`);
     }
   };
   tryDraw();
@@ -260,11 +304,8 @@ const drawSmiles = async (smiles) => {
 
 defineExpose({ drawSmiles });
 
-// 3. Безопасное открытие редактора через CSS-телепорт
 const openEditor = async () => {
   showKetcher.value = true;
-
-  // Даем Vue обновить DOM, а затем делаем микроскопическую паузу для отрисовки браузером
   await nextTick();
 
   setTimeout(async () => {
@@ -272,15 +313,11 @@ const openEditor = async () => {
     const marker = document.getElementById(`reagent-ketcher-placeholder-${props.index}`);
 
     if (globalFrame && marker) {
-      // На всякий случай проверяем, если маркер схлопнулся, берем размеры модалки
       let rect = marker.getBoundingClientRect();
-
-      // Если браузер еще не успел посчитать высоту флекс-контейнера
       if (rect.height < 100) {
         const modalContent = marker.closest('.modal-content');
         if (modalContent) {
           const modalRect = modalContent.getBoundingClientRect();
-          // Высота модалки минус примерная высота шапки (60px)
           rect = {
             top: modalRect.top + 55,
             left: modalRect.left + 2,
@@ -290,7 +327,6 @@ const openEditor = async () => {
         }
       }
 
-      // Перемещаем фрейм точно в цель
       globalFrame.style.cssText = `
         position: fixed;
         top: ${rect.top}px;
@@ -300,47 +336,33 @@ const openEditor = async () => {
         border: none;
         visibility: visible;
         display: block;
-        pointer-events: auto; /* Гарантируем кликабельность Кетчера */
-        z-index: 2100; /* Выше оверлея модалки */
+        pointer-events: auto;
+        z-index: 2100;
       `;
     }
 
-    // Загружаем структуру
     const checkAndSet = async () => {
       const ketcher = window.ketcherSingleton || globalFrame?.contentWindow?.ketcher;
       if (ketcher && typeof ketcher.setMolecule === 'function') {
         if (!window.ketcherSingleton) window.ketcherSingleton = ketcher;
-
         const smiles = props.modelValue[`reagent${props.index}_smiles`];
-
-        // Очищаем редактор перед установкой, чтобы старые хвосты не наслаивались
-        try {
-          await ketcher.setMolecule("");
-        } catch (e) {}
-
-        if (smiles && smiles.trim() !== "") {
-          await ketcher.setMolecule(smiles);
-        }
-
-        // Фиксируем масштаб и центрируем
+        try { await ketcher.setMolecule(""); } catch (e) {}
+        if (smiles && smiles.trim() !== "") { await ketcher.setMolecule(smiles); }
         setTimeout(() => {
           try {
             if (typeof ketcher.setZoom === 'function') ketcher.setZoom(1.0);
             else if (ketcher.editor?.setZoom) ketcher.editor.setZoom(1.0);
-
             if (ketcher.editor?.centerXy) ketcher.editor.centerXy();
           } catch (zoomErr) {}
         }, 50);
-
       } else {
         setTimeout(checkAndSet, 50);
       }
     };
     checkAndSet();
-  }, 30); // 30мс задержки как раз хватает, чтобы убрать эффект "нулевых координат"
+  }, 30);
 };
 
-// 4. Сохранение изменений из глобального Кетчера
 const saveFromKetcher = async () => {
   try {
     const ketcher = window.ketcherSingleton
@@ -348,9 +370,10 @@ const saveFromKetcher = async () => {
 
     const smiles = await ketcher.getSmiles();
     const blob = await ketcher.generateImage(smiles, { outputFormat: 'svg' });
-    const svgText = await blob.text();
-    const molfile = await ketcher.getMolfile();
+    const rawSvgText = await blob.text();
 
+    const svgText = makeSvgIdsUnique(rawSvgText, `reagent-card-${props.index}`);
+    const molfile = await ketcher.getMolfile();
     let massVal = null;
 
     if (ketcher.structService) {
@@ -376,16 +399,11 @@ const saveFromKetcher = async () => {
           const num = parseFloat(part.trim());
           return sum + (isNaN(num) ? 0 : num);
         }, 0);
-
       updated[`reagent${props.index}_molar_mass`] = totalMass.toFixed(2);
     }
 
     emit('update:modelValue', updated);
-
-    nextTick(() => {
-      emit('calculate');
-    });
-
+    nextTick(() => { emit('calculate'); });
   } catch (err) {
     console.error("Global saveFromKetcher error:", err);
   } finally {
