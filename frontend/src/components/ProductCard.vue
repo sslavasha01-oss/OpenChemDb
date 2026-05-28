@@ -36,7 +36,7 @@
             <input type="number" :value="modelValue.product_molar_mass" disabled>
           </div>
 
-          <div class="field-group">
+          <div class="field-group mass-highlight">
             <label>Prac. mass (g)</label>
             <input
               type="number"
@@ -51,7 +51,7 @@
             <input type="number" :value="modelValue.product_moles" disabled>
           </div>
 
-          <div class="field-group readonly">
+          <div class="field-group readonly mass-highlight">
             <label>Theor. mass (g)</label>
             <input type="number" :value="modelValue.product_theoretical_mass" disabled>
           </div>
@@ -414,14 +414,20 @@ const closeEditorWithoutSaving = () => {
 
 /* Оформление инпутов чтения */
 input:disabled {
-  border-color: transparent !important;
-  background: transparent !important;
+  border-color: #ddd !important;
+  background: #fff !important;
   color: #333;
   font-weight: 500;
   cursor: default;
-  padding-left: 2px !important;
 }
-.readonly input { background: #f9f9f9; color: #666; }
+
+.mass-highlight input {
+  background: #fffdf0 !important; /* Мягкий янтарный фон */
+  border-color: #f39c12 !important; /* Насыщенная рамка */
+  font-weight: bold;
+  color: #333;
+}
+.readonly input { background: #f9f9f9; color: #333; }
 .yield-input { background: #e8f5e9 !important; font-weight: bold; color: #2e7d32; border-radius: 4px; border: 1px solid #c8e6c9 !important; text-align: center; }
 
 /* Нижний ряд: условия и выход */

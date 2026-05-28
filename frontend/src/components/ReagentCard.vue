@@ -46,7 +46,7 @@
           <input type="number" :value="modelValue[`reagent${index}_molar_mass`]" disabled>
         </div>
 
-        <div class="field-group" :class="{ readonly: index !== 1 }">
+        <div class="field-group mass-highlight" :class="{ readonly: index !== 1 }">
           <label>Mass (g)</label>
           <input
             type="number"
@@ -84,7 +84,7 @@
           >
         </div>
 
-        <div class="field-group readonly">
+        <div class="field-group readonly volume-highlight">
           <label>Volume (mL)</label>
           <input type="number" :value="modelValue[`reagent${index}_volume`]" disabled>
         </div>
@@ -480,20 +480,28 @@ const closeEditorWithoutSaving = () => {
   background: #e5e8e9;
 }
 
-/* Стилизация для disabled полей */
+/* Стилизация для disabled полей (возвращаем полноценный вид инпута) */
 input:disabled {
-  border-color: transparent !important;
-  background: transparent !important;
+  border-color: #ddd !important;
+  background: #fff !important;
   color: #333;
   font-weight: 500;
   cursor: default;
-  padding-left: 2px !important;
 }
 input:disabled[value=""],
 input:disabled:not([value]) {
-  opacity: 0.3;
+  opacity: 1; /* Убираем прозрачность для пустых полей */
 }
-.readonly input { background: #f9f9f9; color: #666; }
+.readonly input { background: #f9f9f9; color: #333; }
+
+/* Выделение критических параметров загрузки реактора */
+.mass-highlight input,
+.volume-highlight input {
+  background: #fffdf0 !important; /* Мягкий янтарный фон */
+  border-color: #f39c12 !important; /* Четкая золотая рамка */
+  font-weight: bold;
+  color: #333;
+}
 
 /* Модалка Ketcher */
 .modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.7); z-index: 2000; display: flex; align-items: center; justify-content: center; }
