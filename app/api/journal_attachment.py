@@ -1,0 +1,306 @@
+import os
+import shutil
+from pathlib import Path
+from typing import Optional, List, Dict
+
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
+from pydantic import BaseModel
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
+
+from app.api.deps import get_current_user
+from app.core.db import get_users_db
+from app.core.settings import settings
+from app.models.journal_attachment import JournalAttachment, AttachmentType
+from app.models.user import User
+from app.models.user_journal import UserJournal
+from app.schemas.jounal_attachment import JournalAttachmentResponseSchema
+from fastapi.responses import FileResponse
+import urllib.parse
+from fastapi import status
+
+router = APIRouter(prefix="/journal_attachment", tags=["journal attachment"])
+
+MIME_TYPES = {
+    ".pdf": "application/pdf",
+    ".tif": "image/tiff",
+    ".tiff": "image/tiff",
+    ".djvu": "image/vnd.djvu",
+    ".djv": "image/vnd.djvu",
+}
+
+
+@router.post("/upload", response_model=JournalAttachmentResponseSchema)
+async def upload_journal_attachment(
+        journal_record_id: int = Form(...),
+        attachment_type: AttachmentType = Form(...),
+        description: str = Form(None),
+        file: UploadFile = File(...),
+        current_user: User = Depends(get_current_user),
+        db: AsyncSession = Depends(get_users_db)
+):
+    """
+    Загружает файл аттачмента, сохраняет его в user_data/{user_id}/{journal_record_external_id}/{file_name}
+    и делает запись в таблицу journal_attachment.
+    """
+
+    # 1. Проверяем, существует ли запись в журнале и принадлежит ли она текущему пользователю
+    # Замени UserJournal на твою модель журнала. Нам нужен её external_id
+    query = select(UserJournal).where(
+        UserJournal.id == journal_record_id,
+        UserJournal.user_id == current_user.id
+    )
+    result = await db.execute(query)
+    journal_record = result.scalar_one_or_none()
+
+    if not journal_record:
+        raise HTTPException(
+            status_code=404,
+            detail="Запись в журнале не найдена или у вас нет к ней доступа."
+        )
+
+    # Получаем external_id из найденной записи
+    journal_external_id = journal_record.external_id
+
+    # 2. Формируем пути для сохранения файла
+    base_user_data_path = Path(settings.USER_DATA_STORAGE_PATH).resolve()
+
+    # Безопасное имя файла (без путей вроде ../../etc/passwd)
+    file_name = Path(file.filename).name
+
+    # Полная директория: user_data/{user_id}/{journal_record_external_id}/
+    target_dir = base_user_data_path / str(current_user.id) / str(journal_external_id)
+
+    # Создаем папки, если их нет
+    target_dir.mkdir(parents=True, exist_ok=True)
+
+    # Полный путь к файлу на сервере
+    full_file_path = target_dir / file_name
+
+    # 3. Сохраняем файл на диск асинхронно-блочным способом
+    try:
+        with open(full_file_path, "wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Ошибка при сохранении файла: {str(e)}")
+    finally:
+        await file.close()
+
+    # 4. Формируем относительный путь для сохранения в БД
+    # Формат: {journal_record_external_id}/{file_name}
+    db_file_path = f"{journal_external_id}/{file_name}"
+
+    # 5. Записываем информацию в таблицу journal_attachment
+    new_attachment = JournalAttachment(
+        user_id=current_user.id,
+        journal_record_id=journal_record_id,
+        type=attachment_type,
+        description=description,
+        file_path=db_file_path
+    )
+
+    db.add(new_attachment)
+    await db.commit()
+    await db.refresh(new_attachment)
+
+    return new_attachment
+
+
+@router.get("/view-user-file")
+async def view_user_file(
+        file_path: str,
+        current_user: User = Depends(get_current_user)
+):
+    """
+    Отдает файл (PDF, TIFF, DjVu и др.) из папки user_data.
+    Проверяет, что запрашиваемый файл принадлежит текущему пользователю.
+    """
+    safe_base = Path(settings.USER_DATA_STORAGE_PATH).resolve()
+
+    # Нормализуем слэши
+    clean_path = file_path.replace("\\", "/")
+
+    # Выделяем первую часть пути (ожидаем, что это user_id)
+    path_parts = clean_path.split("/")
+    if not path_parts or not path_parts[0].isdigit():
+        raise HTTPException(status_code=400, detail="Invalid file path format")
+
+    path_user_id = int(path_parts[0])
+
+    # Проверка прав: первая цифра в пути должна строго совпадать с id юзера из токена
+    if path_user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Access denied: You don't own this file")
+
+    # Формируем полный абсолютный путь к файлу
+    full_path = (safe_base / clean_path).resolve()
+
+    # Защита Safe-guard от Path Traversal (чтобы нельзя было передать ../../../etc/passwd)
+    if not str(full_path).startswith(str(safe_base)):
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    # Проверяем физическое существование файла
+    if not full_path.exists() or not full_path.is_file():
+        raise HTTPException(status_code=404, detail="File not found")
+
+    # Определяем тип файла по расширению
+    extension = full_path.suffix.lower()
+    media_type = MIME_TYPES.get(extension, "application/octet-stream")
+
+    # Кодируем имя файла для корректной передачи кириллицы/спецсимволов в заголовке
+    encoded_filename = urllib.parse.quote(full_path.name)
+
+    return FileResponse(
+        path=full_path,
+        media_type=media_type,
+        headers={
+            "Content-Disposition": f"inline; filename*=UTF-8''{encoded_filename}"
+        }
+    )
+
+# Схема для входных данных
+class UpdateAttachmentDescriptionSchema(BaseModel):
+    description: Optional[str] = None
+
+@router.patch("/{attachment_id}", response_model=JournalAttachmentResponseSchema)
+async def update_attachment_description(
+    attachment_id: int,
+    data: UpdateAttachmentDescriptionSchema,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_users_db)
+):
+    """
+    Обновляет только поле description у аттачмента.
+    """
+    # Ищем аттачмент в базе данных и проверяем владельца
+    query = select(JournalAttachment).where(
+        JournalAttachment.id == attachment_id,
+        JournalAttachment.user_id == current_user.id
+    )
+    result = await db.execute(query)
+    attachment = result.scalar_one_or_none()
+
+    if not attachment:
+        raise HTTPException(
+            status_code=404,
+            detail="Аттачмент не найден или у вас нет прав на его изменение."
+        )
+
+    # Обновляем только описание
+    attachment.description = data.description
+
+    await db.commit()
+    await db.refresh(attachment)
+
+    return attachment
+
+
+@router.delete("/{attachment_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_attachment(
+        attachment_id: int,
+        current_user: User = Depends(get_current_user),
+        db: AsyncSession = Depends(get_users_db)
+):
+    """
+    Удаляет файл аттачмента с диска и запись о нем из базы данных.
+    """
+    # 1. Ищем аттачмент в базе и проверяем права
+    query = select(JournalAttachment).where(
+        JournalAttachment.id == attachment_id,
+        JournalAttachment.user_id == current_user.id
+    )
+    result = await db.execute(query)
+    attachment = result.scalar_one_or_none()
+
+    if not attachment:
+        raise HTTPException(
+            status_code=404,
+            detail="Аттачмент не найден или у вас нет прав на его удаление."
+        )
+
+    # 2. Формируем полный путь к файлу на сервере
+    # Напоминание: в базе file_path хранится как "{external_id}/{file_name}"
+    base_user_data_path = Path(settings.USER_DATA_STORAGE_PATH).resolve()
+    full_file_path = base_user_data_path / str(current_user.id) / attachment.file_path
+
+    # Безопасность: проверяем, что путь не вышел за пределы папки user_data
+    if not str(full_file_path.resolve()).startswith(str(base_user_data_path)):
+        raise HTTPException(status_code=403, detail="Попытка удаления системного файла отклонена")
+
+    # 3. Физически удаляем файл с диска
+    try:
+        if full_file_path.exists() and full_file_path.is_file():
+            os.remove(full_file_path)
+
+            # Опционально: удаляем пустую папку (external_id), если в ней больше нет файлов
+            parent_dir = full_file_path.parent
+            if parent_dir.exists() and not os.listdir(parent_dir):
+                parent_dir.rmdir()
+
+    except Exception as e:
+        # Логируем ошибку, но можно выбросить HTTPException, если критично не удалять из БД при сбое диска
+        print(f"Ошибка при удалении файла с диска: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Не удалось удалить файл с сервера: {str(e)}"
+        )
+
+    # 4. Удаляем запись из базы данных
+    await db.delete(attachment)
+    await db.commit()
+
+    # Так как статус 204 No Content, тело ответа возвращать не нужно
+    return None
+
+# Схема для тела запроса (передаем список ID)
+class FetchAttachmentsRequestSchema(BaseModel):
+    journal_record_ids: List[int]
+
+# Структура группировки внутри одной записи журнала
+class GroupedAttachmentsSchema(BaseModel):
+    ARTICLE: List[JournalAttachmentResponseSchema] = []
+    SPECTRUM: List[JournalAttachmentResponseSchema] = []
+
+# Финальный формат ответа: { "id_записи": { "ARTICLE": [...], "SPECTRUM": [...] } }
+# Использование Dict[int, ...] автоматически превратит ключи в строки/числа в JSON
+class BatchAttachmentsResponseSchema(BaseModel):
+    attachments: Dict[int, GroupedAttachmentsSchema]
+
+
+@router.post("/batch", response_model=BatchAttachmentsResponseSchema)
+async def get_batch_attachments(
+        data: FetchAttachmentsRequestSchema,
+        current_user: User = Depends(get_current_user),
+        db: AsyncSession = Depends(get_users_db)
+):
+    """
+    Принимает список ID записей журнала и возвращает аттачменты,
+    сгруппированные по journal_record_id и по типам (ARTICLE, SPECTRUM).
+    Возвращает данные только для тех записей, которые принадлежат текущему пользователю.
+    """
+    if not data.journal_record_ids:
+        return {"attachments": {}}
+
+    # 1. Запрашиваем аттачменты только для переданных ID и строго для текущего пользователя (security check)
+    query = select(JournalAttachment).where(
+        JournalAttachment.journal_record_id.in_(data.journal_record_ids),
+        JournalAttachment.user_id == current_user.id
+    )
+    result = await db.execute(query)
+    attachments = result.scalars().all()
+
+    # 2. Инициализируем пустую структуру для ответа, чтобы фронтенд получил пустые списки,
+    # даже если для какого-то переданного ID файлов вообще не нашлось.
+    result_dict = {
+        record_id: {"ARTICLE": [], "SPECTRUM": []}
+        for record_id in data.journal_record_ids
+    }
+
+    # 3. Распределяем полученные из БД аттачменты по группам
+    for att in attachments:
+        rec_id = att.journal_record_id
+        att_type = att.type.value if hasattr(att.type, 'value') else str(att.type)  # Обработка Enum
+
+        if rec_id in result_dict and att_type in result_dict[rec_id]:
+            result_dict[rec_id][att_type].append(att)
+
+    return {"attachments": result_dict}

@@ -11,7 +11,7 @@ from app.api.comments import router as comments_router
 from app.api.comment_reactions import router as comment_reactions_router
 from app.api.register import router as register_router
 from fastapi.middleware.cors import CORSMiddleware
-from app.api.UserJournal import router as users_router
+from app.api.user_journal import router as users_router
 
 import logging
 

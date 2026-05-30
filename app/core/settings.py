@@ -46,6 +46,7 @@ class Settings(BaseSettings):
 
     # Указываем путь именно к SOP
     SOP_STORAGE_PATH: str = os.path.join(project_root, "data", "SOP")
+    USER_DATA_STORAGE_PATH: str = os.path.join(project_root, "data", "user_data")
 
     MAIL_TOKEN: str
     MAIL_FROM: EmailStr
