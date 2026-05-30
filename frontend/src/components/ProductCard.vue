@@ -70,6 +70,16 @@
     </div>
 
     <div class="card-footer-row">
+      <!-- Поле даты создания (только чтение) -->
+      <div class="field-group date-field readonly">
+        <label>Created At</label>
+        <input
+          type="text"
+          :value="modelValue.date_added ? new Date(modelValue.date_added).toLocaleDateString() : '—'"
+          disabled
+        >
+      </div>
+
       <div class="field-group conditions-field">
         <label>Conditions</label>
         <input
@@ -455,4 +465,7 @@ input:disabled {
   .card-footer-row { flex-direction: column; gap: 10px; }
   .yield-field { width: 100%; }
 }
+
+.date-field { width: 140px; }
+@media (max-width: 768px) { .date-field { width: 100%; } }
 </style>

@@ -120,8 +120,31 @@
           <textarea
             v-model="journalData.procedure"
             :disabled="!isEditing"
+            rows="5"
+            @input="e => { e.target.style.height = 'auto'; e.target.style.height = e.target.scrollHeight + 'px' }"
             placeholder="Describe the synthesis procedure..."
           ></textarea>
+
+          <div class="extra-fields-row">
+            <div class="field-group">
+              <label>References</label>
+              <input
+                type="text"
+                v-model="journalData.references"
+                :disabled="!isEditing"
+                placeholder="Author, Journal, Year..."
+              >
+            </div>
+            <div class="field-group">
+              <label>DOI</label>
+              <input
+                type="text"
+                v-model="journalData.doi"
+                :disabled="!isEditing"
+                placeholder="10.1021/..."
+              >
+            </div>
+          </div>
         </div>
       </section>
 
@@ -788,7 +811,36 @@ watch(() => userStore.currentAccountIndex, async () => {
 
 .product-row { margin-bottom: 20px; width: 100%; }
 .procedure-section { margin-top: 20px; }
-.procedure-section textarea { width: 100%; height: 200px; padding: 10px; border-radius: 8px; border: 1px solid #ddd; }
+.procedure-section textarea {
+  width: 100%;
+  min-height: 120px;
+  padding: 10px;
+  border-radius: 8px;
+  border: 1px solid #ddd;
+  resize: none;
+  overflow: hidden;
+  line-height: 1.5;
+}
+.extra-fields-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+  margin-top: 15px;
+}
+.extra-fields-row .field-group label {
+  font-size: 0.85rem;
+  font-weight: bold;
+  color: #666;
+  margin-bottom: 5px;
+}
+.extra-fields-row input {
+  padding: 8px 12px;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+}
+@media (max-width: 600px) {
+  .extra-fields-row { grid-template-columns: 1fr; gap: 10px; }
+}
 .reagents-container {
   margin: 20px 0;
   width: 100%;
