@@ -21,10 +21,7 @@ export default defineConfig({
       }
     }
   },
-  optimizeDeps: {
-    // Говорим Vite не трогать RDKit при предварительной сборке зависимостей
-    exclude: ['@rdkit/rdkit']
-  },
+
   build: {
     // Увеличим лимит для ассетов, чтобы WASM файл не превратился в base64
     assetsInlineLimit: 0

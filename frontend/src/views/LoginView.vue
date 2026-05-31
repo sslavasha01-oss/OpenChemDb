@@ -28,7 +28,7 @@ async function handleSubmit() {
       formData.append('username', form.value.username)
       formData.append('password', form.value.password)
 
-      const res = await fetch(`${import.meta.env.VITE_API_URL}/auth/login`, {
+      const res = await fetch(`/api/auth/login`, {
         method: 'POST',
         body: formData
       })
@@ -47,7 +47,7 @@ async function handleSubmit() {
     } else if (mode.value === 'register') {
       if (!passwordsMatch.value) throw new Error('Passwords do not match')
 
-      const res = await fetch(`${import.meta.env.VITE_API_URL}/register-prod`, {
+      const res = await fetch(`/api/register-prod`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -66,7 +66,7 @@ async function handleSubmit() {
 
     } else if (mode.value === 'forgot') {
       // Отправляем POST запрос с JSON в теле
-      const res = await fetch(`${import.meta.env.VITE_API_URL}/forgot-password`, {
+      const res = await fetch(`/api/forgot-password`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: form.value.email }) // Тело запроса
@@ -128,7 +128,7 @@ async function handleSubmit() {
       </button>
 
       <div class="extra-links">
-        <a v-if="mode === 'login'" @click.prevent="mode = 'forgot'" href="#">Forgot password?</a>
+        <a v-if="mode === 'login' && !userStore.appStatus?.local_mode" @click.prevent="mode = 'forgot'" href="#">Forgot password?</a>
         <a v-if="mode === 'forgot'" @click.prevent="mode = 'login'" href="#">Back to Login</a>
       </div>
     </form>

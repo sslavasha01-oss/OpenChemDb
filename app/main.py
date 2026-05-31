@@ -16,6 +16,7 @@ from app.api.journal_attachment import router as journal_attachment
 
 import logging
 
+from app.core.settings import settings
 
 logger = logging.getLogger("uvicorn.error")
 
@@ -62,43 +63,12 @@ app.include_router(users_router)
 app.include_router(journal_attachment)
 
 
-
-@app.get("/test")
-def home():
-    # Проверка RDKit: превращаем SMILES бензола в каноничный
-    m = Chem.MolFromSmiles("c1ccccc1")
-    canonical = Chem.MolToSmiles(m)
-    logger.info("TEST")
-    print("--- TEST PRINT: This should also appear in Loki ---")
-    return {"status": "online", "rdkit_check": canonical}
-
 @app.get("/version")
 async def get_version():
     return {"version": __version__}
 
-@app.get("/test-ip")
-async def test_ip(request: Request):
-    # 1. То, что определил FastAPI/Uvicorn
-    internal_detected_ip = request.client.host
-
-    # 2. То, что прислал Cloudflare (самый надежный вариант)
-    cf_ip = request.headers.get("cf-connecting-ip")
-
-    # 3. Весь список прокси
-    forwarded_for = request.headers.get("x-forwarded-for")
-
+@app.get("/status")
+async def get_status(request: Request):
     return {
-        "fastapi_detected_ip": internal_detected_ip,
-        "cloudflare_real_ip": cf_ip,
-        "full_x_forwarded_for": forwarded_for
+        "local_mode": settings.LOCAL_MODE
     }
-
-
-def get_real_ip(request: Request) -> str:
-    # Сначала ищем заголовок Cloudflare
-    cf_ip = request.headers.get("cf-connecting-ip")
-    if cf_ip:
-        return cf_ip
-
-    # Если его нет (локальная разработка), берем обычный IP
-    return request.client.host

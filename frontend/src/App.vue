@@ -1,4 +1,6 @@
 <script setup>
+import { onMounted } from 'vue'
+import { useUserStore } from '@/stores/user'
 import Navbar from './components/Navbar.vue'
 const initGlobalKetcher = () => {
   const checkIndigo = setInterval(() => {
@@ -17,7 +19,10 @@ const initGlobalKetcher = () => {
   }, 250)
   setTimeout(() => clearInterval(checkIndigo), 15000)
 }
-
+const userStore = useUserStore()
+onMounted(() => {
+  userStore.fetchAppStatus()
+})
 </script>
 
 <template>

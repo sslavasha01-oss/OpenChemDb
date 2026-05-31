@@ -5,7 +5,8 @@ export const useUserStore = defineStore('user', {
         // Загружаем список аккаунтов из памяти браузера при старте
         accounts: JSON.parse(localStorage.getItem('chem_accounts') || '[]'),
         // Индекс текущего выбранного аккаунта
-        currentAccountIndex: parseInt(localStorage.getItem('chem_current_index') || '0')
+        currentAccountIndex: parseInt(localStorage.getItem('chem_current_index') || '0'),
+        appStatus: { local_mode: false }
     }),
 
     getters: {
@@ -77,6 +78,17 @@ export const useUserStore = defineStore('user', {
             } else {
                 // Если аккаунтов не осталось или у юзера нет токена — тотальная зачистка
                 localStorage.removeItem('token')
+            }
+        },
+
+        async fetchAppStatus() {
+            try {
+                const res = await fetch(`/api/status`)
+                if (res.ok) {
+                    this.appStatus = await res.json()
+                }
+            } catch (e) {
+                console.error("Failed to fetch app status:", e)
             }
         }
     }
