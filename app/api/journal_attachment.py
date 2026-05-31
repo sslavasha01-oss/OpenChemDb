@@ -43,7 +43,13 @@ async def upload_journal_attachment(
     Загружает файл аттачмента, сохраняет его в user_data/{user_id}/{journal_record_external_id}/{file_name}
     и делает запись в таблицу journal_attachment.
     """
-    print(journal_record_id)
+    print(file.size)
+    if file.size > settings.MAX_FILE_SIZE:
+        max_mb = settings.MAX_FILE_SIZE / (1024 * 1024)
+        raise HTTPException(
+            status_code=413,  # 413 Payload Too Large
+            detail=f"Файл слишком большой. Максимально допустимый размер: {max_mb:.0f} МБ."
+        )
     # 1. Проверяем, существует ли запись в журнале и принадлежит ли она текущему пользователю
     # Замени UserJournal на твою модель журнала. Нам нужен её external_id
     query = select(UserJournal).where(
@@ -108,34 +114,28 @@ async def upload_journal_attachment(
 
 @router.get("/view-user-file")
 async def view_user_file(
-        file_path: str,
+        file_path: str,  # Ожидаем формат: "external_id/filename.ext"
         current_user: User = Depends(get_current_user)
 ):
     """
-    Отдает файл (PDF, TIFF, DjVu и др.) из папки user_data.
-    Проверяет, что запрашиваемый файл принадлежит текущему пользователю.
+    Отдает файл из папки user_data/{user_id}/{file_path}.
+    Путь строится на основе ID пользователя из токена.
     """
     safe_base = Path(settings.USER_DATA_STORAGE_PATH).resolve()
 
-    # Нормализуем слэши
+    # Чистим пришедший путь от возможных лишних префиксов
     clean_path = file_path.replace("\\", "/")
+    if clean_path.startswith("user_data/"):
+        clean_path = clean_path[10:]
 
-    # Выделяем первую часть пути (ожидаем, что это user_id)
-    path_parts = clean_path.split("/")
-    if not path_parts or not path_parts[0].isdigit():
-        raise HTTPException(status_code=400, detail="Invalid file path format")
+    # Собираем путь: user_data / {user_id} / {external_id}/{filename}
+    # Строго подставляем ID из токена, фронт не может подсмотреть чужой файл
+    full_path = (safe_base / str(current_user.id) / clean_path).resolve()
 
-    path_user_id = int(path_parts[0])
-
-    # Проверка прав: первая цифра в пути должна строго совпадать с id юзера из токена
-    if path_user_id != current_user.id:
-        raise HTTPException(status_code=403, detail="Access denied: You don't own this file")
-
-    # Формируем полный абсолютный путь к файлу
-    full_path = (safe_base / clean_path).resolve()
-
-    # Защита Safe-guard от Path Traversal (чтобы нельзя было передать ../../../etc/passwd)
-    if not str(full_path).startswith(str(safe_base)):
+    # Защита Safe-guard от Path Traversal (чтобы нельзя было через ../ выйти наружу)
+    # Ограничиваем область видимости папкой конкретного юзера
+    user_safe_zone = safe_base / str(current_user.id)
+    if not str(full_path).startswith(str(user_safe_zone.resolve())):
         raise HTTPException(status_code=403, detail="Access denied")
 
     # Проверяем физическое существование файла
@@ -146,7 +146,7 @@ async def view_user_file(
     extension = full_path.suffix.lower()
     media_type = MIME_TYPES.get(extension, "application/octet-stream")
 
-    # Кодируем имя файла для корректной передачи кириллицы/спецсимволов в заголовке
+    # Кодируем имя файла для корректной передачи кириллицы
     encoded_filename = urllib.parse.quote(full_path.name)
 
     return FileResponse(

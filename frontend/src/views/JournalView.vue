@@ -163,21 +163,32 @@
                   <tr>
                     <th>Link / File</th>
                     <th>Description</th>
+                    <th v-if="isEditing" style="width: 80px;">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
                   <!-- Сохраненные -->
                   <tr v-for="file in currentAttachments.ARTICLE" :key="file.id">
-                    <td><a :href="file.file_path" target="_blank" class="att-link">📄 {{ file.file_path.split('/').pop() }}</a></td>
-                    <td>{{ file.description || 'No description' }}</td>
+                    <td><a href="#" @click.prevent="viewAttachment(file)" class="att-link">📄 {{ file.file_path.split('/').pop() }}</a></td>
+                    <td>
+                      <input v-if="isEditing" v-model="file.description" class="desc-edit-input" placeholder="Add description...">
+                      <span v-else>{{ file.description || 'No description' }}</span>
+                    </td>
+                    <td v-if="isEditing" class="att-actions">
+                      <button class="btn-att-save" title="Save description" @click="updateAttachmentDescription(file, 'ARTICLE')">💾</button>
+                      <button class="btn-att-delete" title="Delete" @click="removeAttachment(file, 'ARTICLE')">🗑️</button>
+                    </td>
                   </tr>
                   <!-- В очереди (для новых записей) -->
                   <tr v-for="(item, idx) in pendingAttachments.filter(a => a.type === 'ARTICLE')" :key="'p'+idx" class="pending-row">
                     <td><span class="att-link">⏳ {{ item.previewName }}</span></td>
                     <td><input v-model="item.description" class="desc-edit-input" placeholder="Add description..."></td>
+                    <td class="att-actions">
+                      <button class="btn-att-delete" title="Remove" @click="removeAttachment(item, 'ARTICLE', idx)">✕</button>
+                    </td>
                   </tr>
                   <tr v-if="currentAttachments.ARTICLE.length === 0 && !pendingAttachments.some(a => a.type === 'ARTICLE')">
-                    <td colspan="2" class="empty-text">{{ isEditing ? 'Drag & Drop files here' : 'No articles attached' }}</td>
+                    <td :colspan="isEditing ? 3 : 2" class="empty-text">{{ isEditing ? 'Drag & Drop files here' : 'No articles attached' }}</td>
                   </tr>
                 </tbody>
               </table>
@@ -199,21 +210,32 @@
                   <tr>
                     <th>Link / File</th>
                     <th>Description</th>
+                    <th v-if="isEditing" style="width: 80px;">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
                   <!-- Сохраненные -->
                   <tr v-for="file in currentAttachments.SPECTRUM" :key="file.id">
-                    <td><a :href="file.file_path" target="_blank" class="att-link">📊 {{ file.file_path.split('/').pop() }}</a></td>
-                    <td>{{ file.description || 'No description' }}</td>
+                    <td><a href="#" @click.prevent="viewAttachment(file)" class="att-link">📊 {{ file.file_path.split('/').pop() }}</a></td>
+                    <td>
+                      <input v-if="isEditing" v-model="file.description" class="desc-edit-input" placeholder="Add description...">
+                      <span v-else>{{ file.description || 'No description' }}</span>
+                    </td>
+                    <td v-if="isEditing" class="att-actions">
+                      <button class="btn-att-save" title="Save description" @click="updateAttachmentDescription(file, 'SPECTRUM')">💾</button>
+                      <button class="btn-att-delete" title="Delete" @click="removeAttachment(file, 'SPECTRUM')">🗑️</button>
+                    </td>
                   </tr>
                   <!-- В очереди (для новых записей) -->
                   <tr v-for="(item, idx) in pendingAttachments.filter(a => a.type === 'SPECTRUM')" :key="'p'+idx" class="pending-row">
                     <td><span class="att-link">⏳ {{ item.previewName }}</span></td>
                     <td><input v-model="item.description" class="desc-edit-input" placeholder="Add description..."></td>
+                    <td class="att-actions">
+                      <button class="btn-att-delete" title="Remove" @click="removeAttachment(item, 'SPECTRUM', idx)">✕</button>
+                    </td>
                   </tr>
                   <tr v-if="currentAttachments.SPECTRUM.length === 0 && !pendingAttachments.some(a => a.type === 'SPECTRUM')">
-                    <td colspan="2" class="empty-text">{{ isEditing ? 'Drag & Drop files here' : 'No spectra attached' }}</td>
+                    <td :colspan="isEditing ? 3 : 2" class="empty-text">{{ isEditing ? 'Drag & Drop files here' : 'No spectra attached' }}</td>
                   </tr>
                 </tbody>
               </table>
@@ -371,12 +393,12 @@ const pendingAttachments = ref([]) // Для новых записей: [{ file,
 const isUploading = ref(false)
 
 // Функция непосредственной загрузки на сервер (для существующих записей)
-const uploadFileToServer = async (recordId, file, type) => {
+const uploadFileToServer = async (recordId, file, type, description = '') => {
   const formData = new FormData()
   formData.append('journal_record_id', recordId)
   formData.append('attachment_type', type)
   formData.append('file', file)
-  formData.append('description', file.name) // По умолчанию описание - имя файла
+  formData.append('description', description)
 
   const token = localStorage.getItem('token')
   const response = await axios.post('/api/journal_attachment/upload', formData, {
@@ -410,10 +432,83 @@ const handleFilesAdded = async (files, type) => {
       pendingAttachments.value.push({
         file,
         type,
-        description: file.name,
+        description: '',
         previewName: file.name // Для отображения в таблице до загрузки
       })
     }
+  }
+}
+
+// Обновление описания на сервере
+const updateAttachmentDescription = async (file, type) => {
+  try {
+    const token = localStorage.getItem('token')
+    await axios.patch(`/api/journal_attachment/${file.id}`,
+      { description: file.description },
+      { headers: { 'Authorization': `Bearer ${token}` } }
+    )
+    alert("Description updated!")
+  } catch (err) {
+    console.error("Error updating description:", err)
+    alert("Failed to update description.")
+  }
+}
+
+// Удаление аттачмента (и локально, и с сервера)
+const removeAttachment = async (file, type, index) => {
+  // 1. Если это временный файл (еще не на сервере)
+  if (!file.id) {
+    const realIndex = pendingAttachments.value.findIndex(a => a === file)
+    if (realIndex !== -1) pendingAttachments.value.splice(realIndex, 1)
+    return
+  }
+
+  // 2. Если файл на сервере
+  if (!confirm("Are you sure you want to delete this attachment?")) return
+
+  try {
+    const token = localStorage.getItem('token')
+    await axios.delete(`/api/journal_attachment/${file.id}`, {
+      headers: { 'Authorization': `Bearer ${token}` }
+    })
+
+    // Удаляем из локального кеша
+    const recordId = journalData.value.id
+    if (attachmentsMap.value[recordId]) {
+      attachmentsMap.value[recordId][type] = attachmentsMap.value[recordId][type].filter(a => a.id !== file.id)
+    }
+  } catch (err) {
+    console.error("Error deleting attachment:", err)
+    alert("Failed to delete attachment.")
+  }
+}
+
+// Просмотр файла через защищенный эндпоинт
+const viewAttachment = async (file) => {
+  if (!file.file_path) return
+
+  try {
+    const token = localStorage.getItem('token')
+    const userId = userStore.currentUser.id
+
+    const response = await axios.get('/api/journal_attachment/view-user-file', {
+      params: { file_path: file.file_path },
+      headers: { 'Authorization': `Bearer ${token}` },
+      responseType: 'blob' // Важно для получения файла
+    })
+
+    // Создаем временную ссылку на скачанный объект
+    const blob = new Blob([response.data], { type: response.headers['content-type'] })
+    const fileUrl = window.URL.createObjectURL(blob)
+
+    // Открываем в новой вкладке
+    window.open(fileUrl, '_blank')
+
+    // Освобождаем память через небольшую задержку
+    setTimeout(() => window.URL.revokeObjectURL(fileUrl), 60000)
+  } catch (err) {
+    console.error("Error viewing file:", err)
+    alert("Could not open file. Maybe it was moved or deleted.")
   }
 }
 
@@ -737,7 +832,7 @@ const saveEntry = async () => {
       isUploading.value = true
       for (const item of pendingAttachments.value) {
         try {
-          await uploadFileToServer(newRecordId, item.file, item.type)
+          await uploadFileToServer(newRecordId, item.file, item.type, item.description)
         } catch (err) {
           console.error("Error uploading pending file:", err)
         }
@@ -1446,5 +1541,32 @@ watch(() => tableRef.value?.records, (newRecords) => {
 .pending-row .att-link {
   color: #e67e22;
   font-style: italic;
+}
+
+.att-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+  align-items: center;
+}
+.btn-att-save, .btn-att-delete {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 1.1rem;
+  padding: 4px;
+  border-radius: 4px;
+  transition: background 0.2s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.btn-att-save:hover { background-color: #e8f4fd; }
+.btn-att-delete:hover { background-color: #fee; }
+
+.pending-row .btn-att-delete {
+  color: #e74c3c;
+  font-weight: bold;
+  font-size: 1rem;
 }
 </style>

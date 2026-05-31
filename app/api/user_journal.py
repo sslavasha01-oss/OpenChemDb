@@ -1,3 +1,7 @@
+import os
+import shutil
+from pathlib import Path
+
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from rdkit import Chem
 from rdkit.Chem import Draw
@@ -183,6 +187,21 @@ async def delete_journal_record(
 
         if not deleted_id:
             raise HTTPException(status_code=404, detail="Record not found")
+
+        # --- ТОЧЕЧНОЕ ИЗМЕНЕНИЕ: УДАЛЕНИЕ ПАПКИ С ДИСКА ---
+        base_user_data_path = Path(settings.USER_DATA_STORAGE_PATH).resolve()
+        # Путь к папке конкретной записи: user_data/{user_id}/{external_id}
+        record_dir = base_user_data_path / str(current_user.id) / str(external_id)
+        # Безопасность: проверяем, что мы внутри user_data и не удалим ничего лишнего
+        if str(record_dir.resolve()).startswith(str(base_user_data_path)):
+            if record_dir.exists() and record_dir.is_dir():
+                shutil.rmtree(record_dir)  # Удаляет папку со всеми файлами внутри
+
+                # Опционально: чистим за собой папку юзера, если она опустела
+                user_dir = record_dir.parent
+                if user_dir.exists() and not os.listdir(user_dir):
+                    user_dir.rmdir()
+        # --------------------------------------------------
 
         await db.commit()
         return {"status": "success", "message": f"Record #{external_id} deleted successfully"}

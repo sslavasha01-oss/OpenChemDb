@@ -46,7 +46,7 @@ class Settings(BaseSettings):
 
     # Указываем путь именно к SOP
     SOP_STORAGE_PATH: str = os.path.join(project_root, "data", "SOP")
-    USER_DATA_STORAGE_PATH: str = os.path.join(project_root, "data", "user_data")
+    USER_DATA_STORAGE_PATH: str = os.path.join(project_root, "data", "user_files")
 
     MAIL_TOKEN: str
     MAIL_FROM: EmailStr
@@ -62,6 +62,9 @@ class Settings(BaseSettings):
     DB_MAX_OVERFLOW: int = 10
 
     RATE_LIMIT_ENABLED: bool = False
+
+    # Максимальный размер файла в байтах (25 MB = 25 * 1024 * 1024)
+    MAX_FILE_SIZE: int = 25 * 1024 * 1024
 
     # Магия Pydantic:
     # 1. Сначала смотрим реальные переменные окружения (ОС)
