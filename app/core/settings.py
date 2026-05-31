@@ -21,26 +21,12 @@ class Settings(BaseSettings):
     ENV: str
     REDIS_URL: str = "redis://localhost:6379/0"
 
-    # Включать ли базу журнальных методик (spresi)
-    JOURNAL_BASE: bool = True
-
-    # Включать ли базу книжных методик
-    BOOK_BASE: bool = True
-
-    # Включать ли публичную базу журналов
-    PUBLIC_JOURNAL: bool = True
-
     # Токены на 100 лет (для локального использования)
     AUTHORIZATION_NEVER_EXPIRES: bool = True
-
-    # Вход в один клик без пароля (гостевой режим)
-    NO_PASSWORD_LOGIN: bool = False
 
     # --- Настройки БД ---
     USERS_DATABASE_URL: str
     ARCHIVE_DATABASE_URL: str
-
-    TIMEZONE: str = "UTC"
 
     SEARCH_LIMIT: int = 200
 
@@ -55,16 +41,16 @@ class Settings(BaseSettings):
     # URL бекенда, нужен для редиректов
     BACKEND_URL: str = "http://localhost:8000"
 
-    # Эти настройки лучше вынести в settings/env
-    # Для N100: POOL_SIZE=5, MAX_OVERFLOW=10
     # Для 18-ядерника: POOL_SIZE=3, MAX_OVERFLOW=5 (так как воркеров будет много)
-    DB_POOL_SIZE: int = 5
-    DB_MAX_OVERFLOW: int = 10
+    DB_POOL_SIZE: int = 3
+    DB_MAX_OVERFLOW: int = 5
 
     RATE_LIMIT_ENABLED: bool = False
 
     # Максимальный размер файла в байтах (25 MB = 25 * 1024 * 1024)
     MAX_FILE_SIZE: int = 25 * 1024 * 1024
+
+    LOCAL_MODE: bool
 
     # Магия Pydantic:
     # 1. Сначала смотрим реальные переменные окружения (ОС)

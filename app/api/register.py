@@ -33,22 +33,31 @@ async def register_prod(
     if result.scalar_one_or_none():
         raise HTTPException(status_code=400, detail="User with this email or username already exists")
 
-    # 2. Создаем НЕАКТИВНОГО пользователя
-    new_user = User(
-        username=user_data.username,
-        email=user_data.email,
-        hashed_password=get_password_hash(user_data.password),
-        role="USER",
-        is_active=False
-    )
+    if settings.LOCAL_MODE:
+        new_user = User(
+            username=user_data.username,
+            email=user_data.email,
+            hashed_password=get_password_hash(user_data.password),
+            role="USER"  # По умолчанию все регистрируются как обычные юзеры
+        )
+    else:
+        # 2. Создаем НЕАКТИВНОГО пользователя
+        new_user = User(
+            username=user_data.username,
+            email=user_data.email,
+            hashed_password=get_password_hash(user_data.password),
+            role="USER",
+            is_active=False
+        )
 
     db.add(new_user)
     await db.commit()
     await db.refresh(new_user)
 
     # 3. Генерируем токен и отправляем письмо в фоне (не тормозим ответ API)
-    token = create_verification_token(user_data.email)
-    background_tasks.add_task(send_verification_email, user_data.email, token)
+    if not settings.LOCAL_MODE:
+        token = create_verification_token(user_data.email)
+        background_tasks.add_task(send_verification_email, user_data.email, token)
 
     return new_user
 
@@ -145,6 +154,9 @@ async def forgot_password(
         background_tasks: BackgroundTasks,
         db: AsyncSession = Depends(get_users_db)
 ):
+    if settings.LOCAL_MODE:
+        raise HTTPException(status_code=400, detail="Endpoint is disabled in local mode")
+
     result = await db.execute(select(User).where(User.email == data.email))
     user = result.scalar_one_or_none()
 

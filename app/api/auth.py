@@ -13,30 +13,6 @@ from app.core.settings import settings
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 
-@router.post("/register-local", response_model=UserOut)
-async def register(user_data: UserCreate, db: AsyncSession = Depends(get_users_db)):
-    if settings.ENV == "prod":
-        raise HTTPException(status_code=400, detail="Endpoint is disabled in production")
-
-    # 1. Проверяем, нет ли уже такого юзера
-    result = await db.execute(select(User).where(User.username == user_data.username))
-    if result.scalar_one_or_none():
-        raise HTTPException(status_code=400, detail="Username already registered")
-
-    # 2. Хешируем пароль и создаем объект
-    new_user = User(
-        username=user_data.username,
-        email=user_data.email,
-        hashed_password=get_password_hash(user_data.password),
-        role="USER"  # По умолчанию все регистрируются как обычные юзеры
-    )
-
-    db.add(new_user)
-    await db.commit()
-    await db.refresh(new_user)
-    return new_user
-
-
 @router.post("/login", response_model=Token)
 async def login(
         form_data: OAuth2PasswordRequestForm = Depends(),

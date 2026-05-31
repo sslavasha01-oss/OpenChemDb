@@ -10,9 +10,11 @@ from app.core.db import Base
 
 # Кастомные типы RDKit
 class MolType(UserDefinedType):
+    cache_ok = True
     def get_col_spec(self, **kw): return "MOL"
 
 class ReactionType(UserDefinedType):
+    cache_ok = True
     def get_col_spec(self, **kw): return "REACTION"
 
 class UserJournal(Base):
