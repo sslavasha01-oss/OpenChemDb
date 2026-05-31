@@ -5,15 +5,15 @@ from sqlalchemy import BigInteger, Integer, Text, Numeric, DateTime, func, Index
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 from sqlalchemy.types import UserDefinedType
 
+from app.core.db import Base
+
+
 # Кастомные типы RDKit
 class MolType(UserDefinedType):
     def get_col_spec(self, **kw): return "MOL"
 
 class ReactionType(UserDefinedType):
     def get_col_spec(self, **kw): return "REACTION"
-
-class Base(DeclarativeBase):
-    pass
 
 class UserJournal(Base):
     __tablename__ = 'user_journal'

@@ -147,47 +147,78 @@
           </div>
         </div>
         <!-- Секция Аттачментов -->
-        <div v-if="!isGuest && journalData.id" class="attachments-section">
+        <div v-if="!isGuest && (journalData.id || isEditing)" class="attachments-section">
+
+          <!-- Блок Статей -->
           <div class="attachment-block">
-            <h3>Articles</h3>
-            <table class="attachment-table">
-              <thead>
-                <tr>
-                  <th>Link / File</th>
-                  <th>Description</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-for="file in currentAttachments.ARTICLE" :key="file.id">
-                  <td><a :href="file.file_path" target="_blank" class="att-link">📄 {{ file.file_path.split('/').pop() }}</a></td>
-                  <td>{{ file.description || 'No description' }}</td>
-                </tr>
-                <tr v-if="currentAttachments.ARTICLE.length === 0">
-                  <td colspan="2" class="empty-text">No articles attached</td>
-                </tr>
-              </tbody>
-            </table>
+            <h3>Articles / Links</h3>
+            <div
+              class="drop-zone"
+              :class="{ 'drop-active': isEditing }"
+              @dragover.prevent
+              @drop.prevent="onDrop($event, 'ARTICLE')"
+            >
+              <table class="attachment-table">
+                <thead>
+                  <tr>
+                    <th>Link / File</th>
+                    <th>Description</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <!-- Сохраненные -->
+                  <tr v-for="file in currentAttachments.ARTICLE" :key="file.id">
+                    <td><a :href="file.file_path" target="_blank" class="att-link">📄 {{ file.file_path.split('/').pop() }}</a></td>
+                    <td>{{ file.description || 'No description' }}</td>
+                  </tr>
+                  <!-- В очереди (для новых записей) -->
+                  <tr v-for="(item, idx) in pendingAttachments.filter(a => a.type === 'ARTICLE')" :key="'p'+idx" class="pending-row">
+                    <td><span class="att-link">⏳ {{ item.previewName }}</span></td>
+                    <td><input v-model="item.description" class="desc-edit-input" placeholder="Add description..."></td>
+                  </tr>
+                  <tr v-if="currentAttachments.ARTICLE.length === 0 && !pendingAttachments.some(a => a.type === 'ARTICLE')">
+                    <td colspan="2" class="empty-text">{{ isEditing ? 'Drag & Drop files here' : 'No articles attached' }}</td>
+                  </tr>
+                </tbody>
+              </table>
+              <div v-if="isEditing" class="upload-hint">Drag & Drop or click to upload</div>
+            </div>
           </div>
 
+          <!-- Блок Спектров -->
           <div class="attachment-block">
             <h3>Spectra</h3>
-            <table class="attachment-table">
-              <thead>
-                <tr>
-                  <th>Link / File</th>
-                  <th>Description</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-for="file in currentAttachments.SPECTRUM" :key="file.id">
-                  <td><a :href="file.file_path" target="_blank" class="att-link">📊 {{ file.file_path.split('/').pop() }}</a></td>
-                  <td>{{ file.description || 'No description' }}</td>
-                </tr>
-                <tr v-if="currentAttachments.SPECTRUM.length === 0">
-                  <td colspan="2" class="empty-text">No spectra attached</td>
-                </tr>
-              </tbody>
-            </table>
+            <div
+              class="drop-zone"
+              :class="{ 'drop-active': isEditing }"
+              @dragover.prevent
+              @drop.prevent="onDrop($event, 'SPECTRUM')"
+            >
+              <table class="attachment-table">
+                <thead>
+                  <tr>
+                    <th>Link / File</th>
+                    <th>Description</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <!-- Сохраненные -->
+                  <tr v-for="file in currentAttachments.SPECTRUM" :key="file.id">
+                    <td><a :href="file.file_path" target="_blank" class="att-link">📊 {{ file.file_path.split('/').pop() }}</a></td>
+                    <td>{{ file.description || 'No description' }}</td>
+                  </tr>
+                  <!-- В очереди (для новых записей) -->
+                  <tr v-for="(item, idx) in pendingAttachments.filter(a => a.type === 'SPECTRUM')" :key="'p'+idx" class="pending-row">
+                    <td><span class="att-link">⏳ {{ item.previewName }}</span></td>
+                    <td><input v-model="item.description" class="desc-edit-input" placeholder="Add description..."></td>
+                  </tr>
+                  <tr v-if="currentAttachments.SPECTRUM.length === 0 && !pendingAttachments.some(a => a.type === 'SPECTRUM')">
+                    <td colspan="2" class="empty-text">{{ isEditing ? 'Drag & Drop files here' : 'No spectra attached' }}</td>
+                  </tr>
+                </tbody>
+              </table>
+              <div v-if="isEditing" class="upload-hint">Drag & Drop or click to upload</div>
+            </div>
           </div>
         </div>
 
@@ -335,6 +366,63 @@ const journalDataBackup = ref(null)
 
 // Хранилище аттачментов в формате { recordId: { ARTICLE: [], SPECTRUM: [] } }
 const attachmentsMap = ref({})
+
+const pendingAttachments = ref([]) // Для новых записей: [{ file, type, description }]
+const isUploading = ref(false)
+
+// Функция непосредственной загрузки на сервер (для существующих записей)
+const uploadFileToServer = async (recordId, file, type) => {
+  const formData = new FormData()
+  formData.append('journal_record_id', recordId)
+  formData.append('attachment_type', type)
+  formData.append('file', file)
+  formData.append('description', file.name) // По умолчанию описание - имя файла
+
+  const token = localStorage.getItem('token')
+  const response = await axios.post('/api/journal_attachment/upload', formData, {
+    headers: {
+      'Authorization': `Bearer ${token}`,
+      'Content-Type': 'multipart/form-data'
+    }
+  })
+  return response.data
+}
+
+// Обработка выбора файлов (через input или drop)
+const handleFilesAdded = async (files, type) => {
+  const recordId = journalData.value.id
+
+  for (const file of Array.from(files)) {
+    if (recordId) {
+      // РЕЖИМ 1: Запись уже существует - грузим сразу
+      try {
+        const newAtt = await uploadFileToServer(recordId, file, type)
+        // Локально обновляем кеш, чтобы пользователь сразу увидел файл
+        if (!attachmentsMap.value[recordId]) {
+          attachmentsMap.value[recordId] = { ARTICLE: [], SPECTRUM: [] }
+        }
+        attachmentsMap.value[recordId][type].push(newAtt)
+      } catch (err) {
+        alert(`Failed to upload ${file.name}`)
+      }
+    } else {
+      // РЕЖИМ 2: Новая запись - добавляем в очередь
+      pendingAttachments.value.push({
+        file,
+        type,
+        description: file.name,
+        previewName: file.name // Для отображения в таблице до загрузки
+      })
+    }
+  }
+}
+
+// Drag & Drop обработчики
+const onDrop = (event, type) => {
+  if (!isEditing.value) return
+  const files = event.dataTransfer.files
+  handleFilesAdded(files, type)
+}
 
 const fetchBatchAttachments = async (recordIds) => {
   // 1. Фильтруем список: оставляем только те ID, которых еще НЕТ в нашем кеше (attachmentsMap)
@@ -581,6 +669,7 @@ const initNewEntryFromTable = () => {
   isEditing.value = true
   // При создании новой записи аттачментов быть не может
   if (journalData.value.id) attachmentsMap.value[journalData.value.id] = { ARTICLE: [], SPECTRUM: [] }
+  pendingAttachments.value = []
 }
 
 // Переключение режимов Редактировать / Отменить
@@ -640,15 +729,33 @@ const saveEntry = async () => {
       })
     }
 
+    const newRecordId = response.data.id
     journalData.value = response.data
+
+    // Если были файлы в очереди (для новой записи) - загружаем их теперь
+    if (pendingAttachments.value.length > 0 && newRecordId) {
+      isUploading.value = true
+      for (const item of pendingAttachments.value) {
+        try {
+          await uploadFileToServer(newRecordId, item.file, item.type)
+        } catch (err) {
+          console.error("Error uploading pending file:", err)
+        }
+      }
+      pendingAttachments.value = [] // Очищаем очередь
+      isUploading.value = false
+    }
+
     isEditing.value = false
+
+    // Сбрасываем кеш для этой записи, чтобы подтянулись полные данные с сервера
+    if (newRecordId) {
+      delete attachmentsMap.value[newRecordId]
+      // fetchBatchAttachments сработает автоматически через watch таблицы
+    }
 
     triggerKetcherRedraw(response.data)
     alert(hasExternalId ? "Entry successfully updated!" : "Entry successfully saved!")
-
-    if (response.data?.id) {
-      delete attachmentsMap.value[response.data.id]
-    }
 
     if (tableRef.value) {
       // 1. Устанавливаем ID выделенной записи ДО обновлений
@@ -1303,5 +1410,41 @@ watch(() => tableRef.value?.records, (newRecords) => {
   text-align: center;
   padding: 15px !important;
 }
-
+.drop-zone {
+  border: 2px transparent dashed;
+  border-radius: 8px;
+  transition: all 0.2s;
+  position: relative;
+}
+.drop-active {
+  border-color: #42b983;
+  background: #f0fcf7;
+}
+.upload-hint {
+  text-align: center;
+  font-size: 0.8rem;
+  color: #42b983;
+  margin-top: 5px;
+  font-weight: bold;
+  opacity: 0.7;
+}
+.pending-row {
+  background-color: #fff9e6;
+}
+.desc-edit-input {
+  width: 100%;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  padding: 4px 8px;
+  font-size: 0.85rem;
+}
+.desc-edit-input:focus {
+  outline: none;
+  border-color: #42b983;
+}
+/* Анимация для индикации загрузки */
+.pending-row .att-link {
+  color: #e67e22;
+  font-style: italic;
+}
 </style>

@@ -43,7 +43,7 @@ async def upload_journal_attachment(
     Загружает файл аттачмента, сохраняет его в user_data/{user_id}/{journal_record_external_id}/{file_name}
     и делает запись в таблицу journal_attachment.
     """
-
+    print(journal_record_id)
     # 1. Проверяем, существует ли запись в журнале и принадлежит ли она текущему пользователю
     # Замени UserJournal на твою модель журнала. Нам нужен её external_id
     query = select(UserJournal).where(

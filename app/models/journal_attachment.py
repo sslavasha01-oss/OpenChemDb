@@ -1,8 +1,8 @@
 import enum
 from sqlalchemy import Column, Integer, String, Text, ForeignKey, Enum, DateTime, func
-from sqlalchemy.orm import declarative_base
 
-Base = declarative_base() # Или твой общий Base
+from app.core.db import Base
+
 
 class AttachmentType(str, enum.Enum):
     ARTICLE = "ARTICLE"
