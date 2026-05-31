@@ -5,6 +5,12 @@ import csv
 import asyncpg
 from rdkit import Chem  # Добавляем RDKit для проверки
 
+from rdkit import RDLogger
+from rdkit.Chem.MolStandardize import rdMolStandardize
+
+# Отключаем логирование предупреждений (Warnings) и ошибок (Errors) в RDKit
+RDLogger.DisableLog('rdApp.warning')
+
 # Пробиваем пути
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if BASE_DIR not in sys.path:
@@ -15,36 +21,31 @@ from app.core.settings import settings
 CSV_FILE_PATH = os.path.join(BASE_DIR, "data/book_base_text.txt")
 
 
-def is_valid_smiles(smiles: str) -> bool:
-    """Проверяет SMILES, разрешая нестандартную валентность."""
-    if not smiles or not isinstance(smiles, str):
-        return False
-    try:
-        # Читаем БЕЗ автоматической санитизации
-        mol = Chem.MolFromSmiles(smiles, sanitize=False)
-        if mol is None:
-            return False
-
-        # Делаем базовую очистку (ароматичность, стерео), но пропускаем проверку валентности
-        mask = Chem.SanitizeFlags.SANITIZE_ALL ^ Chem.SanitizeFlags.SANITIZE_PROPERTIES
-        Chem.SanitizeMol(mol, sanitizeOps=mask)
-        return True
-    except:
-        return False
-
-
 def canonicalize_molecule_smiles(smi: str):
+    """
+    Стандартизирует молекулу по правилам RDKit.
+    Переводит Cl(=O)=O в ионную форму корректно, сохраняя всю остальную структуру.
+    """
     if not smi:
         return None
     try:
+        # 1. Читаем БЕЗ санитизации, чтобы не упасть на старте
         mol = Chem.MolFromSmiles(smi, sanitize=False)
-        if mol:
-            mask = Chem.SanitizeFlags.SANITIZE_ALL ^ Chem.SanitizeFlags.SANITIZE_PROPERTIES
-            Chem.SanitizeMol(mol, sanitizeOps=mask)
-            return Chem.MolToSmiles(mol)
-    except:
+        if mol is None:
+            return None
+
+        # 2. Очищаем структуру стандартными инструментами RDKit
+        # Этот шаг переведет гипервалентный хлор в правильную ионную форму
+        mol = rdMolStandardize.Cleanup(mol)
+
+        # 3. Теперь, когда хлор стандартизирован, можно прогнать полную санитизацию
+        Chem.SanitizeMol(mol)
+
+        # Возвращает системный каноничный SMILES (он будет с зарядами, но стабильный!)
+        return Chem.MolToSmiles(mol, canonical=True)
+    except Exception:
         pass
-    return smi
+    return None
 
 
 async def fill_books():
@@ -66,13 +67,16 @@ async def fill_books():
             print("Starting validation and insertion...")
             for row in reader:
                 smiles = row.get('Smiles', '').strip()
+                if smiles.startswith('[?]'):
+                    smiles = smiles[3:].strip()
 
+                canonical_smiles = canonicalize_molecule_smiles(smiles)
                 # Проверка валидности структуры
-                if not is_valid_smiles(smiles):
+                if not canonical_smiles:
                     print(f"Skipping invalid SMILES (ID: {row.get('ID')}): {smiles}")
                     skipped_count += 1
                     continue
-                canonical_smiles = canonicalize_molecule_smiles(smiles)
+
                 try:
                     ext_id = int(float(row['ID'])) if row.get('ID') else 0
 
