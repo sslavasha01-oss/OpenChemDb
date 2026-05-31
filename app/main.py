@@ -12,6 +12,7 @@ from app.api.comment_reactions import router as comment_reactions_router
 from app.api.register import router as register_router
 from fastapi.middleware.cors import CORSMiddleware
 from app.api.user_journal import router as users_router
+from app.api.journal_attachment import router as journal_attachment
 
 import logging
 
@@ -57,6 +58,8 @@ app.include_router(comment_reactions_router)
 app.include_router(register_router, tags=["Register"])
 
 app.include_router(users_router)
+
+app.include_router(journal_attachment)
 
 
 

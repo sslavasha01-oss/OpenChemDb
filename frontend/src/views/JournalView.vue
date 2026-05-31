@@ -146,6 +146,51 @@
             </div>
           </div>
         </div>
+        <!-- Секция Аттачментов -->
+        <div v-if="!isGuest && journalData.id" class="attachments-section">
+          <div class="attachment-block">
+            <h3>Articles</h3>
+            <table class="attachment-table">
+              <thead>
+                <tr>
+                  <th>Link / File</th>
+                  <th>Description</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="file in currentAttachments.ARTICLE" :key="file.id">
+                  <td><a :href="file.file_path" target="_blank" class="att-link">📄 {{ file.file_path.split('/').pop() }}</a></td>
+                  <td>{{ file.description || 'No description' }}</td>
+                </tr>
+                <tr v-if="currentAttachments.ARTICLE.length === 0">
+                  <td colspan="2" class="empty-text">No articles attached</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="attachment-block">
+            <h3>Spectra</h3>
+            <table class="attachment-table">
+              <thead>
+                <tr>
+                  <th>Link / File</th>
+                  <th>Description</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="file in currentAttachments.SPECTRUM" :key="file.id">
+                  <td><a :href="file.file_path" target="_blank" class="att-link">📊 {{ file.file_path.split('/').pop() }}</a></td>
+                  <td>{{ file.description || 'No description' }}</td>
+                </tr>
+                <tr v-if="currentAttachments.SPECTRUM.length === 0">
+                  <td colspan="2" class="empty-text">No spectra attached</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
       </section>
 
       <!-- Вкладка Поиск -->
@@ -287,6 +332,39 @@ const loading = ref(false)
 const visibleReagentsCount = ref(3)
 const selectedRecordId = ref(null)
 const journalDataBackup = ref(null)
+
+// Хранилище аттачментов в формате { recordId: { ARTICLE: [], SPECTRUM: [] } }
+const attachmentsMap = ref({})
+
+const fetchBatchAttachments = async (recordIds) => {
+  // 1. Фильтруем список: оставляем только те ID, которых еще НЕТ в нашем кеше (attachmentsMap)
+  const idsToFetch = recordIds.filter(id => id != null && !attachmentsMap.value.hasOwnProperty(id))
+
+  // 2. Если все записи уже в кеше, ничего не делаем
+  if (idsToFetch.length === 0) {
+    console.log("[Attachments] All records already in cache, skipping request.")
+    return
+  }
+
+  try {
+    const token = localStorage.getItem('token')
+    const response = await axios.post('/api/journal_attachment/batch',
+      { journal_record_ids: idsToFetch },
+      { headers: { 'Authorization': `Bearer ${token}` } }
+    )
+
+    // 3. Мержим только новые данные в кеш
+    attachmentsMap.value = { ...attachmentsMap.value, ...response.data.attachments }
+  } catch (err) {
+    console.error("Error fetching batch attachments:", err)
+  }
+}
+
+// Удобный computed для текущей выбранной записи
+const currentAttachments = computed(() => {
+  const recordId = journalData.value?.id
+  return attachmentsMap.value[recordId] || { ARTICLE: [], SPECTRUM: [] }
+})
 
 // Вычисляемые свойства для нативной изоляции ID в SVG на вкладке поиска
 const isolatedSearchProductSvg = computed(() => {
@@ -501,6 +579,8 @@ const initNewEntryFromTable = () => {
   visibleReagentsCount.value = 3
   activeTab.value = 'method'
   isEditing.value = true
+  // При создании новой записи аттачментов быть не может
+  if (journalData.value.id) attachmentsMap.value[journalData.value.id] = { ARTICLE: [], SPECTRUM: [] }
 }
 
 // Переключение режимов Редактировать / Отменить
@@ -565,6 +645,10 @@ const saveEntry = async () => {
 
     triggerKetcherRedraw(response.data)
     alert(hasExternalId ? "Entry successfully updated!" : "Entry successfully saved!")
+
+    if (response.data?.id) {
+      delete attachmentsMap.value[response.data.id]
+    }
 
     if (tableRef.value) {
       // 1. Устанавливаем ID выделенной записи ДО обновлений
@@ -739,12 +823,21 @@ watch(() => userStore.currentAccountIndex, async () => {
 
   journalData.value = createEmptyEntry()
   selectedRecordId.value = null
+  attachmentsMap.value = {}
 
   await nextTick()
   if (tableRef.value && activeTab.value === 'table' && !isGuest.value) {
     tableRef.value.refreshData()
   }
 })
+
+// Следим за списком записей в таблице. Как только они меняются — грузим для них аттачменты
+watch(() => tableRef.value?.records, (newRecords) => {
+  if (newRecords && newRecords.length > 0) {
+    const ids = newRecords.map(r => r.id).filter(id => id != null)
+    fetchBatchAttachments(ids)
+  }
+}, { immediate: true })
 
 </script>
 
@@ -1161,5 +1254,54 @@ watch(() => userStore.currentAccountIndex, async () => {
 .btn-apply { background: #42b983; color: white; border: none; padding: 5px 15px; border-radius: 4px; cursor: pointer; font-weight: bold; }
 .btn-cancel { background: #999; color: white; border: none; padding: 5px 15px; border-radius: 4px; cursor: pointer; }
 
+.attachments-section {
+  margin-top: 30px;
+  padding-top: 20px;
+  border-top: 2px solid #eee;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+}
+@media (max-width: 850px) {
+  .attachments-section { grid-template-columns: 1fr; }
+}
+.attachment-block h3 {
+  font-size: 1.1rem;
+  margin-bottom: 10px;
+  color: #2c3e50;
+}
+.attachment-table {
+  width: 100%;
+  border-collapse: collapse;
+  background: white;
+  border-radius: 6px;
+  overflow: hidden;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+}
+.attachment-table th, .attachment-table td {
+  padding: 10px;
+  text-align: left;
+  border-bottom: 1px solid #eee;
+  font-size: 0.9rem;
+}
+.attachment-table th {
+  background: #f8f9fa;
+  font-weight: bold;
+  color: #666;
+}
+.att-link {
+  color: #3498db;
+  text-decoration: none;
+  word-break: break-all;
+}
+.att-link:hover {
+  text-decoration: underline;
+}
+.empty-text {
+  color: #999;
+  font-style: italic;
+  text-align: center;
+  padding: 15px !important;
+}
 
 </style>
