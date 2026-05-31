@@ -29,6 +29,7 @@ class Settings(BaseSettings):
     ARCHIVE_DATABASE_URL: str
 
     SEARCH_LIMIT: int = 200
+    STATEMENT_TIMEOUT: int = 5000
 
     # Указываем путь именно к SOP
     SOP_STORAGE_PATH: str = os.path.join(project_root, "data", "SOP")

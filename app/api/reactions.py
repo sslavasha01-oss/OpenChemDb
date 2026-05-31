@@ -63,7 +63,8 @@ async def search_reaction_ids_smiles(
 
         where_clause = " AND ".join(conditions) if conditions else "is_deleted = false"
 
-    await db.execute(sa.text("SET LOCAL statement_timeout = 3000;"))
+    if not settings.LOCAL_MODE:
+        await db.execute(sa.text(f"SET LOCAL statement_timeout = {settings.STATEMENT_TIMEOUT};"))
 
     query = sa.text(f"""
             SELECT id FROM archive_reactions
@@ -93,8 +94,8 @@ async def search_reaction_ids_smarts(
     # Определяем, есть ли маппинг в запросе
     use_mapped = bool(ATOM_MAPPING_REGEX.search(smiles))
     column_name = "reaction_mapped_data" if use_mapped else "reaction_raw_data"
-    print(use_mapped)
-    await db.execute(sa.text("SET LOCAL statement_timeout = 4000;"))
+    if not settings.LOCAL_MODE:
+        await db.execute(sa.text(f"SET LOCAL statement_timeout = {settings.STATEMENT_TIMEOUT};"))
 
     processed_query = smiles
     # Выбираем оператор
