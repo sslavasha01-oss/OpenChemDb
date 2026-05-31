@@ -43,11 +43,10 @@ async def search_book_ids(
         # Используем встроенную функцию rdkit (mol_to_smiles) или хранимый текст.
         # В примере ниже предполагается, что мы сравниваем каноничный массив
         where_clause = """
-            (string_to_array(mol_to_smiles(mol_data)::text, '.') @> :components\\:\\:text[])
+            (string_to_array(smiles, '.') @> :components\\:\\:text[])
         """
         params = {
             "components": components,
-            "comp_count": len(components),
             "limit": settings.SEARCH_LIMIT
         }
 

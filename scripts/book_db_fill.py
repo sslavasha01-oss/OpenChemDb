@@ -16,11 +16,35 @@ CSV_FILE_PATH = os.path.join(BASE_DIR, "data/book_base_text.txt")
 
 
 def is_valid_smiles(smiles: str) -> bool:
-    """Проверяет, может ли RDKit распарсить SMILES."""
+    """Проверяет SMILES, разрешая нестандартную валентность."""
     if not smiles or not isinstance(smiles, str):
         return False
-    mol = Chem.MolFromSmiles(smiles)
-    return mol is not None
+    try:
+        # Читаем БЕЗ автоматической санитизации
+        mol = Chem.MolFromSmiles(smiles, sanitize=False)
+        if mol is None:
+            return False
+
+        # Делаем базовую очистку (ароматичность, стерео), но пропускаем проверку валентности
+        mask = Chem.SanitizeFlags.SANITIZE_ALL ^ Chem.SanitizeFlags.SANITIZE_PROPERTIES
+        Chem.SanitizeMol(mol, sanitizeOps=mask)
+        return True
+    except:
+        return False
+
+
+def canonicalize_molecule_smiles(smi: str):
+    if not smi:
+        return None
+    try:
+        mol = Chem.MolFromSmiles(smi, sanitize=False)
+        if mol:
+            mask = Chem.SanitizeFlags.SANITIZE_ALL ^ Chem.SanitizeFlags.SANITIZE_PROPERTIES
+            Chem.SanitizeMol(mol, sanitizeOps=mask)
+            return Chem.MolToSmiles(mol)
+    except:
+        pass
+    return smi
 
 
 async def fill_books():
@@ -48,7 +72,7 @@ async def fill_books():
                     print(f"Skipping invalid SMILES (ID: {row.get('ID')}): {smiles}")
                     skipped_count += 1
                     continue
-
+                canonical_smiles = canonicalize_molecule_smiles(smiles)
                 try:
                     ext_id = int(float(row['ID'])) if row.get('ID') else 0
 
@@ -57,8 +81,8 @@ async def fill_books():
                         row.get('name'),
                         row.get('Book'),
                         row.get('Pages'),
-                        smiles,
-                        smiles,  # Для mol_data
+                        canonical_smiles,
+                        canonical_smiles,  # Для mol_data
                         row.get('references'),
                         False
                     )

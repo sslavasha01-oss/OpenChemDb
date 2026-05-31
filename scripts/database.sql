@@ -7,6 +7,7 @@ SELECT
 FROM pg_stat_user_indexes;
 
 --прогрев всех индексов для фулл рам режима
+CREATE EXTENSION IF NOT EXISTS pg_prewarm;
 DO $$
 DECLARE
     idx_name RECORD;

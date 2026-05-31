@@ -28,6 +28,7 @@ async def search_reaction_ids_smiles(
     # Определяем колонку
     use_mapped = bool(ATOM_MAPPING_REGEX.search(smiles))
     reaction_column = "reaction_mapped_data" if use_mapped else "reaction_raw_data"
+    text_column = "reaction_raw_smiles"
 
     if not exact:
         where_clause = f"{reaction_column} @> :smiles\\:\\:reaction"
@@ -50,15 +51,13 @@ async def search_reaction_ids_smiles(
         if r_part:
             params["r_components"] = get_components(r_part)
             conditions.append(f"""
-                (string_to_array(split_part(reaction_to_smiles(reaction_raw_data)\\:\\:text, '>', 1), '.') @> 
-                 :r_components\\:\\:text[])
+                (string_to_array(split_part({text_column}, '>', 1), '.') @> :r_components\\:\\:text[])
             """)
 
         if p_part:
             params["p_components"] = get_components(p_part)
             conditions.append(f"""
-                (string_to_array(split_part(reaction_to_smiles(reaction_raw_data)\\:\\:text, '>', 3), '.') @> 
-                 :p_components\\:\\:text[])
+                (string_to_array(split_part({text_column}, '>', 3), '.') @> :p_components\\:\\:text[])
             """)
 
         where_clause = " AND ".join(conditions) if conditions else "is_deleted = false"

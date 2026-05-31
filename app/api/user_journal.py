@@ -307,12 +307,10 @@ async def search_journal_ids(
             # Режим Exact Match через массивы каноничных SMILES
             components = [s.strip() for s in clean_product.split('.') if s.strip()]
             product_clause = """(
-                string_to_array(mol_to_smiles(product_mol_data)::text, '.') @> :product_components\\:\\:text[]
-                AND cardinality(string_to_array(mol_to_smiles(product_mol_data)::text, '.')) = :product_comp_count
+                string_to_array(product_smiles, '.') @> :product_components\\:\\:text[]
             )"""
             where_clauses.append(product_clause)
             params["product_components"] = components
-            params["product_comp_count"] = len(components)
         else:
             # Подструктурный поиск
             where_clauses.append("product_mol_data @> :product_smiles\\:\\:mol")
@@ -329,14 +327,12 @@ async def search_journal_ids(
             reagent_clauses = []
             for i in range(1, 6):
                 clause = f"""(
-                    string_to_array(mol_to_smiles(reagent{i}_mol_data)::text, '.') @> :reagent_components\\:\\:text[]
-                    AND cardinality(string_to_array(mol_to_smiles(reagent{i}_mol_data)::text, '.')) = :reagent_comp_count
+                    string_to_array(reagent{i}_smiles, '.') @> :reagent_components\\:\\:text[]
                 )"""
                 reagent_clauses.append(clause)
 
             where_clauses.append(f"({' OR '.join(reagent_clauses)})")
             params["reagent_components"] = components
-            params["reagent_comp_count"] = len(components)
         else:
             # Подструктурный поиск по реагентам
             reagent_clause = """(
