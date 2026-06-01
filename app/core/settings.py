@@ -52,6 +52,7 @@ class Settings(BaseSettings):
     MAX_FILE_SIZE: int = 25 * 1024 * 1024
 
     LOCAL_MODE: bool
+    NO_PASSWORD_LOGIN: bool
 
     # Магия Pydantic:
     # 1. Сначала смотрим реальные переменные окружения (ОС)

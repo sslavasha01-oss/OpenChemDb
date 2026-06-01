@@ -6,7 +6,7 @@ export const useUserStore = defineStore('user', {
         accounts: JSON.parse(localStorage.getItem('chem_accounts') || '[]'),
         // Индекс текущего выбранного аккаунта
         currentAccountIndex: parseInt(localStorage.getItem('chem_current_index') || '0'),
-        appStatus: { local_mode: false }
+        appStatus: { local_mode: false, no_password_login: false}
     }),
 
     getters: {

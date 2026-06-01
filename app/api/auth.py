@@ -22,14 +22,22 @@ async def login(
     result = await db.execute(select(User).where(User.username == form_data.username))
     user = result.scalar_one_or_none()
 
-    # 2. Проверяем существование и пароль
-    if not user or not verify_password(form_data.password, user.hashed_password):
+    # 2. Проверяем существование и пароль (пароль игнорируем, если включен NO_PASSWORD_LOGIN)
+    is_password_valid = True if settings.NO_PASSWORD_LOGIN else verify_password(form_data.password,
+                                                                                user.hashed_password)
+
+    if not user or not is_password_valid:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect username or password",
             headers={"WWW-Authenticate": "Bearer"},
         )
-
+    if not user.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="User is disabled",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
     # 3. Генерируем токен (он будет вечным, если AUTHORIZATION_NEVER_EXPIRES=true)
     access_token = create_access_token(data={"id" : user.id, "sub": user.username, "role": user.role})
 

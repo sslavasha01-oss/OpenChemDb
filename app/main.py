@@ -67,8 +67,10 @@ app.include_router(journal_attachment)
 async def get_version():
     return {"version": __version__}
 
+
 @app.get("/status")
 async def get_status(request: Request):
     return {
-        "local_mode": settings.LOCAL_MODE
+        "local_mode": settings.LOCAL_MODE,
+        "no_password_login": settings.NO_PASSWORD_LOGIN
     }

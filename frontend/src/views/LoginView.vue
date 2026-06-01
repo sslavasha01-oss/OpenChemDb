@@ -38,7 +38,9 @@ async function handleSubmit() {
     if (mode.value === 'login') {
       const formData = new FormData()
       formData.append('username', form.value.username)
-      formData.append('password', form.value.password)
+      // Если включен вход без пароля, шлем заглушку, чтобы Pydantic на бэке не ругался
+      const passToSend = userStore.appStatus?.no_password_login ? 'nopassword' : form.value.password
+      formData.append('password', passToSend)
 
       const res = await fetch(`/api/auth/login`, {
         method: 'POST',
@@ -65,13 +67,16 @@ async function handleSubmit() {
     } else if (mode.value === 'register') {
       if (!passwordsMatch.value) throw new Error('Passwords do not match')
 
+      // Если пароли отключены, шлем заглушку и для регистрации тоже
+      const passToSend = userStore.appStatus?.no_password_login ? 'nopassword' : form.value.password
+
       const res = await fetch(`/api/register-prod`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           username: form.value.username,
           email: form.value.email,
-          password: form.value.password
+          password: passToSend
         })
       })
 
@@ -141,15 +146,22 @@ async function handleSubmit() {
           <span v-if="fieldErrors.email" class="field-error">{{ fieldErrors.email }}</span>
         </template>
 
-        <input v-model="form.password" type="password" placeholder="Password" required />
-        <span v-if="fieldErrors.password" class="field-error">{{ fieldErrors.password }}</span>
+        <template v-if="!userStore.appStatus?.no_password_login">
+          <input
+            v-model="form.password"
+            type="password"
+            placeholder="Password"
+            :required="!userStore.appStatus?.no_password_login"
+          />
+          <span v-if="fieldErrors.password" class="field-error">{{ fieldErrors.password }}</span>
+        </template>
 
-        <template v-if="mode === 'register'">
+        <template v-if="mode === 'register' && !userStore.appStatus?.no_password_login">
           <input
             v-model="form.confirmPassword"
             type="password"
             placeholder="Confirm Password"
-            required
+            :required="mode === 'register' && !userStore.appStatus?.no_password_login"
           />
           <span v-if="!passwordsMatch" class="field-error">Passwords don't match</span>
         </template>
@@ -161,12 +173,12 @@ async function handleSubmit() {
         <span v-if="fieldErrors.email" class="field-error">{{ fieldErrors.email }}</span>
       </template>
 
-      <button type="submit" :disabled="mode === 'register' && !passwordsMatch">
+      <button type="submit" :disabled="mode === 'register' && !userStore.appStatus?.no_password_login && !passwordsMatch">
         {{ mode === 'login' ? 'Sign In' : (mode === 'register' ? 'Create Account' : 'Send Reset Link') }}
       </button>
 
       <div class="extra-links">
-        <a v-if="mode === 'login' && !userStore.appStatus?.local_mode" @click.prevent="mode = 'forgot'" href="#">Forgot password?</a>
+        <a v-if="mode === 'login' && !userStore.appStatus?.local_mode && !userStore.appStatus?.no_password_login" @click.prevent="mode = 'forgot'" href="#">Forgot password?</a>
         <a v-if="mode === 'forgot'" @click.prevent="mode = 'login'" href="#">Back to Login</a>
       </div>
     </form>
