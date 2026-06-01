@@ -11,6 +11,18 @@ const form = ref({ username: '', email: '', password: '', confirmPassword: '' })
 const error = ref('')
 const message = ref('')
 
+const fieldErrors = ref({}) // Для хранения точечных ошибок полей ({ email: '...', password: '...' })
+
+// Функция для разбора ошибок валидации FastAPI
+function handleValidationError(detailArray) {
+  const errors = {}
+  detailArray.forEach(err => {
+    const fieldName = err.loc[err.loc.length - 1]
+    errors[fieldName] = err.msg
+  })
+  fieldErrors.value = errors
+}
+
 // Валидация совпадения паролей
 const passwordsMatch = computed(() => {
   if (mode.value !== 'register') return true
@@ -21,7 +33,7 @@ const passwordsMatch = computed(() => {
 async function handleSubmit() {
   error.value = ''
   message.value = ''
-
+  fieldErrors.value = {}
   try {
     if (mode.value === 'login') {
       const formData = new FormData()
@@ -34,7 +46,13 @@ async function handleSubmit() {
       })
 
       const data = await res.json()
-      if (!res.ok) throw new Error(data.detail || 'Login failed')
+      if (!res.ok) {
+        if (Array.isArray(data.detail)) {
+          handleValidationError(data.detail)
+          throw new Error('Please fix the errors below')
+        }
+        throw new Error(typeof data.detail === 'string' ? data.detail : 'Login failed')
+      }
 
       userStore.addAccount({
         name: form.value.username,
@@ -59,9 +77,13 @@ async function handleSubmit() {
 
       if (!res.ok) {
         const data = await res.json()
-        throw new Error(data.detail || 'Registration failed')
+        if (Array.isArray(data.detail)) {
+          handleValidationError(data.detail)
+          throw new Error('Validation failed')
+        }
+        throw new Error(typeof data.detail === 'string' ? data.detail : 'Registration failed')
       }
-      message.value = 'Check your email for verification!'
+      message.value = userStore.appStatus?.local_mode? 'Registered': 'Check your email for verification!'
       mode.value = 'login'
 
     } else if (mode.value === 'forgot') {
@@ -74,6 +96,13 @@ async function handleSubmit() {
 
       // Бэкенд всегда возвращает 200 (даже если имейла нет в базе) для безопасности
       const data = await res.json()
+      if (!res.ok) {
+        if (Array.isArray(data.detail)) {
+          handleValidationError(data.detail)
+          throw new Error('Validation failed')
+        }
+        throw new Error(typeof data.detail === 'string' ? data.detail : 'Something went wrong')
+      }
       message.value = data.message || 'Instructions have been sent to your email'
 
       // Возвращаем пользователя на форму логина через 5 секунд
@@ -105,22 +134,31 @@ async function handleSubmit() {
 
       <template v-if="mode !== 'forgot'">
         <input v-model="form.username" placeholder="Username" required />
-        <input v-if="mode === 'register'" v-model="form.email" type="email" placeholder="Email" required />
-        <input v-model="form.password" type="password" placeholder="Password" required />
+        <span v-if="fieldErrors.username" class="field-error">{{ fieldErrors.username }}</span>
 
-        <input
-          v-if="mode === 'register'"
-          v-model="form.confirmPassword"
-          type="password"
-          placeholder="Confirm Password"
-          required
-        />
-        <span v-if="!passwordsMatch" class="field-error">Passwords don't match</span>
+        <template v-if="mode === 'register'">
+          <input v-model="form.email" type="email" placeholder="Email" required />
+          <span v-if="fieldErrors.email" class="field-error">{{ fieldErrors.email }}</span>
+        </template>
+
+        <input v-model="form.password" type="password" placeholder="Password" required />
+        <span v-if="fieldErrors.password" class="field-error">{{ fieldErrors.password }}</span>
+
+        <template v-if="mode === 'register'">
+          <input
+            v-model="form.confirmPassword"
+            type="password"
+            placeholder="Confirm Password"
+            required
+          />
+          <span v-if="!passwordsMatch" class="field-error">Passwords don't match</span>
+        </template>
       </template>
 
       <template v-else>
         <p>Enter your email to receive a reset link</p>
         <input v-model="form.email" type="email" placeholder="Your Email" required />
+        <span v-if="fieldErrors.email" class="field-error">{{ fieldErrors.email }}</span>
       </template>
 
       <button type="submit" :disabled="mode === 'register' && !passwordsMatch">
