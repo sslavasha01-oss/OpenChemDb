@@ -18,6 +18,7 @@ from app.schemas.jounal_attachment import JournalAttachmentResponseSchema
 from fastapi.responses import FileResponse
 import urllib.parse
 from fastapi import status
+import mimetypes
 
 router = APIRouter(prefix="/journal_attachment", tags=["journal attachment"])
 
@@ -142,19 +143,31 @@ async def view_user_file(
     if not full_path.exists() or not full_path.is_file():
         raise HTTPException(status_code=404, detail="File not found")
 
-    # Определяем тип файла по расширению
+    # --- УЛУЧШЕННОЕ ОПРЕДЕЛЕНИЕ MIME-ТИПА ---
     extension = full_path.suffix.lower()
-    media_type = MIME_TYPES.get(extension, "application/octet-stream")
 
-    # Кодируем имя файла для корректной передачи кириллицы
-    encoded_filename = urllib.parse.quote(full_path.name)
+    # Сначала смотрим в кастомный словарь, если там нет — используем стандартный mimetypes
+    media_type = MIME_TYPES.get(extension)
+    if not media_type:
+        media_type, _ = mimetypes.guess_type(full_path)
+    if not media_type:
+        media_type = "application/octet-stream"
+
+    # --- КОРРЕКТНОЕ ИМЯ ДЛЯ СКАЧИВАНИЯ ---
+    filename = full_path.name
+    encoded_filename = urllib.parse.quote(filename)
+
+    # Используем правильный формат Content-Disposition.
+    # Если это картинка или видео, inline заставит браузер показать её прямо в теге/вкладке,
+    # но если юзер нажмет "Сохранить как...", браузер возьмет имя из filename*
+    headers = {
+        "Content-Disposition": f"inline; filename=\"{filename}\"; filename*=UTF-8''{encoded_filename}"
+    }
 
     return FileResponse(
         path=full_path,
         media_type=media_type,
-        headers={
-            "Content-Disposition": f"inline; filename*=UTF-8''{encoded_filename}"
-        }
+        headers=headers
     )
 
 # Схема для входных данных

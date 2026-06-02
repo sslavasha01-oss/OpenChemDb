@@ -174,9 +174,10 @@
                       <input v-if="isEditing" v-model="file.description" class="desc-edit-input" placeholder="Add description...">
                       <span v-else>{{ file.description || 'No description' }}</span>
                     </td>
-                    <td v-if="isEditing" class="att-actions">
-                      <button class="btn-att-save" title="Save description" @click="updateAttachmentDescription(file, 'ARTICLE')">💾</button>
-                      <button class="btn-att-delete" title="Delete" @click="removeAttachment(file, 'ARTICLE')">🗑️</button>
+                    <td class="att-actions">
+                      <button class="btn-att-save" title="Download" @click="downloadAttachment(file)">📥</button>
+                      <button v-if="isEditing" class="btn-att-save" title="Save description" @click="updateAttachmentDescription(file, 'ARTICLE')">💾</button>
+                      <button v-if="isEditing" class="btn-att-delete" title="Delete" @click="removeAttachment(file, 'ARTICLE')">🗑️</button>
                     </td>
                   </tr>
                   <!-- В очереди (для новых записей) -->
@@ -221,9 +222,10 @@
                       <input v-if="isEditing" v-model="file.description" class="desc-edit-input" placeholder="Add description...">
                       <span v-else>{{ file.description || 'No description' }}</span>
                     </td>
-                    <td v-if="isEditing" class="att-actions">
-                      <button class="btn-att-save" title="Save description" @click="updateAttachmentDescription(file, 'SPECTRUM')">💾</button>
-                      <button class="btn-att-delete" title="Delete" @click="removeAttachment(file, 'SPECTRUM')">🗑️</button>
+                    <td class="att-actions">
+                       <button class="btn-att-save" title="Download" @click="downloadAttachment(file)">📥</button>
+                       <button v-if="isEditing" class="btn-att-save" title="Save description" @click="updateAttachmentDescription(file, 'SPECTRUM')">💾</button>
+                       <button v-if="isEditing" class="btn-att-delete" title="Delete" @click="removeAttachment(file, 'SPECTRUM')">🗑️</button>
                     </td>
                   </tr>
                   <!-- В очереди (для новых записей) -->
@@ -509,6 +511,38 @@ const viewAttachment = async (file) => {
   } catch (err) {
     console.error("Error viewing file:", err)
     alert("Could not open file. Maybe it was moved or deleted.")
+  }
+}
+
+// Функция для скачивания файла с оригинальным именем
+const downloadAttachment = async (file) => {
+  if (!file.file_path) return
+  try {
+    const token = localStorage.getItem('token')
+    const response = await axios.get('/api/journal_attachment/view-user-file', {
+      params: { file_path: file.file_path },
+      headers: { 'Authorization': `Bearer ${token}` },
+      responseType: 'blob'
+    })
+
+    const blob = new Blob([response.data], { type: response.headers['content-type'] })
+    const fileUrl = window.URL.createObjectURL(blob)
+
+    // Получаем имя файла из пути (или из заголовков, если нужно)
+    const fileName = file.file_path.split('/').pop() || 'file'
+
+    const link = document.createElement('a')
+    link.href = fileUrl
+    link.setAttribute('download', fileName) // Вот это заставляет браузер качать с нужным именем
+    document.body.appendChild(link)
+    link.click()
+
+    // Уборка
+    document.body.removeChild(link)
+    window.URL.revokeObjectURL(fileUrl)
+  } catch (err) {
+    console.error("Error downloading file:", err)
+    alert("Could not download file.")
   }
 }
 
