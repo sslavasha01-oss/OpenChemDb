@@ -15,6 +15,7 @@ class JournalAttachment(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     journal_record_id = Column(Integer, ForeignKey("user_journal.id", ondelete="CASCADE"), nullable=False)
+    journal_record_ext_id = Column(Integer)
     type = Column(Enum(AttachmentType), nullable=False)
     description = Column(Text, nullable=True)
     file_path = Column(String(1000), nullable=False)

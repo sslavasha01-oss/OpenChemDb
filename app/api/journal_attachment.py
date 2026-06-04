@@ -70,19 +70,31 @@ async def upload_journal_attachment(
     journal_external_id = journal_record.external_id
 
     # 2. Формируем пути для сохранения файла
+    # 2. Формируем пути для сохранения файла
     base_user_data_path = Path(settings.USER_DATA_STORAGE_PATH).resolve()
 
-    # Безопасное имя файла (без путей вроде ../../etc/passwd)
-    file_name = Path(file.filename).name
+    # Безопасное оригинальное имя файла (без путей вроде ../../etc/passwd)
+    original_file_name = Path(file.filename).name
 
     # Полная директория: user_data/{user_id}/{journal_record_external_id}/
     target_dir = base_user_data_path / str(current_user.id) / str(journal_external_id)
-
-    # Создаем папки, если их нет
     target_dir.mkdir(parents=True, exist_ok=True)
 
-    # Полный путь к файлу на сервере
-    full_file_path = target_dir / file_name
+    # --- ЛОГИКА УНИКАЛИЗАЦИИ ИМЕНИ ФАЙЛА ---
+    full_file_path = target_dir / original_file_name
+    file_name = original_file_name
+
+    if full_file_path.exists():
+        stem = Path(original_file_name).stem  # Имя файла без расширения (например, "photo")
+        suffix = Path(original_file_name).suffix  # Расширение (например, ".jpg")
+        counter = 1
+
+        # Цикл работает, пока не найдет свободное имя
+        while full_file_path.exists():
+            file_name = f"{stem}_{counter}{suffix}"
+            full_file_path = target_dir / file_name
+            counter += 1
+    # ----------------------------------------
 
     # 3. Сохраняем файл на диск асинхронно-блочным способом
     # 3. Читаем байты (они пригодятся, если это картинка) и сохраняем файл на диск
@@ -114,9 +126,11 @@ async def upload_journal_attachment(
                 thumbnail_data = generate_video_thumbnail(file_bytes)
 
     # 5. Записываем информацию в таблицу journal_attachment
+    print(journal_external_id)
     new_attachment = JournalAttachment(
         user_id=current_user.id,
         journal_record_id=journal_record_id,
+        journal_record_ext_id=journal_external_id,
         type=attachment_type,
         description=description,
         file_path=db_file_path,

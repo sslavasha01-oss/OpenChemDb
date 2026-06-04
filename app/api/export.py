@@ -1,0 +1,384 @@
+import csv
+import io
+import shutil
+import zipfile
+from pathlib import Path
+from tempfile import TemporaryDirectory
+from datetime import datetime
+
+from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form
+from fastapi.responses import FileResponse
+from sqlalchemy import select, insert, delete, func
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.api.deps import get_current_user
+from app.api.user_journal import canonicalize_molecule_smiles
+from app.core.db import get_users_db
+from app.core.settings import settings
+from app.models.journal_attachment import JournalAttachment
+from app.models.user import User
+from app.models.user_journal import UserJournal
+
+router = APIRouter(tags=["export"])
+
+
+@router.get("/export-all", response_class=FileResponse)
+async def export_user_data(
+        current_user: User = Depends(get_current_user),
+        db: AsyncSession = Depends(get_users_db)
+):
+    """
+    Экспортирует данные пользователя: генерирует TSV файлы для журнала и аттачментов,
+    собирает файлы аттачментов и упаковывает всё в ZIP-архив.
+    Сохраняет архив в `user_data/{user_id}/tmp/`, предварительно очищая её.
+    """
+    user_id_str = str(current_user.id)
+    base_user_data_path = Path(settings.USER_DATA_STORAGE_PATH).resolve()
+
+    # Путь к папке tmp пользователя
+    user_tmp_dir = base_user_data_path / user_id_str / "tmp"
+
+    # 1. Очищаем/создаем папку tmp пользователя
+    try:
+        if user_tmp_dir.exists():
+            shutil.rmtree(user_tmp_dir)
+        user_tmp_dir.mkdir(parents=True, exist_ok=True)
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Ошибка подготовки директории экспорта: {str(e)}"
+        )
+
+    # Имя и путь итогового архива
+    zip_filename = "journal_export"
+    final_zip_path = user_tmp_dir / f"{zip_filename}.zip"
+
+    # Используем временную директорию ОС для сборки содержимого (автоматически удалится после выхода из context manager)
+    with TemporaryDirectory() as temp_build_dir:
+        build_path = Path(temp_build_dir)
+        attachments_build_dir = build_path / "attachments"
+        attachments_build_dir.mkdir(parents=True, exist_ok=True)
+
+        # ------------------------------------------------------------------
+        # 2. СБОР И ФИЛЬТРАЦИЯ ДАННЫХ ЖУРНАЛА
+        # ------------------------------------------------------------------
+        journal_stmt = select(UserJournal).where(UserJournal.user_id == current_user.id)
+        journal_result = await db.execute(journal_stmt)
+        journal_records = journal_result.scalars().all()
+
+        journal_data = []
+        journal_headers = []
+
+        if journal_records:
+            # Получаем все колонки модели
+            columns = UserJournal.__table__.columns.keys()
+
+            # Фильтруем колонки по вашему правилу:
+            # исключаем 'id', 'user_id' и всё, что заканчивается на '_mol_data'
+            filtered_cols = [
+                col for col in columns
+                if col not in ("id", "user_id") and not col.endswith("_mol_data")
+            ]
+
+            # Гарантируем, что external_id будет на первом месте
+            if "external_id" in filtered_cols:
+                filtered_cols.remove("external_id")
+                journal_headers = ["external_id"] + filtered_cols
+            else:
+                journal_headers = filtered_cols
+
+            for rec in journal_records:
+                row = {col: getattr(rec, col) for col in journal_headers}
+                journal_data.append(row)
+
+        # Записываем journal.tsv
+        journal_tsv_path = build_path / "journal.tsv"
+        with open(journal_tsv_path, "w", encoding="utf-8", newline="") as f:
+            writer = csv.DictWriter(f, fieldnames=journal_headers, delimiter="\t")
+            writer.writeheader()
+            writer.writerows(journal_data)
+
+        # ------------------------------------------------------------------
+        # 3. СБОР И ФИЛЬТРАЦИЯ АТТАЧМЕНТОВ
+        # ------------------------------------------------------------------
+        attach_stmt = select(JournalAttachment).where(JournalAttachment.user_id == current_user.id)
+        attach_result = await db.execute(attach_stmt)
+        attach_records = attach_result.scalars().all()
+
+        attach_data = []
+        attach_headers = []
+
+        if attach_records:
+            attach_columns = JournalAttachment.__table__.columns.keys()
+            # Исключаем id и user_id
+            filtered_attach_cols = [col for col in attach_columns if col not in ("id", "user_id", "journal_record_id")]
+            attach_headers = filtered_attach_cols
+
+            for attach in attach_records:
+                row = {col: getattr(attach, col) for col in attach_headers}
+                attach_data.append(row)
+
+                # --------------------------------------------------------------
+                # 4. КОПИРОВАНИЕ ФАЙЛОВ (Локальный режим / Задел под S3)
+                # --------------------------------------------------------------
+                # Путь в БД сохранен как: {journal_external_id}/{file_name}
+                relative_file_path = attach.file_path
+
+                # Целевая папка внутри архива: attachments/{journal_external_id}/
+                # Извлекаем external_id из относительного пути
+                journal_ext_id = relative_file_path.split("/")[0]
+                target_file_dir = attachments_build_dir / journal_ext_id
+                target_file_dir.mkdir(parents=True, exist_ok=True)
+
+                # Локальный путь, где файл лежит сейчас
+                source_file_path = base_user_data_path / user_id_str / relative_file_path
+
+                if source_file_path.exists() and source_file_path.is_file():
+                    # Локальное копирование
+                    shutil.copy2(source_file_path, target_file_dir / source_file_path.name)
+                else:
+                    # TODO ДЛЯ S3:
+                    # Если локального файла нет, здесь будет вызов функции скачивания из S3:
+                    # await s3_client.download_file(bucket, f"{user_id_str}/{relative_file_path}", target_file_dir / source_file_path.name)
+                    pass
+
+        # Записываем attachments.tsv
+        attachments_tsv_path = build_path / "attachments.tsv"
+        with open(attachments_tsv_path, "w", encoding="utf-8", newline="") as f:
+            writer = csv.DictWriter(f, fieldnames=attach_headers, delimiter="\t")
+            writer.writeheader()
+            writer.writerows(attach_data)
+
+        # ------------------------------------------------------------------
+        # 5. АРХИВАЦИЯ И ОТПРАВКА
+        # ------------------------------------------------------------------
+        try:
+            # shutil.make_archive принимает путь без расширения, создаст .zip автоматически
+            archive_base = user_tmp_dir / zip_filename
+            shutil.make_archive(str(archive_base), 'zip', root_dir=build_path)
+        except Exception as e:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Ошибка при создании архива: {str(e)}"
+            )
+
+    # Возвращаем файл пользователю через FileResponse
+    return FileResponse(
+        path=final_zip_path,
+        filename=f"{zip_filename}.zip",
+        media_type="application/zip"
+    )
+
+
+@router.post("/import", status_code=status.HTTP_201_CREATED)
+async def import_user_data(
+        replace: bool = Form(False),
+        file: UploadFile = File(...),
+        current_user: User = Depends(get_current_user),
+        db: AsyncSession = Depends(get_users_db)
+):
+    """
+    Импортирует данные пользователя из ZIP-архива.
+    Поддерживает режим replace=True (полная очистка старых данных) и replace=False (добавление).
+    """
+    user_id_str = str(current_user.id)
+    base_user_data_path = Path(settings.USER_DATA_STORAGE_PATH).resolve()
+    user_dir = base_user_data_path / user_id_str
+
+    # 1. Читаем архив в память
+    try:
+        archive_bytes = await file.read()
+        zip_buffer = io.BytesIO(archive_bytes)
+
+        if not zipfile.is_zipfile(zip_buffer):
+            raise HTTPException(status_code=400, detail="Загруженный файл не является валидным ZIP-архивом.")
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Ошибка чтения файла: {str(e)}")
+    finally:
+        await file.close()
+
+    # 2. Обработка режима REPLACE (Очистка)
+    if replace:
+        try:
+            # Удаляем записи из БД (каскадно или вручную обе таблицы)
+            # Сначала аттачменты, потом журнал
+            await db.execute(delete(JournalAttachment).where(JournalAttachment.user_id == current_user.id))
+            await db.execute(delete(UserJournal).where(UserJournal.user_id == current_user.id))
+            await db.commit()
+
+            # Удаляем файлы на диске, КРОМЕ папки tmp (если она вдруг там есть)
+            if user_dir.exists():
+                for item in user_dir.iterdir():
+                    if item.is_dir() and item.name == "tmp":
+                        continue
+                    if item.is_dir():
+                        shutil.rmtree(item)
+                    else:
+                        item.unlink()
+        except Exception as e:
+            await db.rollback()
+            raise HTTPException(status_code=500, detail=f"Ошибка при очистке старых данных: {str(e)}")
+
+    # Контекст для работы с ZIP
+    with zipfile.ZipFile(zip_buffer, "r") as archive:
+        namelist = archive.namelist()
+
+        if "journal.tsv" not in namelist:
+            raise HTTPException(status_code=400, detail="В архиве отсутствует обязательный файл journal.tsv")
+
+        # ------------------------------------------------------------------
+        # 3. ИМПОРТ ЖУРНАЛА (С ручной канонизацией и генерацией функций RDKit)
+        # ------------------------------------------------------------------
+        old_to_new_ext_id = {}  # Маппинг { old_external_id: new_external_id }
+
+        try:
+            with archive.open("journal.tsv") as tsv_file:
+                text_stream = io.TextIOWrapper(tsv_file, encoding="utf-8")
+                reader = csv.DictReader(text_stream, delimiter="\t")
+
+                for row in reader:
+                    old_ext_id = int(row.pop("external_id"))
+
+                    data = {
+                        k: v for k, v in row.items()
+                        if v not in (None, "") and k not in ('id', 'product_svg')
+                    }
+
+                    insert_data = {}
+                    for key, value in data.items():
+                        # Игнорируем молекулярные поля, если они вдруг есть в файле
+                        if key.endswith('_mol_data') or key in ('reaction_mol_data', 'reaction_mol_mapped_data'):
+                            continue
+                        insert_data[key] = value
+
+                    # --- ПАРСИНГ ДАТ ЖУРНАЛА ДЛЯ СОХРАНЕНИЯ ИСТОРИИ ---
+                    for date_field in ('date_added', 'date_modified'):
+                        if data.get(date_field):
+                            try:
+                                insert_data[date_field] = datetime.fromisoformat(data[date_field])
+                            except ValueError:
+                                # Если дата некорректная, удаляем ключ, чтобы СУБД поставила дефолт сама
+                                insert_data.pop(date_field, None)
+
+                    # Продукт
+                    if data.get('product_smiles'):
+                        canon_smi = canonicalize_molecule_smiles(data['product_smiles'])
+                        insert_data['product_smiles'] = canon_smi
+                        insert_data['product_mol_data'] = func.mol_from_smiles(canon_smi) if canon_smi else None
+
+                    # Реагенты 1-5
+                    for i in range(1, 6):
+                        smiles_key = f'reagent{i}_smiles'
+                        mol_key = f'reagent{i}_mol_data'
+                        if data.get(smiles_key):
+                            canon_smi = canonicalize_molecule_smiles(data[smiles_key])
+                            insert_data[smiles_key] = canon_smi
+                            insert_data[mol_key] = func.mol_from_smiles(canon_smi) if canon_smi else None
+
+                    # Реакции
+                    if data.get('reaction_smiles'):
+                        insert_data['reaction_mol_data'] = func.reaction_from_smiles(data['reaction_smiles'])
+                    if data.get('reaction_mapped_smiles'):
+                        insert_data['reaction_mol_mapped_data'] = func.reaction_from_smiles(
+                            data['reaction_mapped_smiles'])
+
+                    # Принудительно устанавливаем user_id
+                    insert_data['user_id'] = current_user.id
+
+                    # Выполняем вставку одной записи с возвратом сгенерированных ключей
+                    stmt = insert(UserJournal).values(**insert_data).returning(UserJournal.id,
+                                                                               UserJournal.external_id)
+                    res = await db.execute(stmt)
+                    new_id, new_ext_id = res.fetchone()
+
+                    old_to_new_ext_id[old_ext_id] = new_ext_id
+
+        except Exception as e:
+            await db.rollback()
+            raise HTTPException(status_code=400, detail=f"Ошибка обработки или вставки journal.tsv: {str(e)}")
+        # ------------------------------------------------------------------
+        # 4. ИМПОРТ АТТАЧМЕНТОВ И КОПИРОВАНИЕ ФАЙЛОВ
+        # ------------------------------------------------------------------
+        if "attachments.tsv" in namelist:
+            try:
+                with archive.open("attachments.tsv") as tsv_file:
+                    text_stream = io.TextIOWrapper(tsv_file, encoding="utf-8")
+                    reader = csv.DictReader(text_stream, delimiter="\t")
+
+                    attachments_to_insert = []
+
+                    for row in reader:
+                        # Извлекаем старый external_id записи журнала
+                        old_journal_ext_id = int(row.get("journal_record_ext_id"))
+
+                        # Если этой записи журнала не оказалось в маппинге — пропускаем аттачмент
+                        if old_journal_ext_id not in old_to_new_ext_id:
+                            continue
+
+                        new_journal_ext_id = old_to_new_ext_id[old_journal_ext_id]
+
+                        # Очищаем строку от пустых значений, заменяя "" на None,
+                        # чтобы СУБД корректно восприняла NULL значения
+                        clean_row = {k: (v if v != "" else None) for k, v in row.items()}
+
+                        # Обновляем внешние ключи в строке для БД
+                        clean_row["user_id"] = current_user.id
+                        clean_row["journal_record_ext_id"] = new_journal_ext_id
+
+                        # --- ИСПРАВЛЕНИЕ ОШИБКИ ТИПА ДАННЫХ ДЛЯ DATE_ADDED ---
+                        if clean_row.get("date_added"):
+                            try:
+                                # Превращаем строку '2026-06-01 23:43:51.950654' в объект datetime
+                                clean_row["date_added"] = datetime.fromisoformat(clean_row["date_added"])
+                            except ValueError:
+                                # Если формат даты вдруг поплыл, можно засинить текущее время или dropнуть поле
+                                clean_row["date_added"] = datetime.utcnow()
+
+                        # Обновляем путь к файлу
+                        old_file_path = clean_row["file_path"]
+                        file_name = old_file_path.split("/")[-1]
+                        new_file_path = f"{new_journal_ext_id}/{file_name}"
+                        clean_row["file_path"] = new_file_path
+
+                        # Физическое извлечение файла из архива и сохранение на диск
+                        zip_file_path = f"attachments/{old_journal_ext_id}/{file_name}"
+
+                        if zip_file_path in namelist:
+                            target_dir = user_dir / str(new_journal_ext_id)
+                            target_dir.mkdir(parents=True, exist_ok=True)
+                            target_file_path = target_dir / file_name
+
+                            with archive.open(zip_file_path) as source_file:
+                                with open(target_file_path, "wb") as target_file:
+                                    shutil.copyfileobj(source_file, target_file)
+                            # TODO ДЛЯ S3:
+                            # Вместо open() и shutil.copyfileobj() на локальный диск, здесь будет:
+                            # file_data = archive.read(zip_file_path)
+                            # await s3_client.put_object(Bucket=..., Key=f"{user_id_str}/{new_file_path}", Body=file_data)
+                        # Добавляем очищенную строку в батч для вставки
+                        attachments_to_insert.append(clean_row)
+
+                    # Делаем НАСТОЯЩИЙ БАТЧ (Bulk Insert) для аттачментов
+                    if attachments_to_insert:
+                        # Получаем пары (external_id -> id) для этого юзера
+                        j_stmt = select(UserJournal.id, UserJournal.external_id).where(
+                            UserJournal.user_id == current_user.id)
+                        j_res = await db.execute(j_stmt)
+                        ext_to_int_id = {ext_id: int_id for int_id, ext_id in j_res.fetchall()}
+
+                        # Проставляем правильные journal_record_id перед вставкой
+                        for att_row in attachments_to_insert:
+                            curr_ext = att_row["journal_record_ext_id"]
+                            att_row["journal_record_id"] = ext_to_int_id[curr_ext]
+
+                        # Массовая вставка словарей с валидными типами данных Python (datetime, int, None)
+                        await db.execute(insert(JournalAttachment), attachments_to_insert)
+
+            except Exception as e:
+                await db.rollback()
+                raise HTTPException(status_code=400, detail=f"Ошибка обработки аттачментов: {str(e)}")
+    # Фиксируем все изменения в базе данных
+    await db.commit()
+    return {"status": "success", "message": "Данные успешно импортированы"}
+
