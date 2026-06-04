@@ -5,7 +5,7 @@ from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user
-from app.core.db import get_users_db
+from app.core.db import get_archive_db
 from app.models.comments import Comment, CommentReply
 from app.models.evaluations import TargetTable
 from app.models.user import User
@@ -19,7 +19,7 @@ async def add_comment(
         entry_id: int,
         content: str,
         current_user: User = Depends(get_current_user),
-        db: AsyncSession = Depends(get_users_db)
+        db: AsyncSession = Depends(get_archive_db)
 ):
     new_comment = Comment(
         target_table=target,
@@ -38,7 +38,7 @@ async def add_reply(
         comment_id: int,
         content: str,
         current_user: User = Depends(get_current_user),
-        db: AsyncSession = Depends(get_users_db)
+        db: AsyncSession = Depends(get_archive_db)
 ):
     # Проверяем, существует ли родительский комментарий
     parent = await db.get(Comment, comment_id)
@@ -62,7 +62,7 @@ async def get_comments(
         entry_id: int,
         limit: int = Query(10, ge=1, le=100),
         offset: int = Query(0, ge=0),
-        db: AsyncSession = Depends(get_users_db)
+        db: AsyncSession = Depends(get_archive_db)
 ):
     """Выдает список основных комментариев для записи"""
     query = (
@@ -89,7 +89,7 @@ async def get_comments(
 async def get_comments_batch_counts(
         target: TargetTable,
         entry_ids: List[int] = Query(...),
-        db: AsyncSession = Depends(get_users_db)
+        db: AsyncSession = Depends(get_archive_db)
 ) -> Dict[int, int]:
     """
     Возвращает словарь {entry_id: count} для списка переданных ID записей.
@@ -120,7 +120,7 @@ async def get_replies(
         comment_id: int,
         limit: int = Query(20, ge=1, le=100),
         offset: int = Query(0, ge=0),
-        db: AsyncSession = Depends(get_users_db)
+        db: AsyncSession = Depends(get_archive_db)
 ):
     """Выдает ответы на конкретный комментарий"""
     query = (
@@ -137,7 +137,7 @@ async def get_replies(
 @router.get("/replies-batch-count")
 async def get_replies_count(
         comment_ids: List[int] = Query(...),
-        db: AsyncSession = Depends(get_users_db)
+        db: AsyncSession = Depends(get_archive_db)
 ):
     """
     Принимает список comment_id, возвращает словарь вида:
