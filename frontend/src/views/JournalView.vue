@@ -171,12 +171,11 @@
                   <tr v-for="file in currentAttachments.ARTICLE" :key="file.id">
                     <td><a href="#" @click.prevent="viewAttachment(file)" class="att-link">📄 {{ file.file_path.split('/').pop() }}</a></td>
                     <td>
-                      <input v-if="isEditing" v-model="file.description" class="desc-edit-input" placeholder="Add description...">
+                      <input v-if="isEditing" v-model="file.description" @input="file._isDirty = true" class="desc-edit-input" placeholder="Add description...">
                       <span v-else>{{ file.description || 'No description' }}</span>
                     </td>
                     <td class="att-actions">
                       <button class="btn-att-save" title="Download" @click="downloadAttachment(file)">📥</button>
-                      <button v-if="isEditing" class="btn-att-save" title="Save description" @click="updateAttachmentDescription(file, 'ARTICLE')">💾</button>
                       <button v-if="isEditing" class="btn-att-delete" title="Delete" @click="removeAttachment(file, 'ARTICLE')">🗑️</button>
                     </td>
                   </tr>
@@ -224,7 +223,6 @@
                     </td>
                     <td class="att-actions">
                        <button class="btn-att-save" title="Download" @click="downloadAttachment(file)">📥</button>
-                       <button v-if="isEditing" class="btn-att-save" title="Save description" @click="updateAttachmentDescription(file, 'SPECTRUM')">💾</button>
                        <button v-if="isEditing" class="btn-att-delete" title="Delete" @click="removeAttachment(file, 'SPECTRUM')">🗑️</button>
                     </td>
                   </tr>
@@ -244,6 +242,60 @@
               <div v-if="isEditing" class="upload-hint">Drag & Drop or click to upload</div>
             </div>
           </div>
+
+          <!-- Блок Медиа (Фото/Видео) -->
+<div class="attachment-block media-full-width">
+  <h3>Media (Photos / Videos)</h3>
+  <div
+    class="drop-zone"
+    :class="{ 'drop-active': isEditing }"
+    @dragover.prevent
+    @drop.prevent="onDrop($event, 'MEDIA')"
+  >
+    <div class="media-grid">
+      <!-- Сохраненные медиа -->
+      <div v-for="file in currentAttachments.MEDIA" :key="file.id" class="media-card">
+        <div class="media-preview" @click="viewAttachment(file)">
+          <img v-if="file.thumbnail_b64" :src="'data:image/png;base64,' + file.thumbnail_b64" alt="preview">
+          <div v-else class="media-placeholder">🎬</div>
+          <div class="media-overlay-actions">
+            <button class="btn-mini" title="Download" @click.stop="downloadAttachment(file)">📥</button>
+          </div>
+        </div>
+        <div class="media-info">
+          <textarea
+            v-if="isEditing"
+            v-model="file.description"
+            @input="file._isDirty = true"
+            class="media-desc-edit"
+            placeholder="Description..."
+          ></textarea>
+          <p v-else class="media-desc-text">{{ file.description || 'No description' }}</p>
+          <div v-if="isEditing" class="media-card-controls">
+             <button class="btn-att-delete" @click="removeAttachment(file, 'MEDIA')">🗑️ Delete</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- В очереди (новые) -->
+      <div v-for="(item, idx) in pendingAttachments.filter(a => a.type === 'MEDIA')" :key="'pm'+idx" class="media-card pending">
+        <div class="media-preview">
+          <div class="media-placeholder">⏳</div>
+        </div>
+        <div class="media-info">
+          <textarea v-model="item.description" class="media-desc-edit" placeholder="Add description..."></textarea>
+          <button class="btn-att-delete" @click="removeAttachment(item, 'MEDIA', idx)">✕ Remove</button>
+        </div>
+      </div>
+
+      <!-- Пустое состояние -->
+      <div v-if="currentAttachments.MEDIA.length === 0 && !pendingAttachments.some(a => a.type === 'MEDIA')" class="media-empty">
+        {{ isEditing ? 'Drag & Drop media files here' : 'No media attached' }}
+      </div>
+    </div>
+    <div v-if="isEditing" class="upload-hint">Drag & Drop or click to upload photos/videos</div>
+  </div>
+</div>
         </div>
 
       </section>
@@ -449,7 +501,6 @@ const updateAttachmentDescription = async (file, type) => {
       { description: file.description },
       { headers: { 'Authorization': `Bearer ${token}` } }
     )
-    alert("Description updated!")
   } catch (err) {
     console.error("Error updating description:", err)
     alert("Failed to update description.")
@@ -580,7 +631,7 @@ const fetchBatchAttachments = async (recordIds) => {
 // Удобный computed для текущей выбранной записи
 const currentAttachments = computed(() => {
   const recordId = journalData.value?.id
-  return attachmentsMap.value[recordId] || { ARTICLE: [], SPECTRUM: [] }
+  return attachmentsMap.value[recordId] || { ARTICLE: [], SPECTRUM: [], MEDIA: [] }
 })
 
 // Вычисляемые свойства для нативной изоляции ID в SVG на вкладке поиска
@@ -797,7 +848,7 @@ const initNewEntryFromTable = () => {
   activeTab.value = 'method'
   isEditing.value = true
   // При создании новой записи аттачментов быть не может
-  if (journalData.value.id) attachmentsMap.value[journalData.value.id] = { ARTICLE: [], SPECTRUM: [] }
+  if (journalData.value.id) attachmentsMap.value[journalData.value.id] = { ARTICLE: [], SPECTRUM: [], MEDIA: [] }
   pendingAttachments.value = []
 }
 
@@ -860,6 +911,36 @@ const saveEntry = async () => {
 
     const newRecordId = response.data.id
     journalData.value = response.data
+
+    // --- ОБНОВЛЕННЫЙ БЛОК: СОХРАНЕНИЕ ТОЛЬКО ИЗМЕНЕННЫХ ОПИСАНИЙ ---
+    const updatePromises = []
+    const attachmentTypes = ['ARTICLE', 'SPECTRUM', 'MEDIA']
+
+    attachmentTypes.forEach(type => {
+      // Используем наше computed свойство currentAttachments
+      const files = currentAttachments.value[type] || []
+
+      files.forEach(file => {
+        // Шлем PATCH только если файл уже на сервере (есть id) и он был изменен (_isDirty)
+        if (file.id && file._isDirty) {
+          updatePromises.push(
+            axios.patch(`/api/journal_attachment/${file.id}`,
+              { description: file.description },
+              { headers: { 'Authorization': `Bearer ${token}` } }
+            ).then(() => {
+              delete file._isDirty // Снимаем флаг после успешного сохранения
+            }).catch(err => {
+              console.error(`Failed to update description for file ${file.id}`, err)
+            })
+          )
+        }
+      })
+    })
+
+    if (updatePromises.length > 0) {
+      await Promise.all(updatePromises)
+    }
+    // --- КОНЕЦ БЛОКА ---
 
     // Если были файлы в очереди (для новой записи) - загружаем их теперь
     if (pendingAttachments.value.length > 0 && newRecordId) {
@@ -1602,5 +1683,125 @@ watch(() => tableRef.value?.records, (newRecords) => {
   color: #e74c3c;
   font-weight: bold;
   font-size: 1rem;
+}
+
+/* Расширение сетки аттачментов */
+.attachments-section {
+  grid-template-columns: 1fr 1fr; /* статьи и спектры сверху */
+}
+
+.media-full-width {
+  grid-column: 1 / -1; /* Медиа занимает всю ширину */
+  margin-top: 20px;
+}
+
+.media-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 15px;
+  min-height: 100px;
+  padding: 10px;
+}
+
+.media-card {
+  background: #fff;
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  transition: transform 0.2s;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+}
+
+.media-card:hover {
+  transform: translateY(-2px);
+}
+
+.media-preview {
+  width: 100%;
+  height: 120px;
+  background: #f0f0f0;
+  position: relative;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.media-preview img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.media-placeholder {
+  font-size: 3rem;
+}
+
+.media-overlay-actions {
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  display: none;
+}
+
+.media-preview:hover .media-overlay-actions {
+  display: flex;
+}
+
+.media-info {
+  padding: 8px;
+  flex-grow: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.media-desc-edit {
+  width: 100%;
+  height: 45px;
+  font-size: 0.8rem;
+  border: 1px solid #eee;
+  border-radius: 4px;
+  resize: none;
+  padding: 4px;
+}
+
+.media-desc-text {
+  font-size: 0.85rem;
+  margin: 0;
+  color: #444;
+  display: -webkit-box;
+  -webkit-line-clamp: 2; /* Ограничение в 2 строки */
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  height: 34px;
+}
+
+.media-card-controls {
+  margin-top: 8px;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.media-empty {
+  grid-column: 1 / -1;
+  text-align: center;
+  padding: 30px;
+  color: #999;
+  font-style: italic;
+}
+
+.btn-mini {
+  background: rgba(255,255,255,0.9);
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  cursor: pointer;
+  padding: 2px 6px;
+}
+
+.media-card.pending {
+  border: 1px dashed #e67e22;
+  opacity: 0.8;
 }
 </style>

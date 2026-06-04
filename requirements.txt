@@ -18,3 +18,5 @@ mailtrap==2.4.0
 gunicorn==23.0.0
 uvicorn==0.34.0
 redis==5.0.1
+Pillow>=10.0.0
+av>=11.0.0

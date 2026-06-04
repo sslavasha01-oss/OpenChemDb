@@ -7,6 +7,7 @@ from app.core.db import Base
 class AttachmentType(str, enum.Enum):
     ARTICLE = "ARTICLE"
     SPECTRUM = "SPECTRUM"
+    MEDIA = "MEDIA"
 
 class JournalAttachment(Base):
     __tablename__ = "journal_attachment"
@@ -17,4 +18,5 @@ class JournalAttachment(Base):
     type = Column(Enum(AttachmentType), nullable=False)
     description = Column(Text, nullable=True)
     file_path = Column(String(1000), nullable=False)
+    thumbnail_b64 = Column(Text, nullable=True)
     date_added = Column(DateTime, server_default=func.now(), nullable=False)

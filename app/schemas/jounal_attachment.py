@@ -12,6 +12,7 @@ class JournalAttachmentResponseSchema(BaseModel):
     type: AttachmentType
     description: Optional[str] = None
     file_path: str
+    thumbnail_b64: Optional[str] = None
     date_added: datetime
 
     class Config:

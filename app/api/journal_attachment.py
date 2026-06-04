@@ -19,6 +19,7 @@ from fastapi.responses import FileResponse
 import urllib.parse
 from fastapi import status
 import mimetypes
+from app.services.thumbnails import generate_image_thumbnail, generate_video_thumbnail
 
 router = APIRouter(prefix="/journal_attachment", tags=["journal attachment"])
 
@@ -52,7 +53,6 @@ async def upload_journal_attachment(
             detail=f"Файл слишком большой. Максимально допустимый размер: {max_mb:.0f} МБ."
         )
     # 1. Проверяем, существует ли запись в журнале и принадлежит ли она текущему пользователю
-    # Замени UserJournal на твою модель журнала. Нам нужен её external_id
     query = select(UserJournal).where(
         UserJournal.id == journal_record_id,
         UserJournal.user_id == current_user.id
@@ -85,17 +85,33 @@ async def upload_journal_attachment(
     full_file_path = target_dir / file_name
 
     # 3. Сохраняем файл на диск асинхронно-блочным способом
+    # 3. Читаем байты (они пригодятся, если это картинка) и сохраняем файл на диск
     try:
+        file_bytes = await file.read()  # Читаем асинхронно байты
+
         with open(full_file_path, "wb") as buffer:
-            shutil.copyfileobj(file.file, buffer)
+            buffer.write(file_bytes)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Ошибка при сохранении файла: {str(e)}")
     finally:
         await file.close()
 
     # 4. Формируем относительный путь для сохранения в БД
-    # Формат: {journal_record_external_id}/{file_name}
     db_file_path = f"{journal_external_id}/{file_name}"
+
+    # --- КРОССПЛАТФОРМЕННАЯ ГЕНЕРАЦИЯ ПРЕВЬЮ ---
+    thumbnail_data = None
+    if attachment_type == AttachmentType.MEDIA:
+        # Так как физического файла для mimetypes еще может не быть (или он в S3),
+        # определяем тип по оригинальному имени файла, который прислал фронт
+        mime_type, _ = mimetypes.guess_type(file.filename)
+
+        if mime_type:
+            if mime_type.startswith("image/"):
+                thumbnail_data = generate_image_thumbnail(file_bytes)
+            elif mime_type.startswith("video/"):
+                # Передаем байты, а не путь!
+                thumbnail_data = generate_video_thumbnail(file_bytes)
 
     # 5. Записываем информацию в таблицу journal_attachment
     new_attachment = JournalAttachment(
@@ -103,7 +119,8 @@ async def upload_journal_attachment(
         journal_record_id=journal_record_id,
         type=attachment_type,
         description=description,
-        file_path=db_file_path
+        file_path=db_file_path,
+        thumbnail_b64=thumbnail_data  # Сохраняем строку Base64
     )
 
     db.add(new_attachment)
@@ -272,6 +289,7 @@ class FetchAttachmentsRequestSchema(BaseModel):
 class GroupedAttachmentsSchema(BaseModel):
     ARTICLE: List[JournalAttachmentResponseSchema] = []
     SPECTRUM: List[JournalAttachmentResponseSchema] = []
+    MEDIA: List[JournalAttachmentResponseSchema] = []
 
 # Финальный формат ответа: { "id_записи": { "ARTICLE": [...], "SPECTRUM": [...] } }
 # Использование Dict[int, ...] автоматически превратит ключи в строки/числа в JSON
@@ -304,7 +322,7 @@ async def get_batch_attachments(
     # 2. Инициализируем пустую структуру для ответа, чтобы фронтенд получил пустые списки,
     # даже если для какого-то переданного ID файлов вообще не нашлось.
     result_dict = {
-        record_id: {"ARTICLE": [], "SPECTRUM": []}
+        record_id: {"ARTICLE": [], "SPECTRUM": [], "MEDIA": []}
         for record_id in data.journal_record_ids
     }
 
