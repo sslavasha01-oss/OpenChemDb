@@ -4,7 +4,7 @@ from sqlalchemy import select
 from typing import List, Dict
 
 from app.api.deps import get_current_user
-from app.core.db import get_users_db
+from app.core.db import get_archive_db
 from app.models.evaluations import EntryEvaluation, EvaluationStatus, TargetTable
 
 from app.models.user import User
@@ -19,7 +19,7 @@ async def add_evaluation(
     status: EvaluationStatus,
     comment: str = None,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_users_db)
+    db: AsyncSession = Depends(get_archive_db)
 ):
     """
     Добавляет или обновляет реакцию.
@@ -64,7 +64,7 @@ async def add_evaluation(
 async def get_evaluations_batch(
         target: TargetTable,
         entry_ids: List[int] = Query(...),
-        db: AsyncSession = Depends(get_users_db)
+        db: AsyncSession = Depends(get_archive_db)
 ):
     """
     Эффективно получает все оценки для списка ID одним запросом.
@@ -95,7 +95,7 @@ async def get_evaluations_batch(
 @router.get("/recent-problems")
 async def get_recent_problems(
         limit: int = 50,
-        db: AsyncSession = Depends(get_users_db)
+        db: AsyncSession = Depends(get_archive_db)
 ):
     """
     Возвращает последние записи со статусом POO или ERROR.
@@ -118,7 +118,7 @@ async def get_evaluation_details(
     target: TargetTable,
     entry_id: int,
     status: EvaluationStatus = None,
-    db: AsyncSession = Depends(get_users_db)
+    db: AsyncSession = Depends(get_archive_db)
 ):
     """
     Возвращает список всех пользователей и их комментариев для конкретной записи.
