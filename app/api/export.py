@@ -15,7 +15,7 @@ from app.api.deps import get_current_user
 from app.api.user_journal import canonicalize_molecule_smiles
 from app.core.db import get_users_db, users_session_factory
 from app.core.settings import settings
-from app.models.export import UserExport
+from app.models.export import UserExport, ProcessStatus
 from app.models.journal_attachment import JournalAttachment
 from app.models.user import User
 from app.models.user_journal import UserJournal
@@ -247,7 +247,7 @@ async def check_export_status(
     """
     Проверяет статус экспорта.
     Если запись отсутствует -> 404 (Не запускался)
-    Если path ис null -> Возвращает статус "processing" (Еще собирается)
+    Если path null -> Возвращает статус "processing" (Еще собирается)
     Если path заполнен -> Возвращает сам файл архива (FileResponse)
     """
     stmt = select(UserExport).where(UserExport.user_id == current_user.id)
@@ -432,3 +432,212 @@ async def background_export_task(user_id: int, base_user_data_path: Path, user_t
             # Тут можно логировать ошибку фонового процесса
             print(f"Ошибка фонового экспорта для пользователя {user_id}: {str(e)}")
             await db.rollback()
+
+
+@router.post("/import/start", status_code=status.HTTP_202_ACCEPTED)
+async def start_import_user_data(
+        replace: bool = Form(False),
+        file: UploadFile = File(...),
+        background_tasks: BackgroundTasks = BackgroundTasks(),
+        current_user: User = Depends(get_current_user),
+        db: AsyncSession = Depends(get_users_db)
+):
+    # Проверяем, нет ли уже запущенных процессов импорта или экспорта
+    status_stmt = select(UserExport).where(UserExport.user_id == current_user.id)
+    res = await db.execute(status_stmt)
+    active_process = res.scalar_one_or_none()
+
+    if active_process and active_process.status in (ProcessStatus.PROCESSING_IMPORT, ProcessStatus.PROCESSING_EXPORT):
+        raise HTTPException(
+            status_code=status.HTTP_423_LOCKED,
+            detail=f"База данных заблокирована. Сейчас выполняется операция: {active_process.status.value}"
+        )
+
+    user_id_str = str(current_user.id)
+    base_user_data_path = Path(settings.USER_DATA_STORAGE_PATH).resolve()
+    user_dir = base_user_data_path / user_id_str
+    user_tmp_dir = user_dir / "tmp"
+    user_tmp_dir.mkdir(parents=True, exist_ok=True)
+
+    # Сохраняем загруженный ZIP файл на диск во временную папку, так как в фоне UploadFile читать нельзя
+    temp_zip_path = user_tmp_dir / f"import_upload_{datetime.utcnow().timestamp()}.zip"
+    try:
+        with open(temp_zip_path, "wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Не удалось сохранить файл на сервере: {str(e)}")
+    finally:
+        await file.close()
+
+    # Устанавливаем блокировку импорта
+    if active_process:
+        await db.execute(delete(UserExport).where(UserExport.user_id == current_user.id))
+
+    new_lock = UserExport(user_id=current_user.id, status=ProcessStatus.PROCESSING_IMPORT, path=None)
+    db.add(new_lock)
+    await db.commit()
+
+    # Запускаем фоновый импорт
+    background_tasks.add_task(
+        background_import_task,
+        user_id=current_user.id,
+        temp_zip_path=temp_zip_path,
+        user_dir=user_dir,
+        replace=replace
+    )
+
+    return {"status": "processing", "message": "Импорт данных успешно запущен в фоновом режиме. База заблокирована."}
+
+async def background_import_task(
+    user_id: int,
+    temp_zip_path: Path,
+    user_dir: Path,
+    replace: bool
+):
+    """
+    Тяжелая фоновая задача для импорта журнала и аттачментов.
+    По завершении снимает блокировку с пользователя.
+    """
+    async with users_session_factory() as db:
+        try:
+            # Открываем сохраненный во временной папке ZIP-архив
+            with zipfile.ZipFile(temp_zip_path, "r") as archive:
+                namelist = archive.namelist()
+
+                # 1. ОБРАБОТКА REPLACE (Очистка) выполняется внутри транзакции
+                if replace:
+                    await db.execute(delete(JournalAttachment).where(JournalAttachment.user_id == user_id))
+                    await db.execute(delete(UserJournal).where(UserJournal.user_id == user_id))
+                    await db.flush() # Применяем удаление в рамках транзакции
+
+                    if user_dir.exists():
+                        for item in user_dir.iterdir():
+                            if item.is_dir() and item.name == "tmp":
+                                continue
+                            if item.is_dir():
+                                shutil.rmtree(item)
+                            else:
+                                item.unlink()
+
+                # 2. ИМПОРТ ЖУРНАЛА
+                old_to_new_ext_id = {}
+                with archive.open("journal.tsv") as tsv_file:
+                    text_stream = io.TextIOWrapper(tsv_file, encoding="utf-8")
+                    reader = csv.DictReader(text_stream, delimiter="\t")
+
+                    for row in reader:
+                        old_ext_id = int(row.pop("external_id"))
+
+                        data = {
+                            k: v for k, v in row.items()
+                            if v not in (None, "") and k not in ('id', 'product_svg')
+                        }
+
+                        insert_data = {}
+                        for key, value in data.items():
+                            if key.endswith('_mol_data') or key in ('reaction_mol_data', 'reaction_mol_mapped_data'):
+                                continue
+                            insert_data[key] = value
+
+                        for date_field in ('date_added', 'date_modified'):
+                            if data.get(date_field):
+                                try:
+                                    insert_data[date_field] = datetime.fromisoformat(data[date_field])
+                                except ValueError:
+                                    insert_data.pop(date_field, None)
+
+                        # Молекулярная магия RDKit
+                        if data.get('product_smiles'):
+                            canon_smi = canonicalize_molecule_smiles(data['product_smiles'])
+                            insert_data['product_smiles'] = canon_smi
+                            insert_data['product_mol_data'] = func.mol_from_smiles(canon_smi) if canon_smi else None
+
+                        for i in range(1, 6):
+                            smiles_key = f'reagent{i}_smiles'
+                            mol_key = f'reagent{i}_mol_data'
+                            if data.get(smiles_key):
+                                canon_smi = canonicalize_molecule_smiles(data[smiles_key])
+                                insert_data[smiles_key] = canon_smi
+                                insert_data[mol_key] = func.mol_from_smiles(canon_smi) if canon_smi else None
+
+                        if data.get('reaction_smiles'):
+                            insert_data['reaction_mol_data'] = func.reaction_from_smiles(data['reaction_smiles'])
+                        if data.get('reaction_mapped_smiles'):
+                            insert_data['reaction_mol_mapped_data'] = func.reaction_from_smiles(data['reaction_mapped_smiles'])
+
+                        insert_data['user_id'] = user_id
+
+                        stmt = insert(UserJournal).values(**insert_data).returning(UserJournal.id, UserJournal.external_id)
+                        res = await db.execute(stmt)
+                        new_id, new_ext_id = res.fetchone()
+                        old_to_new_ext_id[old_ext_id] = new_ext_id
+
+                # 3. ИМПОРТ АТТАЧМЕНТОВ
+                if "attachments.tsv" in namelist:
+                    with archive.open("attachments.tsv") as tsv_file:
+                        text_stream = io.TextIOWrapper(tsv_file, encoding="utf-8")
+                        reader = csv.DictReader(text_stream, delimiter="\t")
+                        attachments_to_insert = []
+
+                        for row in reader:
+                            old_journal_ext_id = int(row.get("journal_record_ext_id"))
+                            if old_journal_ext_id not in old_to_new_ext_id:
+                                continue
+
+                            new_journal_ext_id = old_to_new_ext_id[old_journal_ext_id]
+                            clean_row = {k: (v if v != "" else None) for k, v in row.items() if k != 'id'}
+                            clean_row["user_id"] = user_id
+                            clean_row["journal_record_ext_id"] = new_journal_ext_id
+
+                            if clean_row.get("date_added"):
+                                try:
+                                    clean_row["date_added"] = datetime.fromisoformat(clean_row["date_added"])
+                                except ValueError:
+                                    clean_row["date_added"] = datetime.utcnow()
+
+                            file_name = clean_row["file_path"].split("/")[-1]
+                            clean_row["file_path"] = f"{new_journal_ext_id}/{file_name}"
+
+                            # Копируем файл
+                            zip_file_path = f"attachments/{old_journal_ext_id}/{file_name}"
+                            if zip_file_path in namelist:
+                                target_dir = user_dir / str(new_journal_ext_id)
+                                target_dir.mkdir(parents=True, exist_ok=True)
+                                with archive.open(zip_file_path) as source_file:
+                                    with open(target_dir / file_name, "wb") as target_file:
+                                        shutil.copyfileobj(source_file, target_file)
+
+                            attachments_to_insert.append(clean_row)
+
+                        if attachments_to_insert:
+                            j_stmt = select(UserJournal.id, UserJournal.external_id).where(UserJournal.user_id == user_id)
+                            j_res = await db.execute(j_stmt)
+                            ext_to_int_id = {ext_id: int_id for int_id, ext_id in j_res.fetchall()}
+
+                            for att_row in attachments_to_insert:
+                                curr_ext = att_row["journal_record_ext_id"]
+                                att_row["journal_record_id"] = ext_to_int_id[curr_ext]
+
+                            await db.execute(insert(JournalAttachment), attachments_to_insert)
+
+            # Фиксируем изменения в базе данных
+            await db.commit()
+
+            # Удаляем запись блокировки импорта (операция успешно завершена)
+            await db.execute(delete(UserExport).where(UserExport.user_id == user_id))
+            await db.commit()
+
+        except Exception as e:
+            await db.rollback()
+            # В случае падения — сохраняем статус FAILED и текст ошибки, чтобы юзер знал, почему не импортировалось
+            stmt = (
+                update(UserExport)
+                .where(UserExport.user_id == user_id)
+                .values(status=ProcessStatus.FAILED, error_message=str(e))
+            )
+            await db.execute(stmt)
+            await db.commit()
+        finally:
+            # Нам больше не нужен временный ZIP файл на сервере
+            if temp_zip_path.exists():
+                temp_zip_path.unlink()
