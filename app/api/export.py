@@ -6,168 +6,21 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form
+from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form, BackgroundTasks
 from fastapi.responses import FileResponse
-from sqlalchemy import select, insert, delete, func
+from sqlalchemy import select, insert, delete, func, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user
 from app.api.user_journal import canonicalize_molecule_smiles
-from app.core.db import get_users_db
+from app.core.db import get_users_db, users_session_factory
 from app.core.settings import settings
+from app.models.export import UserExport
 from app.models.journal_attachment import JournalAttachment
 from app.models.user import User
 from app.models.user_journal import UserJournal
 
 router = APIRouter(tags=["export"])
-
-
-@router.get("/export-all", response_class=FileResponse)
-async def export_user_data(
-        current_user: User = Depends(get_current_user),
-        db: AsyncSession = Depends(get_users_db)
-):
-    """
-    Экспортирует данные пользователя: генерирует TSV файлы для журнала и аттачментов,
-    собирает файлы аттачментов и упаковывает всё в ZIP-архив.
-    Сохраняет архив в `user_data/{user_id}/tmp/`, предварительно очищая её.
-    """
-    user_id_str = str(current_user.id)
-    base_user_data_path = Path(settings.USER_DATA_STORAGE_PATH).resolve()
-
-    # Путь к папке tmp пользователя
-    user_tmp_dir = base_user_data_path / user_id_str / "tmp"
-
-    # 1. Очищаем/создаем папку tmp пользователя
-    try:
-        if user_tmp_dir.exists():
-            shutil.rmtree(user_tmp_dir)
-        user_tmp_dir.mkdir(parents=True, exist_ok=True)
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Ошибка подготовки директории экспорта: {str(e)}"
-        )
-
-    # Имя и путь итогового архива
-    zip_filename = "journal_export"
-    final_zip_path = user_tmp_dir / f"{zip_filename}.zip"
-
-    # Используем временную директорию ОС для сборки содержимого (автоматически удалится после выхода из context manager)
-    with TemporaryDirectory() as temp_build_dir:
-        build_path = Path(temp_build_dir)
-        attachments_build_dir = build_path / "attachments"
-        attachments_build_dir.mkdir(parents=True, exist_ok=True)
-
-        # ------------------------------------------------------------------
-        # 2. СБОР И ФИЛЬТРАЦИЯ ДАННЫХ ЖУРНАЛА
-        # ------------------------------------------------------------------
-        journal_stmt = select(UserJournal).where(UserJournal.user_id == current_user.id)
-        journal_result = await db.execute(journal_stmt)
-        journal_records = journal_result.scalars().all()
-
-        journal_data = []
-        journal_headers = []
-
-        if journal_records:
-            # Получаем все колонки модели
-            columns = UserJournal.__table__.columns.keys()
-
-            # Фильтруем колонки по вашему правилу:
-            # исключаем 'id', 'user_id' и всё, что заканчивается на '_mol_data'
-            filtered_cols = [
-                col for col in columns
-                if col not in ("id", "user_id") and not col.endswith("_mol_data")
-            ]
-
-            # Гарантируем, что external_id будет на первом месте
-            if "external_id" in filtered_cols:
-                filtered_cols.remove("external_id")
-                journal_headers = ["external_id"] + filtered_cols
-            else:
-                journal_headers = filtered_cols
-
-            for rec in journal_records:
-                row = {col: getattr(rec, col) for col in journal_headers}
-                journal_data.append(row)
-
-        # Записываем journal.tsv
-        journal_tsv_path = build_path / "journal.tsv"
-        with open(journal_tsv_path, "w", encoding="utf-8", newline="") as f:
-            writer = csv.DictWriter(f, fieldnames=journal_headers, delimiter="\t")
-            writer.writeheader()
-            writer.writerows(journal_data)
-
-        # ------------------------------------------------------------------
-        # 3. СБОР И ФИЛЬТРАЦИЯ АТТАЧМЕНТОВ
-        # ------------------------------------------------------------------
-        attach_stmt = select(JournalAttachment).where(JournalAttachment.user_id == current_user.id)
-        attach_result = await db.execute(attach_stmt)
-        attach_records = attach_result.scalars().all()
-
-        attach_data = []
-        attach_headers = []
-
-        if attach_records:
-            attach_columns = JournalAttachment.__table__.columns.keys()
-            # Исключаем id и user_id
-            filtered_attach_cols = [col for col in attach_columns if col not in ("id", "user_id", "journal_record_id")]
-            attach_headers = filtered_attach_cols
-
-            for attach in attach_records:
-                row = {col: getattr(attach, col) for col in attach_headers}
-                attach_data.append(row)
-
-                # --------------------------------------------------------------
-                # 4. КОПИРОВАНИЕ ФАЙЛОВ (Локальный режим / Задел под S3)
-                # --------------------------------------------------------------
-                # Путь в БД сохранен как: {journal_external_id}/{file_name}
-                relative_file_path = attach.file_path
-
-                # Целевая папка внутри архива: attachments/{journal_external_id}/
-                # Извлекаем external_id из относительного пути
-                journal_ext_id = relative_file_path.split("/")[0]
-                target_file_dir = attachments_build_dir / journal_ext_id
-                target_file_dir.mkdir(parents=True, exist_ok=True)
-
-                # Локальный путь, где файл лежит сейчас
-                source_file_path = base_user_data_path / user_id_str / relative_file_path
-
-                if source_file_path.exists() and source_file_path.is_file():
-                    # Локальное копирование
-                    shutil.copy2(source_file_path, target_file_dir / source_file_path.name)
-                else:
-                    # TODO ДЛЯ S3:
-                    # Если локального файла нет, здесь будет вызов функции скачивания из S3:
-                    # await s3_client.download_file(bucket, f"{user_id_str}/{relative_file_path}", target_file_dir / source_file_path.name)
-                    pass
-
-        # Записываем attachments.tsv
-        attachments_tsv_path = build_path / "attachments.tsv"
-        with open(attachments_tsv_path, "w", encoding="utf-8", newline="") as f:
-            writer = csv.DictWriter(f, fieldnames=attach_headers, delimiter="\t")
-            writer.writeheader()
-            writer.writerows(attach_data)
-
-        # ------------------------------------------------------------------
-        # 5. АРХИВАЦИЯ И ОТПРАВКА
-        # ------------------------------------------------------------------
-        try:
-            # shutil.make_archive принимает путь без расширения, создаст .zip автоматически
-            archive_base = user_tmp_dir / zip_filename
-            shutil.make_archive(str(archive_base), 'zip', root_dir=build_path)
-        except Exception as e:
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Ошибка при создании архива: {str(e)}"
-            )
-
-    # Возвращаем файл пользователю через FileResponse
-    return FileResponse(
-        path=final_zip_path,
-        filename=f"{zip_filename}.zip",
-        media_type="application/zip"
-    )
 
 
 @router.post("/import", status_code=status.HTTP_201_CREATED)
@@ -382,3 +235,200 @@ async def import_user_data(
     await db.commit()
     return {"status": "success", "message": "Данные успешно импортированы"}
 
+
+# ------------------------------------------------------------------
+# ЕНДПОИНТ 2: ПРОВЕРКА СТАТУСА И СКАЧИВАНИЕ ФАЙЛА
+# ------------------------------------------------------------------
+@router.get("/export-all/get")
+async def check_export_status(
+        current_user: User = Depends(get_current_user),
+        db: AsyncSession = Depends(get_users_db)
+):
+    """
+    Проверяет статус экспорта.
+    Если запись отсутствует -> 404 (Не запускался)
+    Если path ис null -> Возвращает статус "processing" (Еще собирается)
+    Если path заполнен -> Возвращает сам файл архива (FileResponse)
+    """
+    stmt = select(UserExport).where(UserExport.user_id == current_user.id)
+    result = await db.execute(stmt)
+    user_export = result.scalar_one_or_none()
+
+    if not user_export:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Экспорт не запускался или данные устарели."
+        )
+
+    # Если путь еще пустой, значит фоновая задача еще работает
+    if user_export.path is None:
+        return {
+            "status": "processing",
+            "message": "Архив все еще формируется. Пожалуйста, подождите.",
+            "started_at": user_export.created_date
+        }
+
+    # Если путь есть, формируем физический путь на диске и отдаем файл
+    base_user_data_path = Path(settings.USER_DATA_STORAGE_PATH).resolve()
+    # Из БД получаем "tmp/journal_export.zip", полный путь: user_data/{user_id}/tmp/journal_export.zip
+    file_path = base_user_data_path / str(current_user.id) / user_export.path
+
+    if not file_path.exists():
+        raise HTTPException(
+            status_code=status.HTTP_410_GONE,
+            detail="Файл экспорта был удален на сервере. Пожалуйста, запустите экспорт заново."
+        )
+
+    return FileResponse(
+        path=file_path,
+        filename="journal_export.zip",
+        media_type="application/zip"
+    )
+
+# ------------------------------------------------------------------
+# ЕНДПОИНТ 1: ЗАПУСК ЭКСПОРТА (МГНОВЕННЫЙ ОТВЕТ)
+# ------------------------------------------------------------------
+@router.post("/export-all/start", status_code=status.HTTP_202_ACCEPTED)
+async def start_export_user_data(
+        background_tasks: BackgroundTasks,
+        current_user: User = Depends(get_current_user),
+        db: AsyncSession = Depends(get_users_db)
+):
+    """
+    Инициирует процесс экспорта данных в фоновом режиме.
+    Сразу возвращает статус 202 Accepted. Очищает старые файлы экспорта.
+    """
+    user_id_str = str(current_user.id)
+    base_user_data_path = Path(settings.USER_DATA_STORAGE_PATH).resolve()
+    user_tmp_dir = base_user_data_path / user_id_str / "tmp"
+
+    # 1. Синхронно подготавливаем папки (быстрая операция)
+    try:
+        if user_tmp_dir.exists():
+            shutil.rmtree(user_tmp_dir)
+        user_tmp_dir.mkdir(parents=True, exist_ok=True)
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Ошибка подготовки директории экспорта: {str(e)}"
+        )
+
+    # Имя будущего файла
+    zip_filename = "journal_export"
+
+    # 2. Очищаем/Пересоздаем запись в таблице exports (сбрасываем путь в null, показывая, что процесс идет)
+    # Удаляем старую запись, если была
+    await db.execute(delete(UserExport).where(UserExport.user_id == current_user.id))
+    # Создаем новую «пустую» запись (path=None означает, что экспорт в процессе обработки)
+    new_export = UserExport(user_id=current_user.id, path=None)
+    db.add(new_export)
+    await db.commit()
+
+    # 3. Ставим тяжелую задачу архивации в бэкграунд FastAPI
+    background_tasks.add_task(
+        background_export_task,
+        user_id=current_user.id,
+        base_user_data_path=base_user_data_path,
+        user_tmp_dir=user_tmp_dir,
+        zip_filename=zip_filename
+    )
+
+    return {"status": "processing", "message": "Экспорт данных запущен в фоновом режиме."}
+
+# ------------------------------------------------------------------
+# ФОНОВАЯ ФУНКЦИЯ ДЛЯ ВЫПОЛНЕНИЯ ЭКСПОРТА
+# ------------------------------------------------------------------
+async def background_export_task(user_id: int, base_user_data_path: Path, user_tmp_dir: Path, zip_filename: str):
+    """
+    Тяжелая фоновая задача, которая собирает файлы и делает ZIP.
+    В конце обновляет путь в таблице exports.
+    """
+    # Открываем новую изолированную сессию БД для фонового потока
+    async with users_session_factory() as db:
+        try:
+            with TemporaryDirectory() as temp_build_dir:
+                build_path = Path(temp_build_dir)
+                attachments_build_dir = build_path / "attachments"
+                attachments_build_dir.mkdir(parents=True, exist_ok=True)
+
+                # Имя архива и путь
+                final_zip_path = user_tmp_dir / f"{zip_filename}.zip"
+
+                # 1. ЖУРНАЛ
+                journal_stmt = select(UserJournal).where(UserJournal.user_id == user_id)
+                journal_result = await db.execute(journal_stmt)
+                journal_records = journal_result.scalars().all()
+
+                journal_data = []
+                journal_headers = []
+
+                if journal_records:
+                    columns = UserJournal.__table__.columns.keys()
+                    filtered_cols = [c for c in columns if c not in ("id", "user_id") and not c.endswith("_mol_data")]
+                    if "external_id" in filtered_cols:
+                        filtered_cols.remove("external_id")
+                        journal_headers = ["external_id"] + filtered_cols
+                    else:
+                        journal_headers = filtered_cols
+
+                    for rec in journal_records:
+                        row = {col: getattr(rec, col) for col in journal_headers}
+                        journal_data.append(row)
+
+                journal_tsv_path = build_path / "journal.tsv"
+                with open(journal_tsv_path, "w", encoding="utf-8", newline="") as f:
+                    writer = csv.DictWriter(f, fieldnames=journal_headers, delimiter="\t")
+                    writer.writeheader()
+                    writer.writerows(journal_data)
+
+                # 2. АТТАЧМЕНТЫ
+                attach_stmt = select(JournalAttachment).where(JournalAttachment.user_id == user_id)
+                attach_result = await db.execute(attach_stmt)
+                attach_records = attach_result.scalars().all()
+
+                attach_data = []
+                attach_headers = []
+
+                if attach_records:
+                    attach_columns = JournalAttachment.__table__.columns.keys()
+                    filtered_attach_cols = [c for c in attach_columns if c not in ("id", "user_id", "journal_record_id")]
+                    attach_headers = filtered_attach_cols
+
+                    for attach in attach_records:
+                        row = {col: getattr(attach, col) for col in attach_headers}
+                        attach_data.append(row)
+
+                        relative_file_path = attach.file_path
+                        journal_ext_id = relative_file_path.split("/")[0]
+                        target_file_dir = attachments_build_dir / journal_ext_id
+                        target_file_dir.mkdir(parents=True, exist_ok=True)
+
+                        source_file_path = base_user_data_path / str(user_id) / relative_file_path
+
+                        if source_file_path.exists() and source_file_path.is_file():
+                            shutil.copy2(source_file_path, target_file_dir / source_file_path.name)
+
+                attachments_tsv_path = build_path / "attachments.tsv"
+                with open(attachments_tsv_path, "w", encoding="utf-8", newline="") as f:
+                    writer = csv.DictWriter(f, fieldnames=attach_headers, delimiter="\t")
+                    writer.writeheader()
+                    writer.writerows(attach_data)
+
+                # 3. УПАКОВКА В ZIP
+                archive_base = user_tmp_dir / zip_filename
+                shutil.make_archive(str(archive_base), 'zip', root_dir=build_path)
+
+            # 4. ОБНОВЛЕНИЕ СТАТУСА В БД ПОСЛЕ УСПЕШНОГО ЗАВЕРШЕНИЯ
+            db_relative_path = f"tmp/{zip_filename}.zip"
+            stmt = (
+                update(UserExport)
+                .where(UserExport.user_id == user_id)
+                .values(path=db_relative_path, created_date=datetime.utcnow())
+            )
+            await db.execute(stmt)
+            await db.commit()
+
+        except Exception as e:
+            # Тут можно логировать ошибку фонового процесса
+            print(f"Ошибка фонового экспорта для пользователя {user_id}: {str(e)}")
+            await db.rollback()
