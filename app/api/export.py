@@ -488,37 +488,37 @@ async def start_import_user_data(
 
     return {"status": "processing", "message": "Импорт данных успешно запущен в фоновом режиме. База заблокирована."}
 
+
 async def background_import_task(
-    user_id: int,
-    temp_zip_path: Path,
-    user_dir: Path,
-    replace: bool
+        user_id: int,
+        temp_zip_path: Path,
+        user_dir: Path,
+        replace: bool
 ):
-    """
-    Тяжелая фоновая задача для импорта журнала и аттачментов.
-    По завершении снимает блокировку с пользователя.
-    """
-    async with users_session_factory() as db:
+    # Открываем архив один раз в самом начале
+    with zipfile.ZipFile(temp_zip_path, "r") as archive:
+        namelist = archive.namelist()
+
+        # Шаг 1: Очистка старых данных (если replace=True)
+        # Делаем это в отдельной быстрой транзакции
+        if replace:
+            async with users_session_factory() as db:
+                await db.execute(delete(JournalAttachment).where(JournalAttachment.user_id == user_id))
+                await db.execute(delete(UserJournal).where(UserJournal.user_id == user_id))
+                await db.commit()  # Закрываем транзакцию очистки немедленно!
+
+            # Очищаем файлы на диске
+            if user_dir.exists():
+                for item in user_dir.iterdir():
+                    if item.is_dir() and item.name == "tmp":
+                        continue
+                    if item.is_dir():
+                        shutil.rmtree(item)
+                    else:
+                        item.unlink()
+
         try:
-            # Открываем сохраненный во временной папке ZIP-архив
-            with zipfile.ZipFile(temp_zip_path, "r") as archive:
-                namelist = archive.namelist()
-
-                # 1. ОБРАБОТКА REPLACE (Очистка) выполняется внутри транзакции
-                if replace:
-                    await db.execute(delete(JournalAttachment).where(JournalAttachment.user_id == user_id))
-                    await db.execute(delete(UserJournal).where(UserJournal.user_id == user_id))
-                    await db.flush() # Применяем удаление в рамках транзакции
-
-                    if user_dir.exists():
-                        for item in user_dir.iterdir():
-                            if item.is_dir() and item.name == "tmp":
-                                continue
-                            if item.is_dir():
-                                shutil.rmtree(item)
-                            else:
-                                item.unlink()
-
+            async with users_session_factory() as db:
                 # 2. ИМПОРТ ЖУРНАЛА
                 old_to_new_ext_id = {}
                 with archive.open("journal.tsv") as tsv_file:
@@ -563,21 +563,23 @@ async def background_import_task(
                         if data.get('reaction_smiles'):
                             insert_data['reaction_mol_data'] = func.reaction_from_smiles(data['reaction_smiles'])
                         if data.get('reaction_mapped_smiles'):
-                            insert_data['reaction_mol_mapped_data'] = func.reaction_from_smiles(data['reaction_mapped_smiles'])
+                            insert_data['reaction_mol_mapped_data'] = func.reaction_from_smiles(
+                                data['reaction_mapped_smiles'])
 
                         insert_data['user_id'] = user_id
 
-                        stmt = insert(UserJournal).values(**insert_data).returning(UserJournal.id, UserJournal.external_id)
+                        stmt = insert(UserJournal).values(**insert_data).returning(UserJournal.id,
+                                                                                   UserJournal.external_id)
                         res = await db.execute(stmt)
                         new_id, new_ext_id = res.fetchone()
                         old_to_new_ext_id[old_ext_id] = new_ext_id
 
-                # 3. ИМПОРТ АТТАЧМЕНТОВ
+                # Подготовка аттачментов для БД (БЕЗ копирования файлов)
+                attachments_to_insert = []
                 if "attachments.tsv" in namelist:
                     with archive.open("attachments.tsv") as tsv_file:
                         text_stream = io.TextIOWrapper(tsv_file, encoding="utf-8")
                         reader = csv.DictReader(text_stream, delimiter="\t")
-                        attachments_to_insert = []
 
                         for row in reader:
                             old_journal_ext_id = int(row.get("journal_record_ext_id"))
@@ -585,6 +587,8 @@ async def background_import_task(
                                 continue
 
                             new_journal_ext_id = old_to_new_ext_id[old_journal_ext_id]
+
+                            # Чистим строку, исключая id, если он вдруг прилетит
                             clean_row = {k: (v if v != "" else None) for k, v in row.items() if k != 'id'}
                             clean_row["user_id"] = user_id
                             clean_row["journal_record_ext_id"] = new_journal_ext_id
@@ -598,46 +602,50 @@ async def background_import_task(
                             file_name = clean_row["file_path"].split("/")[-1]
                             clean_row["file_path"] = f"{new_journal_ext_id}/{file_name}"
 
-                            # Копируем файл
-                            zip_file_path = f"attachments/{old_journal_ext_id}/{file_name}"
-                            if zip_file_path in namelist:
-                                target_dir = user_dir / str(new_journal_ext_id)
-                                target_dir.mkdir(parents=True, exist_ok=True)
-                                with archive.open(zip_file_path) as source_file:
-                                    with open(target_dir / file_name, "wb") as target_file:
-                                        shutil.copyfileobj(source_file, target_file)
+                            attachments_to_insert.append((clean_row, old_journal_ext_id, new_journal_ext_id, file_name))
 
-                            attachments_to_insert.append(clean_row)
+                # Если есть аттачменты — привязываем их к journal_record_id
+                if attachments_to_insert:
+                    j_stmt = select(UserJournal.id, UserJournal.external_id).where(UserJournal.user_id == user_id)
+                    j_res = await db.execute(j_stmt)
+                    ext_to_int_id = {ext_id: int_id for int_id, ext_id in j_res.fetchall()}
 
-                        if attachments_to_insert:
-                            j_stmt = select(UserJournal.id, UserJournal.external_id).where(UserJournal.user_id == user_id)
-                            j_res = await db.execute(j_stmt)
-                            ext_to_int_id = {ext_id: int_id for int_id, ext_id in j_res.fetchall()}
+                    db_attachments = []
+                    for att_row, old_ext, new_ext, f_name in attachments_to_insert:
+                        att_row["journal_record_id"] = ext_to_int_id[new_ext]
+                        db_attachments.append(att_row)
 
-                            for att_row in attachments_to_insert:
-                                curr_ext = att_row["journal_record_ext_id"]
-                                att_row["journal_record_id"] = ext_to_int_id[curr_ext]
+                    await db.execute(insert(JournalAttachment), db_attachments)
 
-                            await db.execute(insert(JournalAttachment), attachments_to_insert)
+                # Фиксируем все изменения в БД, завершая транзакцию!
+                await db.commit()
 
-            # Фиксируем изменения в базе данных
-            await db.commit()
+            # Шаг 3: Физическое копирование файлов на диск (БАЗА ДАННЫХ УЖЕ СВОБОДНА)
+            if attachments_to_insert:
+                for att_row, old_ext, new_ext, f_name in attachments_to_insert:
+                    zip_file_path = f"attachments/{old_ext}/{f_name}"
+                    if zip_file_path in namelist:
+                        target_dir = user_dir / str(new_ext)
+                        target_dir.mkdir(parents=True, exist_ok=True)
+                        with archive.open(zip_file_path) as source_file:
+                            with open(target_dir / f_name, "wb") as target_file:
+                                shutil.copyfileobj(source_file, target_file)
 
-            # Удаляем запись блокировки импорта (операция успешно завершена)
-            await db.execute(delete(UserExport).where(UserExport.user_id == user_id))
-            await db.commit()
+            # Снимаем блокировку импорта
+            async with users_session_factory() as db:
+                await db.execute(delete(UserExport).where(UserExport.user_id == user_id))
+                await db.commit()
 
         except Exception as e:
-            await db.rollback()
-            # В случае падения — сохраняем статус FAILED и текст ошибки, чтобы юзер знал, почему не импортировалось
-            stmt = (
-                update(UserExport)
-                .where(UserExport.user_id == user_id)
-                .values(status=ProcessStatus.FAILED, error_message=str(e))
-            )
-            await db.execute(stmt)
-            await db.commit()
+            # Если упали — пишем статус FAILED
+            async with users_session_factory() as db:
+                stmt = (
+                    update(UserExport)
+                    .where(UserExport.user_id == user_id)
+                    .values(status=ProcessStatus.FAILED, error_message=str(e))
+                )
+                await db.execute(stmt)
+                await db.commit()
         finally:
-            # Нам больше не нужен временный ZIP файл на сервере
             if temp_zip_path.exists():
                 temp_zip_path.unlink()
