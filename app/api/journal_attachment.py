@@ -46,12 +46,13 @@ async def upload_journal_attachment(
     и делает запись в таблицу journal_attachment.
     """
     print(file.size)
-    if file.size > settings.MAX_FILE_SIZE:
-        max_mb = settings.MAX_FILE_SIZE / (1024 * 1024)
-        raise HTTPException(
-            status_code=413,  # 413 Payload Too Large
-            detail=f"Файл слишком большой. Максимально допустимый размер: {max_mb:.0f} МБ."
-        )
+    if not settings.LOCAL_MODE:
+        if file.size > settings.MAX_FILE_SIZE:
+            max_mb = settings.MAX_FILE_SIZE / (1024 * 1024)
+            raise HTTPException(
+                status_code=413,  # 413 Payload Too Large
+                detail=f"File is too large. Maximum allowed: {max_mb:.0f} MB."
+            )
     # 1. Проверяем, существует ли запись в журнале и принадлежит ли она текущему пользователю
     query = select(UserJournal).where(
         UserJournal.id == journal_record_id,

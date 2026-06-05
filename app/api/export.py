@@ -495,29 +495,28 @@ async def background_import_task(
         user_dir: Path,
         replace: bool
 ):
-    # Открываем архив один раз в самом начале
-    with zipfile.ZipFile(temp_zip_path, "r") as archive:
-        namelist = archive.namelist()
+    try:
+        # Открываем архив внутри try
+        with zipfile.ZipFile(temp_zip_path, "r") as archive:
+            namelist = archive.namelist()
 
-        # Шаг 1: Очистка старых данных (если replace=True)
-        # Делаем это в отдельной быстрой транзакции
-        if replace:
-            async with users_session_factory() as db:
-                await db.execute(delete(JournalAttachment).where(JournalAttachment.user_id == user_id))
-                await db.execute(delete(UserJournal).where(UserJournal.user_id == user_id))
-                await db.commit()  # Закрываем транзакцию очистки немедленно!
+            # Шаг 1: Очистка старых данных (если replace=True)
+            if replace:
+                async with users_session_factory() as db:
+                    await db.execute(delete(JournalAttachment).where(JournalAttachment.user_id == user_id))
+                    await db.execute(delete(UserJournal).where(UserJournal.user_id == user_id))
+                    await db.commit()
 
-            # Очищаем файлы на диске
-            if user_dir.exists():
-                for item in user_dir.iterdir():
-                    if item.is_dir() and item.name == "tmp":
-                        continue
-                    if item.is_dir():
-                        shutil.rmtree(item)
-                    else:
-                        item.unlink()
+                # Очищаем файлы на диске
+                if user_dir.exists():
+                    for item in user_dir.iterdir():
+                        if item.is_dir() and item.name == "tmp":
+                            continue
+                        if item.is_dir():
+                            shutil.rmtree(item)
+                        else:
+                            item.unlink()
 
-        try:
             async with users_session_factory() as db:
                 # 2. ИМПОРТ ЖУРНАЛА
                 old_to_new_ext_id = {}
@@ -588,7 +587,6 @@ async def background_import_task(
 
                             new_journal_ext_id = old_to_new_ext_id[old_journal_ext_id]
 
-                            # Чистим строку, исключая id, если он вдруг прилетит
                             clean_row = {k: (v if v != "" else None) for k, v in row.items() if k != 'id'}
                             clean_row["user_id"] = user_id
                             clean_row["journal_record_ext_id"] = new_journal_ext_id
@@ -617,10 +615,9 @@ async def background_import_task(
 
                     await db.execute(insert(JournalAttachment), db_attachments)
 
-                # Фиксируем все изменения в БД, завершая транзакцию!
                 await db.commit()
 
-            # Шаг 3: Физическое копирование файлов на диск (БАЗА ДАННЫХ УЖЕ СВОБОДНА)
+            # Шаг 3: Физическое копирование файлов на диск
             if attachments_to_insert:
                 for att_row, old_ext, new_ext, f_name in attachments_to_insert:
                     zip_file_path = f"attachments/{old_ext}/{f_name}"
@@ -636,16 +633,28 @@ async def background_import_task(
                 await db.execute(delete(UserExport).where(UserExport.user_id == user_id))
                 await db.commit()
 
-        except Exception as e:
-            # Если упали — пишем статус FAILED
-            async with users_session_factory() as db:
-                stmt = (
-                    update(UserExport)
-                    .where(UserExport.user_id == user_id)
-                    .values(status=ProcessStatus.FAILED, error_message=str(e))
-                )
-                await db.execute(stmt)
-                await db.commit()
-        finally:
-            if temp_zip_path.exists():
+    except Exception as e:
+        # Если упали — пишем статус FAILED
+        async with users_session_factory() as db:
+            stmt = (
+                update(UserExport)
+                .where(UserExport.user_id == user_id)
+                .values(status=ProcessStatus.FAILED, error_message=str(e))
+            )
+            await db.execute(stmt)
+            await db.commit()
+
+    finally:
+        if temp_zip_path.exists():
+            try:
                 temp_zip_path.unlink()
+            except PermissionError:
+                # На крайний случай, если у ОС жесткий затуп с кэшем дескрипторов
+                import gc
+                import time
+                gc.collect()
+                time.sleep(0.1)
+                try:
+                    temp_zip_path.unlink()
+                except Exception:
+                    pass
