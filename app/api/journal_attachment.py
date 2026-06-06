@@ -20,6 +20,7 @@ import urllib.parse
 from fastapi import status
 import mimetypes
 from app.services.thumbnails import generate_image_thumbnail, generate_video_thumbnail
+from app.services.file_manager import FileManager
 
 router = APIRouter(prefix="/journal_attachment", tags=["journal attachment"])
 
@@ -45,7 +46,6 @@ async def upload_journal_attachment(
     Загружает файл аттачмента, сохраняет его в user_data/{user_id}/{journal_record_external_id}/{file_name}
     и делает запись в таблицу journal_attachment.
     """
-    print(file.size)
     if not settings.LOCAL_MODE:
         if file.size > settings.MAX_FILE_SIZE:
             max_mb = settings.MAX_FILE_SIZE / (1024 * 1024)
@@ -70,47 +70,21 @@ async def upload_journal_attachment(
     # Получаем external_id из найденной записи
     journal_external_id = journal_record.external_id
 
-    # 2. Формируем пути для сохранения файла
-    # 2. Формируем пути для сохранения файла
-    base_user_data_path = Path(settings.USER_DATA_STORAGE_PATH).resolve()
-
-    # Безопасное оригинальное имя файла (без путей вроде ../../etc/passwd)
-    original_file_name = Path(file.filename).name
-
-    # Полная директория: user_data/{user_id}/{journal_record_external_id}/
-    target_dir = base_user_data_path / str(current_user.id) / str(journal_external_id)
-    target_dir.mkdir(parents=True, exist_ok=True)
-
-    # --- ЛОГИКА УНИКАЛИЗАЦИИ ИМЕНИ ФАЙЛА ---
-    full_file_path = target_dir / original_file_name
-    file_name = original_file_name
-
-    if full_file_path.exists():
-        stem = Path(original_file_name).stem  # Имя файла без расширения (например, "photo")
-        suffix = Path(original_file_name).suffix  # Расширение (например, ".jpg")
-        counter = 1
-
-        # Цикл работает, пока не найдет свободное имя
-        while full_file_path.exists():
-            file_name = f"{stem}_{counter}{suffix}"
-            full_file_path = target_dir / file_name
-            counter += 1
-    # ----------------------------------------
-
-    # 3. Сохраняем файл на диск асинхронно-блочным способом
-    # 3. Читаем байты (они пригодятся, если это картинка) и сохраняем файл на диск
+    # 2. Читаем байты файла (для сохранения и генерации превью)
     try:
-        file_bytes = await file.read()  # Читаем асинхронно байты
+        file_bytes = await file.read()
 
-        with open(full_file_path, "wb") as buffer:
-            buffer.write(file_bytes)
+        # 3. Сохраняем файл через универсальный FileManager
+        db_file_path = FileManager.save_file(
+            user_id=current_user.id,
+            journal_external_id=journal_external_id,
+            filename=file.filename,
+            file_bytes=file_bytes
+        )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Ошибка при сохранении файла: {str(e)}")
     finally:
         await file.close()
-
-    # 4. Формируем относительный путь для сохранения в БД
-    db_file_path = f"{journal_external_id}/{file_name}"
 
     # --- КРОССПЛАТФОРМЕННАЯ ГЕНЕРАЦИЯ ПРЕВЬЮ ---
     thumbnail_data = None
@@ -154,53 +128,13 @@ async def view_user_file(
     Отдает файл из папки user_data/{user_id}/{file_path}.
     Путь строится на основе ID пользователя из токена.
     """
-    safe_base = Path(settings.USER_DATA_STORAGE_PATH).resolve()
-
     # Чистим пришедший путь от возможных лишних префиксов
     clean_path = file_path.replace("\\", "/")
     if clean_path.startswith("user_data/"):
         clean_path = clean_path[10:]
 
-    # Собираем путь: user_data / {user_id} / {external_id}/{filename}
-    # Строго подставляем ID из токена, фронт не может подсмотреть чужой файл
-    full_path = (safe_base / str(current_user.id) / clean_path).resolve()
-
-    # Защита Safe-guard от Path Traversal (чтобы нельзя было через ../ выйти наружу)
-    # Ограничиваем область видимости папкой конкретного юзера
-    user_safe_zone = safe_base / str(current_user.id)
-    if not str(full_path).startswith(str(user_safe_zone.resolve())):
-        raise HTTPException(status_code=403, detail="Access denied")
-
-    # Проверяем физическое существование файла
-    if not full_path.exists() or not full_path.is_file():
-        raise HTTPException(status_code=404, detail="File not found")
-
-    # --- УЛУЧШЕННОЕ ОПРЕДЕЛЕНИЕ MIME-ТИПА ---
-    extension = full_path.suffix.lower()
-
-    # Сначала смотрим в кастомный словарь, если там нет — используем стандартный mimetypes
-    media_type = MIME_TYPES.get(extension)
-    if not media_type:
-        media_type, _ = mimetypes.guess_type(full_path)
-    if not media_type:
-        media_type = "application/octet-stream"
-
-    # --- КОРРЕКТНОЕ ИМЯ ДЛЯ СКАЧИВАНИЯ ---
-    filename = full_path.name
-    encoded_filename = urllib.parse.quote(filename)
-
-    # Используем правильный формат Content-Disposition.
-    # Если это картинка или видео, inline заставит браузер показать её прямо в теге/вкладке,
-    # но если юзер нажмет "Сохранить как...", браузер возьмет имя из filename*
-    headers = {
-        "Content-Disposition": f"inline; filename=\"{filename}\"; filename*=UTF-8''{encoded_filename}"
-    }
-
-    return FileResponse(
-        path=full_path,
-        media_type=media_type,
-        headers=headers
-    )
+    # Делегируем логику проверки и отдачи ответа менеджеру файлов
+    return FileManager.get_file_response(current_user.id, clean_path)
 
 # Схема для входных данных
 class UpdateAttachmentDescriptionSchema(BaseModel):
@@ -262,28 +196,10 @@ async def delete_attachment(
             detail="Аттачмент не найден или у вас нет прав на его удаление."
         )
 
-    # 2. Формируем полный путь к файлу на сервере
-    # Напоминание: в базе file_path хранится как "{external_id}/{file_name}"
-    base_user_data_path = Path(settings.USER_DATA_STORAGE_PATH).resolve()
-    full_file_path = base_user_data_path / str(current_user.id) / attachment.file_path
-
-    # Безопасность: проверяем, что путь не вышел за пределы папки user_data
-    if not str(full_file_path.resolve()).startswith(str(base_user_data_path)):
-        raise HTTPException(status_code=403, detail="Попытка удаления системного файла отклонена")
-
-    # 3. Физически удаляем файл с диска
+    # 2. Физически удаляем файл с помощью FileManager
     try:
-        if full_file_path.exists() and full_file_path.is_file():
-            os.remove(full_file_path)
-
-            # Опционально: удаляем пустую папку (external_id), если в ней больше нет файлов
-            parent_dir = full_file_path.parent
-            if parent_dir.exists() and not os.listdir(parent_dir):
-                parent_dir.rmdir()
-
+        FileManager.delete_file(current_user.id, attachment.file_path)
     except Exception as e:
-        # Логируем ошибку, но можно выбросить HTTPException, если критично не удалять из БД при сбое диска
-        print(f"Ошибка при удалении файла с диска: {e}")
         raise HTTPException(
             status_code=500,
             detail=f"Не удалось удалить файл с сервера: {str(e)}"
