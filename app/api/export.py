@@ -598,7 +598,8 @@ async def background_import_task(
                                                                                    UserJournal.external_id)
                         res = await db.execute(stmt)
                         new_id, new_ext_id = res.fetchone()
-                        old_to_new_ext_id[old_ext_id] = new_ext_id
+                        # Сохраняем словарь с обоими айдишниками
+                        old_to_new_ext_id[old_ext_id] = {"new_id": new_id, "new_ext_id": new_ext_id}
 
                 # Подготовка аттачментов для БД (БЕЗ копирования файлов)
                 attachments_to_insert = []
@@ -612,7 +613,7 @@ async def background_import_task(
                             if old_journal_ext_id not in old_to_new_ext_id:
                                 continue
 
-                            new_journal_ext_id = old_to_new_ext_id[old_journal_ext_id]
+                            new_journal_ext_id = old_to_new_ext_id[old_journal_ext_id]["new_ext_id"]
 
                             clean_row = {k: (v if v != "" else None) for k, v in row.items() if k != 'id'}
                             clean_row["user_id"] = user_id
@@ -629,20 +630,15 @@ async def background_import_task(
 
                             attachments_to_insert.append((clean_row, old_journal_ext_id, new_journal_ext_id, file_name))
 
-                # Если есть аттачменты — привязываем их к journal_record_id
-                if attachments_to_insert:
-                    # TODO надо оптимизировать перформанс так как тут мы вытаскиваем абсолютно все записи по юзеру
-                    # а надо вытаскивать только те которые импортировали
-                    j_stmt = select(UserJournal.id, UserJournal.external_id).where(UserJournal.user_id == user_id)
-                    j_res = await db.execute(j_stmt)
-                    ext_to_int_id = {ext_id: int_id for int_id, ext_id in j_res.fetchall()}
+                            # Если есть аттачменты — привязываем их к journal_record_id напрямую из словаря
+                        if attachments_to_insert:
+                            db_attachments = []
+                            for att_row, old_ext, new_ext, f_name in attachments_to_insert:
+                                # Достаем внутренний id записи из нашего маппинга по old_ext
+                                att_row["journal_record_id"] = old_to_new_ext_id[old_ext]["new_id"]
+                                db_attachments.append(att_row)
 
-                    db_attachments = []
-                    for att_row, old_ext, new_ext, f_name in attachments_to_insert:
-                        att_row["journal_record_id"] = ext_to_int_id[new_ext]
-                        db_attachments.append(att_row)
-
-                    await db.execute(insert(JournalAttachment), db_attachments)
+                            await db.execute(insert(JournalAttachment), db_attachments)
 
                 await db.commit()
 
