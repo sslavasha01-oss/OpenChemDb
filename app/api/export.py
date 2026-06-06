@@ -529,8 +529,10 @@ async def background_import_task(
         temp_zip_path: Path,
         replace: bool
 ):
+    extracted_files = []
     try:
         # Открываем архив внутри try
+
         with zipfile.ZipFile(temp_zip_path, "r") as archive:
             namelist = archive.namelist()
 
@@ -640,21 +642,22 @@ async def background_import_task(
 
                             await db.execute(insert(JournalAttachment), db_attachments)
 
-                await db.commit()
+                            # Шаг 3: Физическое копирование файлов на диск (строго внутри сессии до коммита)
 
-            # Шаг 3: Физическое копирование файлов на диск
-            if attachments_to_insert:
-                for att_row, old_ext, new_ext, f_name in attachments_to_insert:
-                    zip_file_path = f"attachments/{old_ext}/{f_name}"
-                    if zip_file_path in namelist:
-                        with archive.open(zip_file_path) as source_file:
-                            FileManager.extract_attachment_to_disk(
-                                user_id=user_id,
-                                new_journal_ext_id=new_ext,
-                                filename=f_name,
-                                source_stream=source_file
-                            )
+                            if attachments_to_insert:
+                                for att_row, old_ext, new_ext, f_name in attachments_to_insert:
+                                    zip_file_path = f"attachments/{old_ext}/{f_name}"
+                                    if zip_file_path in namelist:
+                                        with archive.open(zip_file_path) as source_file:
+                                            FileManager.extract_attachment_to_disk(
+                                                user_id=user_id,
+                                                new_journal_ext_id=new_ext,
+                                                filename=f_name,
+                                                source_stream=source_file
+                                            )
+                                            extracted_files.append((new_ext, f_name))
 
+                            await db.commit()
             # Снимаем блокировку импорта
             async with users_session_factory() as db:
                 await db.execute(
@@ -666,6 +669,12 @@ async def background_import_task(
 
     except Exception as e:
         # Если упали — пишем статус FAILED
+        if 'extracted_files' in locals() and extracted_files:
+            for n_ext, f_name in extracted_files:
+                try:
+                    FileManager.delete_file(user_id, str(n_ext) + '/' + f_name)
+                except Exception:
+                    pass
         async with users_session_factory() as db:
             stmt = (
                 update(UserExport)
