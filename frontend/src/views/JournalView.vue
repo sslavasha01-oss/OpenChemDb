@@ -25,13 +25,10 @@
           <span class="icon">+</span> New Entry
         </button>
 
-        <button v-if="activeTab === 'table'" class="btn-edit-main" @click="showExportModal = true">
-          Export
-        </button>
-
-        <button v-if="activeTab === 'table'" class="btn-edit-main" @click="showImportModal = true">
-          Import
-        </button>
+        <div v-if="activeTab === 'table'" class="header-right-group">
+          <button class="btn-edit-main" @click="showExportModal = true">Export</button>
+          <button class="btn-edit-main" @click="showImportModal = true">Import</button>
+        </div>
 
         <button
           v-if="activeTab === 'method'"
@@ -1175,7 +1172,12 @@ watch(() => tableRef.value?.records, (newRecords) => {
 
 <style scoped>
 .journal-container { max-width: 1200px; margin: 0 auto; padding: 10px; }
-.tabs-nav { display: flex; gap: 10px; margin-bottom: 20px; border-bottom: 2px solid #eee; }
+.tabs-nav {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 10px; /* Было 20px */
+  border-bottom: 2px solid #eee;
+}
 .tabs-nav button { padding: 10px 20px; cursor: pointer; border: none; background: none; font-size: 1.1rem; }
 .tabs-nav button.active { border-bottom: 3px solid #42b983; font-weight: bold; }
 
@@ -1362,13 +1364,13 @@ watch(() => tableRef.value?.records, (newRecords) => {
 .global-record-nav {
   display: flex;
   align-items: center;
-  gap: 15px;
-  margin-bottom: 15px;
+  gap: 10px;
   background: #fff;
-  padding: 10px;
+  padding: 4px 10px;
   border-radius: 8px;
   border: 1px solid #eee;
   width: fit-content;
+  margin-bottom: 0; /* Убираем этот отступ, он ломал выравнивание */
 }
 .nav-arrow {
   background: #42b983;
@@ -1386,14 +1388,15 @@ watch(() => tableRef.value?.records, (newRecords) => {
   color: #2c3e50;
   min-width: 100px;
   text-align: center;
+  line-height: 32px; /* Чтобы текст был четко по центру стрелок */
 }
 
 .header-controls {
   display: flex;
   align-items: center;
-  gap: 20px;
-  margin-bottom: 15px; /* Уменьшили отступ */
-  flex-wrap: wrap;     /* Чтобы на мобилках не ломалось */
+  gap: 15px;
+  margin-bottom: 10px; /* Было 15px */
+  flex-wrap: nowrap; /* Не даем им разлетаться на две строки без нужды */
 }
 
 /* Корректируем навигацию, убираем лишний margin-bottom */
@@ -1406,7 +1409,12 @@ watch(() => tableRef.value?.records, (newRecords) => {
   border-radius: 8px;
   border: 1px solid #eee;
   width: fit-content;
-  margin-bottom: 0; /* Убрали старый отступ */
+}
+
+.header-right-group {
+  margin-left: auto; /* Это магическое свойство прижмет блок вправо в flex-контейнере */
+  display: flex;
+  gap: 10px;
 }
 
 /* Компактная кнопка добавления */
