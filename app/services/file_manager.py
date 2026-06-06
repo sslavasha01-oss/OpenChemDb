@@ -1,6 +1,8 @@
 import os
+import shutil
 import urllib.parse
 import mimetypes
+from datetime import datetime
 from pathlib import Path
 from fastapi import HTTPException
 from fastapi.responses import FileResponse
@@ -103,3 +105,79 @@ class FileManager:
             parent_dir = full_file_path.parent
             if parent_dir.exists() and not os.listdir(parent_dir):
                 parent_dir.rmdir()
+
+    @staticmethod
+    def clear_user_directory(user_id: int) -> None:
+        """
+        Удаляет все файлы и папки пользователя на диске, кроме папки 'tmp'.
+        """
+        base_user_data_path = Path(settings.USER_DATA_STORAGE_PATH).resolve()
+        user_dir = base_user_data_path / str(user_id)
+
+        if user_dir.exists():
+            for item in user_dir.iterdir():
+                if item.is_dir() and item.name == "tmp":
+                    continue
+                if item.is_dir():
+                    shutil.rmtree(item)
+                else:
+                    item.unlink()
+
+    @staticmethod
+    def ensure_tmp_dir(user_id: int) -> Path:
+        """
+        Очищает и пересоздает временную директорию 'tmp' для пользователя.
+        Возвращает путь к ней.
+        """
+        base_user_data_path = Path(settings.USER_DATA_STORAGE_PATH).resolve()
+        user_tmp_dir = base_user_data_path / str(user_id) / "tmp"
+
+        if user_tmp_dir.exists():
+            shutil.rmtree(user_tmp_dir)
+        user_tmp_dir.mkdir(parents=True, exist_ok=True)
+        return user_tmp_dir
+
+    @staticmethod
+    def save_import_upload(user_id: int, file_stream) -> Path:
+        """
+        Сохраняет входящий поток UploadFile во временную папку для фонового импорта.
+        """
+        base_user_data_path = Path(settings.USER_DATA_STORAGE_PATH).resolve()
+        user_tmp_dir = base_user_data_path / str(user_id) / "tmp"
+        user_tmp_dir.mkdir(parents=True, exist_ok=True)
+
+        temp_zip_path = user_tmp_dir / f"import_upload_{datetime.utcnow().timestamp()}.zip"
+        with open(temp_zip_path, "wb") as buffer:
+            shutil.copyfileobj(file_stream, buffer)
+        return temp_zip_path
+
+    @staticmethod
+    def extract_attachment_to_disk(user_id: int, new_journal_ext_id: str, filename: str, source_stream) -> None:
+        """
+        Извлекает поток файла из архива и сохраняет в целевую папку записи.
+        """
+        base_user_data_path = Path(settings.USER_DATA_STORAGE_PATH).resolve()
+        target_dir = base_user_data_path / str(user_id) / str(new_journal_ext_id)
+        target_dir.mkdir(parents=True, exist_ok=True)
+
+        with open(target_dir / filename, "wb") as target_file:
+            shutil.copyfileobj(source_stream, target_file)
+
+    @staticmethod
+    def copy_file_to_build(user_id: int, relative_file_path: str, target_dir: Path) -> None:
+        """
+        Копирует файл из хранилища пользователя во временную сборочную директорию экспорта.
+        """
+        base_user_data_path = Path(settings.USER_DATA_STORAGE_PATH).resolve()
+        source_file_path = base_user_data_path / str(user_id) / relative_file_path
+
+        if source_file_path.exists() and source_file_path.is_file():
+            shutil.copy2(source_file_path, target_dir / source_file_path.name)
+
+    @staticmethod
+    def create_export_archive(user_tmp_dir: Path, zip_filename: str, root_build_dir: Path) -> None:
+        """
+        Упаковывает собранную директорию в ZIP архив.
+        """
+        archive_base = user_tmp_dir / zip_filename
+        shutil.make_archive(str(archive_base), 'zip', root_dir=root_build_dir)

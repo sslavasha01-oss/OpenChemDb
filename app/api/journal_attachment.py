@@ -1,12 +1,11 @@
-import os
-import shutil
-from pathlib import Path
+import mimetypes
 from typing import Optional, List, Dict
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
+from fastapi import status
 from pydantic import BaseModel
-from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user
 from app.core.db import get_users_db
@@ -15,12 +14,8 @@ from app.models.journal_attachment import JournalAttachment, AttachmentType
 from app.models.user import User
 from app.models.user_journal import UserJournal
 from app.schemas.jounal_attachment import JournalAttachmentResponseSchema
-from fastapi.responses import FileResponse
-import urllib.parse
-from fastapi import status
-import mimetypes
-from app.services.thumbnails import generate_image_thumbnail, generate_video_thumbnail
 from app.services.file_manager import FileManager
+from app.services.thumbnails import generate_image_thumbnail, generate_video_thumbnail
 
 router = APIRouter(prefix="/journal_attachment", tags=["journal attachment"])
 

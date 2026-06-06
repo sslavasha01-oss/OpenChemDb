@@ -25,6 +25,14 @@
           <span class="icon">+</span> New Entry
         </button>
 
+        <button v-if="activeTab === 'table'" class="btn-edit-main" @click="showExportModal = true">
+          Export
+        </button>
+
+        <button v-if="activeTab === 'table'" class="btn-edit-main" @click="showImportModal = true">
+          Import
+        </button>
+
         <button
           v-if="activeTab === 'method'"
           :class="isEditing ? 'btn-cancel-main' : 'btn-edit-main'"
@@ -396,6 +404,8 @@
       src="/standalone/index.html?hidden_controls=all"
       class="invisible-ketcher">
     </iframe>
+    <ExportModal v-if="showExportModal" @close="showExportModal = false" />
+    <ImportModal v-if="showImportModal" @close="showImportModal = false" />
   </div>
 
 </template>
@@ -407,6 +417,8 @@ import ProductCard from '@/components/ProductCard.vue'
 import ReagentCard from '@/components/ReagentCard.vue'
 import JournalTable from '@/components/JournalTable.vue'
 import { useUserStore } from '@/stores/user'
+import ExportModal from '@/components/modals/ExportModal.vue'
+import ImportModal from '@/components/modals/ImportModal.vue'
 
 // Импортируем наши новые хуки
 import { useJournalCalculator } from '@/composables/useJournalCalculator'
@@ -423,6 +435,9 @@ const tableRef = ref(null)
 const productCardRef = ref(null)
 const reagentCardRefs = ref([])
 const globalKetcherFrame = ref(null)
+
+const showExportModal = ref(false)
+const showImportModal = ref(false)
 
 // Подключаем логику работы с Ketcher движком
 const { isKetcherInjected, triggerKetcherRedraw } = useJournalKetcher(globalKetcherFrame, journalData)

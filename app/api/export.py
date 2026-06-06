@@ -2,12 +2,11 @@ import csv
 import io
 import shutil
 import zipfile
+from datetime import datetime
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form, BackgroundTasks
-from fastapi.responses import FileResponse
 from sqlalchemy import select, insert, delete, func, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -19,6 +18,7 @@ from app.models.export import UserExport, ProcessStatus
 from app.models.journal_attachment import JournalAttachment
 from app.models.user import User
 from app.models.user_journal import UserJournal
+from app.services.file_manager import FileManager
 
 router = APIRouter(tags=["export"])
 
@@ -237,9 +237,9 @@ async def import_user_data(
 
 
 # ------------------------------------------------------------------
-# ЕНДПОИНТ 2: ПРОВЕРКА СТАТУСА И СКАЧИВАНИЕ ФАЙЛА
+# ЕНДПОИНТ 2: ПРОВЕРКА СТАТУСА
 # ------------------------------------------------------------------
-@router.get("/export-all/get")
+@router.get("/export-all/status")
 async def check_export_status(
         current_user: User = Depends(get_current_user),
         db: AsyncSession = Depends(get_users_db)
@@ -259,31 +259,83 @@ async def check_export_status(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Экспорт не запускался или данные устарели."
         )
+    return user_export
 
-    # Если путь еще пустой, значит фоновая задача еще работает
-    if user_export.path is None:
-        return {
-            "status": "processing",
-            "message": "Архив все еще формируется. Пожалуйста, подождите.",
-            "started_at": user_export.created_date
-        }
+@router.get("/export-all/download")
+async def download_export_archive(
+        current_user: User = Depends(get_current_user),
+        db: AsyncSession = Depends(get_users_db)
+):
+    """
+    Скачивает готовый ZIP-архив экспорта пользователя на основе пути из БД.
+    """
+    # 1. Ищем запись об экспорте для текущего пользователя
+    stmt = select(UserExport).where(UserExport.user_id == current_user.id)
+    result = await db.execute(stmt)
+    user_export = result.scalar_one_or_none()
 
-    # Если путь есть, формируем физический путь на диске и отдаем файл
-    base_user_data_path = Path(settings.USER_DATA_STORAGE_PATH).resolve()
-    # Из БД получаем "tmp/journal_export.zip", полный путь: user_data/{user_id}/tmp/journal_export.zip
-    file_path = base_user_data_path / str(current_user.id) / user_export.path
-
-    if not file_path.exists():
+    if not user_export:
         raise HTTPException(
-            status_code=status.HTTP_410_GONE,
-            detail="Файл экспорта был удален на сервере. Пожалуйста, запустите экспорт заново."
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Экспорт не запускался или данные устарели."
         )
 
-    return FileResponse(
-        path=file_path,
-        filename="journal_export.zip",
-        media_type="application/zip"
-    )
+    # 2. Если путь пустой, значит фоновая задача ещё крутится
+    if user_export.path is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Архив все еще формируется. Пожалуйста, дождитесь завершения операции."
+        )
+
+    # 3. Отдаем файл через FileManager, передавая относительный путь (например, "tmp/journal_export.zip")
+    try:
+        return FileManager.get_file_response(current_user.id, user_export.path)
+    except HTTPException as e:
+        # Если FileManager выкинул 404 (файл удален с диска/бакета), превращаем в 410 GONE
+        if e.status_code == 404:
+            raise HTTPException(
+                status_code=status.HTTP_410_GONE,
+                detail="Файл экспорта был удален на сервере. Пожалуйста, запустите экспорт заново."
+            )
+        raise e
+
+@router.delete("/export-all", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_export_data(
+        current_user: User = Depends(get_current_user),
+        db: AsyncSession = Depends(get_users_db)
+):
+    """
+    Удаляет файл экспорта с диска и очищает запись об экспорте из базы данных.
+    """
+    # 1. Ищем запись об экспорте для текущего пользователя
+    stmt = select(UserExport).where(UserExport.user_id == current_user.id)
+    result = await db.execute(stmt)
+    user_export = result.scalar_one_or_none()
+
+    if not user_export:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Запись об экспорте не найдена."
+        )
+
+    # 2. Если файл физически был создан (есть путь), удаляем его через FileManager
+    if user_export.path:
+        try:
+            FileManager.delete_file(current_user.id, user_export.path)
+        except Exception as e:
+            # Логируем, но продолжаем, чтобы база не осталась в заблокированном/несинхронном состоянии
+            print(f"Ошибка при физическом удалении архива экспорта: {e}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Не удалось удалить файл архива с сервера: {str(e)}"
+            )
+
+    # 3. Удаляем запись из базы данных
+    await db.delete(user_export)
+    await db.commit()
+
+    # Так как статус 204 No Content, возвращаем None
+    return None
 
 # ------------------------------------------------------------------
 # ЕНДПОИНТ 1: ЗАПУСК ЭКСПОРТА (МГНОВЕННЫЙ ОТВЕТ)
@@ -300,13 +352,10 @@ async def start_export_user_data(
     """
     user_id_str = str(current_user.id)
     base_user_data_path = Path(settings.USER_DATA_STORAGE_PATH).resolve()
-    user_tmp_dir = base_user_data_path / user_id_str / "tmp"
 
-    # 1. Синхронно подготавливаем папки (быстрая операция)
+    # 1. Синхронно подготавливаем папки через FileManager
     try:
-        if user_tmp_dir.exists():
-            shutil.rmtree(user_tmp_dir)
-        user_tmp_dir.mkdir(parents=True, exist_ok=True)
+        user_tmp_dir = FileManager.ensure_tmp_dir(current_user.id)
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -328,7 +377,6 @@ async def start_export_user_data(
     background_tasks.add_task(
         background_export_task,
         user_id=current_user.id,
-        base_user_data_path=base_user_data_path,
         user_tmp_dir=user_tmp_dir,
         zip_filename=zip_filename
     )
@@ -338,7 +386,7 @@ async def start_export_user_data(
 # ------------------------------------------------------------------
 # ФОНОВАЯ ФУНКЦИЯ ДЛЯ ВЫПОЛНЕНИЯ ЭКСПОРТА
 # ------------------------------------------------------------------
-async def background_export_task(user_id: int, base_user_data_path: Path, user_tmp_dir: Path, zip_filename: str):
+async def background_export_task(user_id: int, user_tmp_dir: Path, zip_filename: str):
     """
     Тяжелая фоновая задача, которая собирает файлы и делает ZIP.
     В конце обновляет путь в таблице exports.
@@ -403,10 +451,7 @@ async def background_export_task(user_id: int, base_user_data_path: Path, user_t
                         target_file_dir = attachments_build_dir / journal_ext_id
                         target_file_dir.mkdir(parents=True, exist_ok=True)
 
-                        source_file_path = base_user_data_path / str(user_id) / relative_file_path
-
-                        if source_file_path.exists() and source_file_path.is_file():
-                            shutil.copy2(source_file_path, target_file_dir / source_file_path.name)
+                        FileManager.copy_file_to_build(user_id, relative_file_path, target_file_dir)
 
                 attachments_tsv_path = build_path / "attachments.tsv"
                 with open(attachments_tsv_path, "w", encoding="utf-8", newline="") as f:
@@ -414,9 +459,8 @@ async def background_export_task(user_id: int, base_user_data_path: Path, user_t
                     writer.writeheader()
                     writer.writerows(attach_data)
 
-                # 3. УПАКОВКА В ZIP
-                archive_base = user_tmp_dir / zip_filename
-                shutil.make_archive(str(archive_base), 'zip', root_dir=build_path)
+                # 3. УПАКОВКА В ZIP через FileManager
+                FileManager.create_export_archive(user_tmp_dir, zip_filename, build_path)
 
             # 4. ОБНОВЛЕНИЕ СТАТУСА В БД ПОСЛЕ УСПЕШНОГО ЗАВЕРШЕНИЯ
             db_relative_path = f"tmp/{zip_filename}.zip"
@@ -453,17 +497,9 @@ async def start_import_user_data(
             detail=f"База данных заблокирована. Сейчас выполняется операция: {active_process.status.value}"
         )
 
-    user_id_str = str(current_user.id)
-    base_user_data_path = Path(settings.USER_DATA_STORAGE_PATH).resolve()
-    user_dir = base_user_data_path / user_id_str
-    user_tmp_dir = user_dir / "tmp"
-    user_tmp_dir.mkdir(parents=True, exist_ok=True)
-
-    # Сохраняем загруженный ZIP файл на диск во временную папку, так как в фоне UploadFile читать нельзя
-    temp_zip_path = user_tmp_dir / f"import_upload_{datetime.utcnow().timestamp()}.zip"
+    # Сохраняем загруженный ZIP файл через FileManager во временную директорию
     try:
-        with open(temp_zip_path, "wb") as buffer:
-            shutil.copyfileobj(file.file, buffer)
+        temp_zip_path = FileManager.save_import_upload(current_user.id, file.file)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Не удалось сохранить файл на сервере: {str(e)}")
     finally:
@@ -482,7 +518,6 @@ async def start_import_user_data(
         background_import_task,
         user_id=current_user.id,
         temp_zip_path=temp_zip_path,
-        user_dir=user_dir,
         replace=replace
     )
 
@@ -492,7 +527,6 @@ async def start_import_user_data(
 async def background_import_task(
         user_id: int,
         temp_zip_path: Path,
-        user_dir: Path,
         replace: bool
 ):
     try:
@@ -507,15 +541,8 @@ async def background_import_task(
                     await db.execute(delete(UserJournal).where(UserJournal.user_id == user_id))
                     await db.commit()
 
-                # Очищаем файлы на диске
-                if user_dir.exists():
-                    for item in user_dir.iterdir():
-                        if item.is_dir() and item.name == "tmp":
-                            continue
-                        if item.is_dir():
-                            shutil.rmtree(item)
-                        else:
-                            item.unlink()
+                # Очищаем файлы на диске через FileManager
+                FileManager.clear_user_directory(user_id)
 
             async with users_session_factory() as db:
                 # 2. ИМПОРТ ЖУРНАЛА
@@ -604,6 +631,8 @@ async def background_import_task(
 
                 # Если есть аттачменты — привязываем их к journal_record_id
                 if attachments_to_insert:
+                    # TODO надо оптимизировать перформанс так как тут мы вытаскиваем абсолютно все записи по юзеру
+                    # а надо вытаскивать только те которые импортировали
                     j_stmt = select(UserJournal.id, UserJournal.external_id).where(UserJournal.user_id == user_id)
                     j_res = await db.execute(j_stmt)
                     ext_to_int_id = {ext_id: int_id for int_id, ext_id in j_res.fetchall()}
@@ -622,15 +651,21 @@ async def background_import_task(
                 for att_row, old_ext, new_ext, f_name in attachments_to_insert:
                     zip_file_path = f"attachments/{old_ext}/{f_name}"
                     if zip_file_path in namelist:
-                        target_dir = user_dir / str(new_ext)
-                        target_dir.mkdir(parents=True, exist_ok=True)
                         with archive.open(zip_file_path) as source_file:
-                            with open(target_dir / f_name, "wb") as target_file:
-                                shutil.copyfileobj(source_file, target_file)
+                            FileManager.extract_attachment_to_disk(
+                                user_id=user_id,
+                                new_journal_ext_id=new_ext,
+                                filename=f_name,
+                                source_stream=source_file
+                            )
 
             # Снимаем блокировку импорта
             async with users_session_factory() as db:
-                await db.execute(delete(UserExport).where(UserExport.user_id == user_id))
+                await db.execute(
+                    update(UserExport)
+                    .where(UserExport.user_id == user_id)
+                    .values(status=ProcessStatus.COMPLETED)
+                )
                 await db.commit()
 
     except Exception as e:
