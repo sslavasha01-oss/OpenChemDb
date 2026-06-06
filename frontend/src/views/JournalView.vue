@@ -158,11 +158,13 @@
           <div class="attachment-block">
             <h3>Articles / Links</h3>
             <div
-              class="drop-zone"
-              :class="{ 'drop-active': isEditing }"
-              @dragover.prevent
-              @drop.prevent="onDrop($event, 'ARTICLE')"
-            >
+  class="drop-zone"
+  :class="{ 'drop-active': isEditing, 'clickable': isEditing }"
+  @dragover.prevent
+  @drop.prevent="onDrop($event, 'ARTICLE')"
+  @click="triggerUploadOnZone($event, articleInput)"
+>
+  <input type="file" ref="articleInput" hidden multiple @change="e => handleFilesAdded(e.target.files, 'ARTICLE')">
               <table class="attachment-table">
                 <thead>
                   <tr>
@@ -198,18 +200,20 @@
                 </tbody>
               </table>
               <div v-if="isEditing" class="upload-hint">Drag & Drop or click to upload</div>
-            </div>
+              </div>
           </div>
 
           <!-- Блок Спектров -->
           <div class="attachment-block">
             <h3>Spectra</h3>
             <div
-              class="drop-zone"
-              :class="{ 'drop-active': isEditing }"
-              @dragover.prevent
-              @drop.prevent="onDrop($event, 'SPECTRUM')"
-            >
+  class="drop-zone"
+  :class="{ 'drop-active': isEditing, 'clickable': isEditing }"
+  @dragover.prevent
+  @drop.prevent="onDrop($event, 'SPECTRUM')"
+  @click="triggerUploadOnZone($event, spectrumInput)"ь
+>
+  <input type="file" ref="spectrumInput" hidden multiple @change="e => handleFilesAdded(e.target.files, 'SPECTRUM')">
               <table class="attachment-table">
                 <thead>
                   <tr>
@@ -252,11 +256,13 @@
 <div class="attachment-block media-full-width">
   <h3>Media (Photos / Videos)</h3>
   <div
-    class="drop-zone"
-    :class="{ 'drop-active': isEditing }"
-    @dragover.prevent
-    @drop.prevent="onDrop($event, 'MEDIA')"
-  >
+  class="drop-zone"
+  :class="{ 'drop-active': isEditing, 'clickable': isEditing }"
+  @dragover.prevent
+  @drop.prevent="onDrop($event, 'MEDIA')"
+  @click="triggerUploadOnZone($event, mediaInput)"
+>
+  <input type="file" ref="mediaInput" hidden multiple accept="image/*,video/*" @change="e => handleFilesAdded(e.target.files, 'MEDIA')">
     <div class="media-grid">
       <!-- Сохраненные медиа -->
       <div v-for="file in currentAttachments.MEDIA" :key="file.id" class="media-card">
@@ -457,6 +463,30 @@ const attachmentsMap = ref({})
 
 const pendingAttachments = ref([]) // Для новых записей: [{ file, type, description }]
 const isUploading = ref(false)
+
+const articleInput = ref(null)
+const spectrumInput = ref(null)
+const mediaInput = ref(null)
+
+const triggerUploadOnZone = (event, inputRef) => {
+  if (!isEditing.value || !inputRef) return
+
+  // Проверяем, на что именно нажал пользователь
+  const target = event.target
+  const isInteractive =
+    target.tagName === 'INPUT' ||
+    target.tagName === 'TEXTAREA' ||
+    target.tagName === 'A' ||
+    target.tagName === 'BUTTON' ||
+    target.closest('button') ||
+    target.closest('a')
+
+  // Если нажали на интерактивный элемент — ничего не делаем, пусть работают их родные обработчики
+  if (isInteractive) return
+
+  // Иначе — открываем выбор файлов
+  inputRef.click()
+}
 
 // Функция непосредственной загрузки на сервер (для существующих записей)
 const uploadFileToServer = async (recordId, file, type, description = '') => {
@@ -1826,5 +1856,42 @@ watch(() => tableRef.value?.records, (newRecords) => {
 .media-card.pending {
   border: 1px dashed #e67e22;
   opacity: 0.8;
+}
+
+/* Делаем зону кликабельной */
+.drop-zone.clickable {
+  cursor: pointer;
+}
+.drop-zone.clickable:hover {
+  background: #f8fcf9;
+  border-color: #42b983;
+}
+
+/* Большая зеленая кнопка добавления аттачмента */
+.btn-add-att-large {
+  width: 100%;
+  margin-top: 10px;
+  padding: 10px;
+  background-color: #f0fcf7;
+  color: #42b983;
+  border: 2px dashed #42b983;
+  border-radius: 8px;
+  font-weight: bold;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  transition: all 0.2s;
+}
+
+.btn-add-att-large:hover {
+  background-color: #42b983;
+  color: white;
+  border-style: solid;
+}
+
+.btn-add-att-large .icon {
+  font-size: 1.2rem;
 }
 </style>

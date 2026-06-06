@@ -632,7 +632,7 @@ async def background_import_task(
 
                             attachments_to_insert.append((clean_row, old_journal_ext_id, new_journal_ext_id, file_name))
 
-                            # Если есть аттачменты — привязываем их к journal_record_id напрямую из словаря
+                        # Если есть аттачменты — привязываем их к journal_record_id напрямую из словаря
                         if attachments_to_insert:
                             db_attachments = []
                             for att_row, old_ext, new_ext, f_name in attachments_to_insert:
@@ -642,22 +642,21 @@ async def background_import_task(
 
                             await db.execute(insert(JournalAttachment), db_attachments)
 
-                            # Шаг 3: Физическое копирование файлов на диск (строго внутри сессии до коммита)
+                        # Шаг 3: Физическое копирование файлов на диск (строго внутри сессии до коммита)
+                        if attachments_to_insert:
+                            for att_row, old_ext, new_ext, f_name in attachments_to_insert:
+                                zip_file_path = f"attachments/{old_ext}/{f_name}"
+                                if zip_file_path in namelist:
+                                    with archive.open(zip_file_path) as source_file:
+                                        FileManager.extract_attachment_to_disk(
+                                            user_id=user_id,
+                                            new_journal_ext_id=new_ext,
+                                            filename=f_name,
+                                            source_stream=source_file
+                                        )
+                                        extracted_files.append((new_ext, f_name))
 
-                            if attachments_to_insert:
-                                for att_row, old_ext, new_ext, f_name in attachments_to_insert:
-                                    zip_file_path = f"attachments/{old_ext}/{f_name}"
-                                    if zip_file_path in namelist:
-                                        with archive.open(zip_file_path) as source_file:
-                                            FileManager.extract_attachment_to_disk(
-                                                user_id=user_id,
-                                                new_journal_ext_id=new_ext,
-                                                filename=f_name,
-                                                source_stream=source_file
-                                            )
-                                            extracted_files.append((new_ext, f_name))
-
-                            await db.commit()
+                await db.commit()
             # Снимаем блокировку импорта
             async with users_session_factory() as db:
                 await db.execute(
