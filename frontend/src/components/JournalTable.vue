@@ -282,16 +282,33 @@ defineExpose({
 </script>
 
 <style scoped>
-.results-section {
+.results-section.results-section {
   background: white;
   border-radius: 8px;
-  padding: 15px;
+  padding: 5px 15px 15px 15px;
   box-shadow: 0 2px 8px rgba(0,0,0,0.05);
   width: 100%;
   box-sizing: border-box;
 }
 
-.header { display: flex; justify-content: space-between; border-bottom: 2px solid #42b983; margin-bottom: 15px; padding-bottom: 5px; }
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center; /* Центрируем по вертикали */
+  border-bottom: 2px solid #42b983;
+  margin-bottom: 8px;   /* Поджимаем к таблице */
+  padding-bottom: 2px;
+}
+
+.header h3 {
+  margin: 0; /* Убираем гигантские стандартные отступы браузера */
+  font-size: 1.2rem;
+}
+
+.stat {
+  font-size: 0.85rem;
+  color: #666;
+}
 
 .table-container {
   width: 100%;
