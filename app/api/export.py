@@ -1,6 +1,5 @@
 import csv
 import io
-import shutil
 import zipfile
 from datetime import datetime
 from pathlib import Path
@@ -20,6 +19,12 @@ from app.models.user import User
 from app.models.user_journal import UserJournal
 from app.services.file_manager import FileManager
 
+if settings.LOCAL_MODE:
+    FileManager = FileManager
+else:
+    from app.services.r2_file_manager import R2FileManager
+    FileManager = R2FileManager()
+
 router = APIRouter(tags=["export"])
 
 
@@ -38,7 +43,9 @@ async def check_export_status(
     Если path null -> Возвращает статус "processing" (Еще собирается)
     Если path заполнен -> Возвращает сам файл архива (FileResponse)
     """
-    stmt = select(UserExport).where(UserExport.user_id == current_user.id and UserExport.type == process_type)
+    stmt = select(UserExport).where(
+        UserExport.user_id == current_user.id,
+        UserExport.type == process_type)
     result = await db.execute(stmt)
     user_export = result.scalar_one_or_none()
 
@@ -58,7 +65,10 @@ async def download_export_archive(
     Скачивает готовый ZIP-архив экспорта пользователя на основе пути из БД.
     """
     # 1. Ищем запись об экспорте для текущего пользователя
-    stmt = select(UserExport).where(UserExport.user_id == current_user.id and UserExport.type == Type.EXPORT)
+    stmt = select(UserExport).where(
+        UserExport.user_id == current_user.id,
+        UserExport.type == Type.EXPORT
+    )
     result = await db.execute(stmt)
     user_export = result.scalar_one_or_none()
 
@@ -97,7 +107,8 @@ async def delete_export_data(
     Удаляет файл экспорта с диска и очищает запись об экспорте из базы данных.
     """
     # 1. Ищем запись об экспорте для текущего пользователя
-    stmt = select(UserExport).where(UserExport.user_id == current_user.id and UserExport.type == process_type)
+    stmt = select(UserExport).where(UserExport.user_id == current_user.id,
+                                    UserExport.type == process_type)
     result = await db.execute(stmt)
     user_export = result.scalar_one_or_none()
 
@@ -147,7 +158,6 @@ async def start_export_user_data(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Ошибка подготовки директории экспорта: {str(e)}"
         )
-
     # Имя будущего файла
     zip_filename = "journal_export"
 
@@ -252,16 +262,24 @@ async def background_export_task(user_id: int, user_tmp_dir: Path, zip_filename:
             db_relative_path = f"tmp/{zip_filename}.zip"
             stmt = (
                 update(UserExport)
-                .where(UserExport.user_id == user_id and UserExport.type == Type.EXPORT)
+                .where(UserExport.user_id == user_id,
+                       UserExport.type == Type.EXPORT)
                 .values(path=db_relative_path, created_date=datetime.utcnow())
             )
             await db.execute(stmt)
             await db.commit()
 
         except Exception as e:
-            # Тут можно логировать ошибку фонового процесса
+
+            stmt = (
+                update(UserExport)
+                .where(UserExport.user_id == user_id,
+                       UserExport.type == Type.EXPORT)
+                .values(error_message= 'error', path=db_relative_path, created_date=datetime.utcnow())
+            )
             print(f"Ошибка фонового экспорта для пользователя {user_id}: {str(e)}")
-            await db.rollback()
+            await db.execute(stmt)
+            await db.commit()
 
 
 @router.post("/import/start", status_code=status.HTTP_202_ACCEPTED)

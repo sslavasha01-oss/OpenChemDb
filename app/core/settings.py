@@ -35,6 +35,12 @@ class Settings(BaseSettings):
     SOP_STORAGE_PATH: str = os.path.join(project_root, "data", "SOP")
     USER_DATA_STORAGE_PATH: str = os.path.join(project_root, "data", "user_files")
 
+    R2_USER_DATA_STORAGE_PATH: str = "user_files"
+    R2_ACCOUNT_ID: str
+    R2_ACCESS_KEY: str
+    R2_SECRET_KEY: str
+    R2_BUCKET_NAME: str
+
     MAIL_TOKEN: str
     MAIL_FROM: EmailStr
     MAIL_FROM_NAME: str = "OpenChemDB Admin"

@@ -17,6 +17,12 @@ from app.schemas.jounal_attachment import JournalAttachmentResponseSchema
 from app.services.file_manager import FileManager
 from app.services.thumbnails import generate_image_thumbnail, generate_video_thumbnail
 
+if settings.LOCAL_MODE:
+    FileManager = FileManager
+else:
+    from app.services.r2_file_manager import R2FileManager
+    FileManager = R2FileManager()
+
 router = APIRouter(prefix="/journal_attachment", tags=["journal attachment"])
 
 MIME_TYPES = {
@@ -96,7 +102,6 @@ async def upload_journal_attachment(
                 thumbnail_data = generate_video_thumbnail(file_bytes)
 
     # 5. Записываем информацию в таблицу journal_attachment
-    print(journal_external_id)
     new_attachment = JournalAttachment(
         user_id=current_user.id,
         journal_record_id=journal_record_id,

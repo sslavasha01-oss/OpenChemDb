@@ -78,7 +78,7 @@ class FileManager:
         filename = full_path.name
         encoded_filename = urllib.parse.quote(filename)
         headers = {
-            "Content-Disposition": f"inline; filename=\"{filename}\"; filename*=UTF-8''{encoded_filename}"
+            "Content-Disposition": f"inline; filename=\"{encoded_filename}\"; filename*=UTF-8''{encoded_filename}"
         }
 
         return FileResponse(
