@@ -6,7 +6,7 @@ from datetime import datetime
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form, BackgroundTasks
+from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form, BackgroundTasks, Query
 from sqlalchemy import select, insert, delete, func, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -14,7 +14,7 @@ from app.api.deps import get_current_user
 from app.api.user_journal import canonicalize_molecule_smiles
 from app.core.db import get_users_db, users_session_factory
 from app.core.settings import settings
-from app.models.export import UserExport, ProcessStatus
+from app.models.export import UserExport, ProcessStatus, Type
 from app.models.journal_attachment import JournalAttachment
 from app.models.user import User
 from app.models.user_journal import UserJournal
@@ -28,6 +28,7 @@ router = APIRouter(tags=["export"])
 # ------------------------------------------------------------------
 @router.get("/export-all/status")
 async def check_export_status(
+        process_type: Type = Query(...),
         current_user: User = Depends(get_current_user),
         db: AsyncSession = Depends(get_users_db)
 ):
@@ -37,14 +38,14 @@ async def check_export_status(
     Если path null -> Возвращает статус "processing" (Еще собирается)
     Если path заполнен -> Возвращает сам файл архива (FileResponse)
     """
-    stmt = select(UserExport).where(UserExport.user_id == current_user.id)
+    stmt = select(UserExport).where(UserExport.user_id == current_user.id and UserExport.type == process_type)
     result = await db.execute(stmt)
     user_export = result.scalar_one_or_none()
 
     if not user_export:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Экспорт не запускался или данные устарели."
+            detail=f"Процесс с типом '{process_type.value}' не запускался или данные устарели."
         )
     return user_export
 
@@ -57,7 +58,7 @@ async def download_export_archive(
     Скачивает готовый ZIP-архив экспорта пользователя на основе пути из БД.
     """
     # 1. Ищем запись об экспорте для текущего пользователя
-    stmt = select(UserExport).where(UserExport.user_id == current_user.id)
+    stmt = select(UserExport).where(UserExport.user_id == current_user.id and UserExport.type == Type.EXPORT)
     result = await db.execute(stmt)
     user_export = result.scalar_one_or_none()
 
@@ -88,6 +89,7 @@ async def download_export_archive(
 
 @router.delete("/export-all", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_export_data(
+        process_type: Type = Query(...),
         current_user: User = Depends(get_current_user),
         db: AsyncSession = Depends(get_users_db)
 ):
@@ -95,7 +97,7 @@ async def delete_export_data(
     Удаляет файл экспорта с диска и очищает запись об экспорте из базы данных.
     """
     # 1. Ищем запись об экспорте для текущего пользователя
-    stmt = select(UserExport).where(UserExport.user_id == current_user.id)
+    stmt = select(UserExport).where(UserExport.user_id == current_user.id and UserExport.type == process_type)
     result = await db.execute(stmt)
     user_export = result.scalar_one_or_none()
 
@@ -137,9 +139,6 @@ async def start_export_user_data(
     Инициирует процесс экспорта данных в фоновом режиме.
     Сразу возвращает статус 202 Accepted. Очищает старые файлы экспорта.
     """
-    user_id_str = str(current_user.id)
-    base_user_data_path = Path(settings.USER_DATA_STORAGE_PATH).resolve()
-
     # 1. Синхронно подготавливаем папки через FileManager
     try:
         user_tmp_dir = FileManager.ensure_tmp_dir(current_user.id)
@@ -156,7 +155,7 @@ async def start_export_user_data(
     # Удаляем старую запись, если была
     await db.execute(delete(UserExport).where(UserExport.user_id == current_user.id))
     # Создаем новую «пустую» запись (path=None означает, что экспорт в процессе обработки)
-    new_export = UserExport(user_id=current_user.id, path=None)
+    new_export = UserExport(user_id=current_user.id, path=None, type=Type.EXPORT)
     db.add(new_export)
     await db.commit()
 
@@ -253,7 +252,7 @@ async def background_export_task(user_id: int, user_tmp_dir: Path, zip_filename:
             db_relative_path = f"tmp/{zip_filename}.zip"
             stmt = (
                 update(UserExport)
-                .where(UserExport.user_id == user_id)
+                .where(UserExport.user_id == user_id and UserExport.type == Type.EXPORT)
                 .values(path=db_relative_path, created_date=datetime.utcnow())
             )
             await db.execute(stmt)
@@ -294,9 +293,9 @@ async def start_import_user_data(
 
     # Устанавливаем блокировку импорта
     if active_process:
-        await db.execute(delete(UserExport).where(UserExport.user_id == current_user.id))
+        await db.execute(delete(UserExport).where(UserExport.user_id == current_user.id and UserExport.type == Type.IMPORT))
 
-    new_lock = UserExport(user_id=current_user.id, status=ProcessStatus.PROCESSING_IMPORT, path=None)
+    new_lock = UserExport(user_id=current_user.id, type=Type.IMPORT, status=ProcessStatus.PROCESSING_IMPORT, path=None)
     db.add(new_lock)
     await db.commit()
 
@@ -448,7 +447,7 @@ async def background_import_task(
             async with users_session_factory() as db:
                 await db.execute(
                     update(UserExport)
-                    .where(UserExport.user_id == user_id)
+                    .where(UserExport.user_id == user_id and UserExport.type == Type.IMPORT)
                     .values(status=ProcessStatus.COMPLETED)
                 )
                 await db.commit()
@@ -464,7 +463,7 @@ async def background_import_task(
         async with users_session_factory() as db:
             stmt = (
                 update(UserExport)
-                .where(UserExport.user_id == user_id)
+                .where(UserExport.user_id == user_id and UserExport.type == Type.IMPORT)
                 .values(status=ProcessStatus.FAILED, error_message=str(e))
             )
             await db.execute(stmt)

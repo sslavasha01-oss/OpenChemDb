@@ -111,7 +111,8 @@ const fetchStatus = async () => {
   try {
     const token = localStorage.getItem('token')
     const res = await axios.get('/api/export-all/status', {
-      headers: { 'Authorization': `Bearer ${token}` }
+      headers: { 'Authorization': `Bearer ${token}` },
+      params: { process_type: 'IMPORT' }
     })
     importStatus.value = res.data
 
@@ -121,7 +122,7 @@ const fetchStatus = async () => {
       if (isWaitingForCurrentResult.value) {
         alert("Import successfully completed!")
         const token = localStorage.getItem('token')
-        await axios.delete('/api/export-all', { headers: { 'Authorization': `Bearer ${token}` } })
+        await axios.delete('/api/export-all', { headers: { 'Authorization': `Bearer ${token}` }, params: { process_type: 'IMPORT' } })
         window.location.reload()
       }
     }

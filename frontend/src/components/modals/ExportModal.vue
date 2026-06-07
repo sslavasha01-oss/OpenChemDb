@@ -107,7 +107,8 @@ const fetchStatus = async () => {
   try {
     const token = localStorage.getItem('token')
     const res = await axios.get('/api/export-all/status', {
-      headers: { 'Authorization': `Bearer ${token}` }
+      headers: { 'Authorization': `Bearer ${token}` },
+      params: { process_type: 'EXPORT' }
     })
     exportInfo.value = res.data
 
@@ -179,7 +180,8 @@ const deleteExport = async () => {
   try {
     const token = localStorage.getItem('token')
     await axios.delete('/api/export-all', {
-      headers: { 'Authorization': `Bearer ${token}` }
+      headers: { 'Authorization': `Bearer ${token}` },
+      params: { process_type: 'EXPORT' }
     })
     exportInfo.value = null
     stopPolling()
