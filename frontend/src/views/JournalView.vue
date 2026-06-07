@@ -9,11 +9,13 @@
 
   <div class="header-controls">
       <div v-if="!isGuest && activeTab !== 'search'" class="global-record-nav">
+        <button @click="goToFirstRecord" :disabled="isEditing || loading" class="nav-arrow" title="First record">|←</button>
         <button @click="navigateRecord(-1)" :disabled="isEditing" class="nav-arrow">←</button>
         <span class="selected-id-display">
           Record: {{ journalData?.external_id ? '#' + journalData.external_id : '---' }}
         </span>
         <button @click="navigateRecord(1)" :disabled="isEditing" class="nav-arrow">→</button>
+        <button @click="goToLastRecord" :disabled="isEditing || loading" class="nav-arrow" title="Last record">→|</button>
       </div>
 
       <template v-if="!isGuest">
@@ -1207,6 +1209,44 @@ watch(() => userStore.currentAccountIndex, async () => {
   }
 })
 
+// Перейти к самой первой записи (1 страница, 1 элемент)
+const goToFirstRecord = async () => {
+  if (!tableRef.value || loading.value) return
+  loading.value = true
+  try {
+    // Принудительно переходим на 1 страницу
+    const pageRecords = await tableRef.value.changePage(1)
+    if (pageRecords && pageRecords.length > 0) {
+      await nextTick()
+      handleTableSelect(pageRecords[0], false)
+    }
+  } catch (err) {
+    console.error(err)
+  } finally {
+    loading.value = false
+  }
+}
+
+// Перейти к самой последней записи (Последняя страница, последний элемент)
+const goToLastRecord = async () => {
+  if (!tableRef.value || loading.value) return
+  loading.value = true
+  try {
+    const lastPage = tableRef.value.totalPages
+    // Принудительно переходим на последнюю страницу
+    const pageRecords = await tableRef.value.changePage(lastPage)
+    if (pageRecords && pageRecords.length > 0) {
+      await nextTick()
+      // Берем самый последний элемент из полученного массива
+      handleTableSelect(pageRecords[pageRecords.length - 1], false)
+    }
+  } catch (err) {
+    console.error(err)
+  } finally {
+    loading.value = false
+  }
+}
+
 // Следим за списком записей в таблице. Как только они меняются — грузим для них аттачменты
 watch(() => tableRef.value?.records, (newRecords) => {
   if (newRecords && newRecords.length > 0) {
@@ -1411,31 +1451,41 @@ watch(() => tableRef.value?.records, (newRecords) => {
 .global-record-nav {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 5px; /* Уменьшили отступ между кнопками */
   background: #fff;
-  padding: 4px 10px;
+  padding: 4px 8px;
   border-radius: 8px;
   border: 1px solid #eee;
   width: fit-content;
-  margin-bottom: 0; /* Убираем этот отступ, он ломал выравнивание */
 }
+
 .nav-arrow {
   background: #42b983;
   color: white;
   border: none;
   width: 32px;
   height: 32px;
-  border-radius: 50%;
+  border-radius: 6px; /* Квадратные со скруглением смотрятся лучше, когда их много */
   cursor: pointer;
   font-weight: bold;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.2s;
 }
+
+.nav-arrow:hover:not(:disabled) {
+  background: #3aa876;
+}
+
 .nav-arrow:disabled { background: #ccc; cursor: not-allowed; }
 .selected-id-display {
   font-weight: bold;
   color: #2c3e50;
-  min-width: 100px;
+  min-width: 70px; /* Немного уменьшили ширину */
   text-align: center;
-  line-height: 32px; /* Чтобы текст был четко по центру стрелок */
+  line-height: 32px;
+  font-size: 0.9rem;
 }
 
 .header-controls {
