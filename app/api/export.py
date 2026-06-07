@@ -4,8 +4,9 @@ import zipfile
 from datetime import datetime
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from typing import Optional, List
 
-from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form, BackgroundTasks, Query
+from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form, BackgroundTasks, Query, Body
 from sqlalchemy import select, insert, delete, func, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -144,6 +145,7 @@ async def delete_export_data(
 @router.post("/export-all/start", status_code=status.HTTP_202_ACCEPTED)
 async def start_export_user_data(
         background_tasks: BackgroundTasks,
+        record_ids: Optional[List[int]] = Query(None, description="Список ID записей для экспорта (?record_ids=1&record_ids=2)"),
         current_user: User = Depends(get_current_user),
         db: AsyncSession = Depends(get_users_db)
 ):
@@ -175,7 +177,8 @@ async def start_export_user_data(
         background_export_task,
         user_id=current_user.id,
         user_tmp_dir=user_tmp_dir,
-        zip_filename=zip_filename
+        zip_filename=zip_filename,
+        record_ids=record_ids
     )
 
     return {"status": "processing", "message": "Экспорт данных запущен в фоновом режиме."}
@@ -183,7 +186,7 @@ async def start_export_user_data(
 # ------------------------------------------------------------------
 # ФОНОВАЯ ФУНКЦИЯ ДЛЯ ВЫПОЛНЕНИЯ ЭКСПОРТА
 # ------------------------------------------------------------------
-async def background_export_task(user_id: int, user_tmp_dir: Path, zip_filename: str):
+async def background_export_task(user_id: int, user_tmp_dir: Path, zip_filename: str, record_ids: Optional[List[int]] = None):
     """
     Тяжелая фоновая задача, которая собирает файлы и делает ZIP.
     В конце обновляет путь в таблице exports.
@@ -200,7 +203,10 @@ async def background_export_task(user_id: int, user_tmp_dir: Path, zip_filename:
                 final_zip_path = user_tmp_dir / f"{zip_filename}.zip"
 
                 # 1. ЖУРНАЛ
-                journal_stmt = select(UserJournal).where(UserJournal.user_id == user_id)
+                journal_stmt = select(UserJournal).where(UserJournal.user_id == user_id).order_by(
+                    UserJournal.external_id)
+                if record_ids:
+                    journal_stmt = journal_stmt.where(UserJournal.id.in_(record_ids))
                 journal_result = await db.execute(journal_stmt)
                 journal_records = journal_result.scalars().all()
 
@@ -228,6 +234,9 @@ async def background_export_task(user_id: int, user_tmp_dir: Path, zip_filename:
 
                 # 2. АТТАЧМЕНТЫ
                 attach_stmt = select(JournalAttachment).where(JournalAttachment.user_id == user_id)
+                if record_ids:
+                    # Фильтруем аттачменты, завязанные на journal_record_id из списка разрешенных
+                    attach_stmt = attach_stmt.where(JournalAttachment.journal_record_id.in_(record_ids))
                 attach_result = await db.execute(attach_stmt)
                 attach_records = attach_result.scalars().all()
 

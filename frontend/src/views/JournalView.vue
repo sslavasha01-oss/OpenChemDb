@@ -26,6 +26,12 @@
         </button>
 
         <div v-if="activeTab === 'table'" class="header-right-group">
+        <button
+               :class="isSelectionMode ? 'btn-cancel-main' : 'btn-edit-main'"
+               @click="isSelectionMode = !isSelectionMode"
+                >
+               {{ isSelectionMode ? 'Cancel Selection' : 'Select Records' }}
+          </button>
           <button class="btn-edit-main" @click="showExportModal = true">Export</button>
           <button class="btn-edit-main" @click="showImportModal = true">Import</button>
         </div>
@@ -72,9 +78,13 @@
           </button>
         </div>
 
-        <JournalTable ref="tableRef" :selected-id="selectedRecordId"
+        <JournalTable
+         ref="tableRef"
+         :selected-id="selectedRecordId"
+         :is-selection-mode="isSelectionMode"
          @select-record="handleTableSelect"
-          />
+         @update:selected-export-ids="val => selectedExportIds = val"
+         />
       </section>
 
       <!-- Вкладка Методика -->
@@ -407,7 +417,11 @@
       src="/standalone/index.html?hidden_controls=all"
       class="invisible-ketcher">
     </iframe>
-    <ExportModal v-if="showExportModal" @close="showExportModal = false" />
+    <ExportModal
+      v-if="showExportModal"
+      :selected-ids="selectedExportIds"
+      @close="showExportModal = false"
+      />
     <ImportModal v-if="showImportModal" @close="showImportModal = false" />
   </div>
 
@@ -426,6 +440,9 @@ import ImportModal from '@/components/modals/ImportModal.vue'
 // Импортируем наши новые хуки
 import { useJournalCalculator } from '@/composables/useJournalCalculator'
 import { useJournalKetcher } from '@/composables/useJournalKetcher'
+
+const isSelectionMode = ref(false)
+const selectedExportIds = ref([])
 
 const userStore = useUserStore()
 const isGuest = computed(() => !userStore.isLoggedIn)

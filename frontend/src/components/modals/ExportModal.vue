@@ -44,6 +44,13 @@
         </div>
       </div>
 
+      <div v-if="props.selectedIds.length > 0" class="selection-notice">
+        <label class="checkbox-label">
+             <input type="checkbox" v-model="exportOnlySelected">
+              Export only selected records ({{ props.selectedIds.length }})
+             </label>
+      </div>
+
       <div class="modal-footer">
         <button
           class="btn-secondary"
@@ -93,6 +100,15 @@ const exportInfo = ref(null)
 const loadingStatus = ref(true)
 const isProcessing = ref(false)
 let pollingTimer = null // Переменная для хранения таймера
+
+const props = defineProps({
+  selectedIds: {
+    type: Array,
+    default: () => []
+  }
+})
+
+const exportOnlySelected = ref(false)
 
 const statusClass = computed(() => {
   if (!exportInfo.value) return ''
@@ -145,11 +161,20 @@ const startExport = async () => {
   isProcessing.value = true
   try {
     const token = localStorage.getItem('token')
+
+    // Подготавливаем параметры запроса
+    const params = new URLSearchParams()
+    if (exportOnlySelected.value && props.selectedIds.length > 0) {
+      props.selectedIds.forEach(id => params.append('record_ids', id))
+    }
+
     await axios.post('/api/export-all/start', {}, {
-      headers: { 'Authorization': `Bearer ${token}` }
+      headers: { 'Authorization': `Bearer ${token}` },
+      params: params // Передаем record_ids через Query params как ждет FastAPI
     })
-    await fetchStatus() // Сразу получаем новый статус
-    startPolling()      // Запускаем опрос, так как процесс пошел в фоне
+
+    await fetchStatus()
+    startPolling()
   } catch (err) {
     alert("Error: " + (err.response?.data?.detail || err.message))
   } finally {
@@ -426,4 +451,25 @@ button:disabled {
   0% { transform: rotate(0deg); }
   100% { transform: rotate(360deg); }
 }
+
+.selection-notice {
+  margin-top: 15px;
+  padding: 10px;
+  background: #eef9f3;
+  border-radius: 6px;
+  border: 1px solid #c2eadd;
+}
+.checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+  font-weight: bold;
+  color: #2d8a5d;
+}
+.checkbox-label input {
+  width: 18px;
+  height: 18px;
+}
+
 </style>

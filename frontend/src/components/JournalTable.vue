@@ -28,6 +28,9 @@
         <table class="reaction-table">
           <thead>
             <tr>
+              <th v-if="isSelectionMode" class="col-check">
+               <input type="checkbox" :checked="isAllSelected" @change="toggleSelectAll">
+              </th>
               <th class="col-viz">Product</th>
               <th class="col-id">ID / Date</th>
               <th class="col-cond">Conditions</th>
@@ -37,10 +40,13 @@
           </thead>
           <tbody>
             <tr v-for="rec in records" :key="rec.id" class="reaction-row" :class="{ 'selected-row': rec.id === props.selectedId }" @click="$emit('select-record', rec, true)">
-  <td class="col-viz">
-    <div class="reaction-container" v-if="rec.product_svg" v-html="rec.product_svg"></div>
-    <div class="no-viz" v-else>No Structure</div>
-  </td>
+             <td v-if="isSelectionMode" class="col-check" @click.stop>
+                 <input type="checkbox" :value="rec.id" v-model="selectedIds">
+             </td>
+             <td class="col-viz">
+                <div class="reaction-container" v-if="rec.product_svg" v-html="rec.product_svg"></div>
+                <div class="no-viz" v-else>No Structure</div>
+             </td>
 
   <td class="col-id" data-label="Entry">
     <div class="id-badge">#{{ rec.external_id }}</div>
@@ -76,10 +82,10 @@
 
 <script setup>
 // ... (Весь JS код остается точно таким же, как в твоем рабочем примере) ...
-import { ref, onMounted, computed } from 'vue'
+import { ref, watch, onMounted, computed } from 'vue'
 import axios from 'axios'
 
-const emit = defineEmits(['select-record'])
+const emit = defineEmits(['select-record', 'update:selected-export-ids'])
 const records = ref([])
 const totalCount = ref(0)
 const currentPage = ref(1)
@@ -95,12 +101,41 @@ const searchResultsIds = ref([])
 const isSearchActive = computed(() => searchResultsIds.value.length > 0)
 const isSearchPending = ref(false) // Новый флаг-блокиратор дефолтной загрузки
 
+const selectedIds = ref([])
+
 const props = defineProps({
-  selectedId: [Number, String]
+  selectedId: [Number, String],
+  isSelectionMode: Boolean
 })
 
 const offset = computed(() => (currentPage.value - 1) * limit)
 const totalPages = computed(() => Math.ceil(totalCount.value / limit))
+
+
+const isAllSelected = computed(() => {
+  return records.value.length > 0 && records.value.every(r => selectedIds.value.includes(r.id))
+})
+
+const toggleSelectAll = () => {
+  if (isAllSelected.value) {
+    // Убираем только те ID, которые есть на текущей странице
+    const currentPageIds = records.value.map(r => r.id)
+    selectedIds.value = selectedIds.value.filter(id => !currentPageIds.includes(id))
+  } else {
+    // Добавляем только те, которых еще нет в списке
+    records.value.forEach(r => {
+      if (!selectedIds.value.includes(r.id)) {
+        selectedIds.value.push(r.id)
+      }
+    })
+  }
+}
+
+// Следим за изменениями, чтобы передать родителю
+watch(selectedIds, (newVal) => {
+  emit('update:selected-export-ids', newVal)
+}, { deep: true })
+
 
 const fetchCount = async () => {
   if (!localStorage.getItem('token')) {
@@ -277,7 +312,8 @@ defineExpose({
   currentPage,
   totalPages,
   isSearchMode,
-  searchResultsIds
+  searchResultsIds,
+  selectedIds
 })
 </script>
 
@@ -442,4 +478,7 @@ defineExpose({
 .reaction-row.selected-row:hover {
   background-color: #d8f3e5;
 }
+
+.col-check { width: 40px; text-align: center; }
+.col-check input { width: 18px; height: 18px; cursor: pointer; }
 </style>
