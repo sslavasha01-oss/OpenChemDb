@@ -1441,9 +1441,9 @@ watch(() => tableRef.value?.records, (newRecords) => {
 .header-controls {
   display: flex;
   align-items: center;
-  gap: 15px;
-  margin-bottom: 10px; /* Было 15px */
-  flex-wrap: nowrap; /* Не даем им разлетаться на две строки без нужды */
+  gap: 10px;
+  margin-bottom: 10px;
+  flex-wrap: wrap; /* Разрешаем перенос на новую строку */
 }
 
 /* Корректируем навигацию, убираем лишний margin-bottom */
@@ -1459,9 +1459,27 @@ watch(() => tableRef.value?.records, (newRecords) => {
 }
 
 .header-right-group {
-  margin-left: auto; /* Это магическое свойство прижмет блок вправо в flex-контейнере */
+  margin-left: auto;
   display: flex;
-  gap: 10px;
+  gap: 8px;
+  flex-wrap: wrap; /* Если их очень много, они тоже перенесутся */
+}
+
+/* Специальное правило для мобильных экранов */
+@media (max-width: 600px) {
+  .header-right-group {
+    margin-left: 0; /* Убираем притяжение вправо на мобилках */
+    width: 100%;    /* Заставляем кнопки занять всю ширину, если они перенеслись вниз */
+    justify-content: flex-start;
+  }
+
+  /* Делаем кнопки чуть компактнее на мобилках */
+  .btn-edit-main, .btn-cancel-main, .btn-add-main {
+    padding: 8px 12px;
+    font-size: 0.9rem;
+    flex-grow: 1; /* Кнопки будут растягиваться равномерно на всю ширину */
+    justify-content: center;
+  }
 }
 
 /* Компактная кнопка добавления */

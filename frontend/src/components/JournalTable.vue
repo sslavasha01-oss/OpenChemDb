@@ -72,9 +72,13 @@
 
       <!-- Пагинация (без изменений) -->
       <div class="pagination" v-if="totalPages > 1">
+        <button :disabled="currentPage === 1" @click="changePage(1)" class="pag-btn" title="First Page">« First</button>
         <button :disabled="currentPage === 1" @click="changePage(currentPage - 1)" class="pag-btn">← Prev</button>
+
         <div class="page-numbers"><span class="current">{{ currentPage }}</span> / {{ totalPages }}</div>
+
         <button :disabled="currentPage === totalPages" @click="changePage(currentPage + 1)" class="pag-btn">Next →</button>
+        <button :disabled="currentPage === totalPages" @click="changePage(totalPages)" class="pag-btn" title="Last Page">Last »</button>
       </div>
     </div>
   </div>
@@ -411,7 +415,14 @@ defineExpose({
 .reaction-row:hover { background: #f9fdfb; }
 
 /* Пагинация и спиннер без изменений */
-.pagination { margin-top: 20px; display: flex; justify-content: center; align-items: center; gap: 15px; }
+.pagination {
+  margin-top: 20px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 8px; /* Уменьшили с 15 до 8 */
+  flex-wrap: wrap; /* Чтобы кнопки не вылезали за экран на узких телефонах */
+}
 .pag-btn { padding: 6px 14px; border: 1px solid #42b983; background: white; color: #42b983; border-radius: 20px; cursor: pointer; }
 .pag-btn:disabled { opacity: 0.3; }
 .status-msg { text-align: center; padding: 40px; color: #7f8c8d; }
