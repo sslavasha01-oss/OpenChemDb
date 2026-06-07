@@ -7,7 +7,7 @@ from sqlalchemy import select
 from app.core.settings import settings
 from app.core.db import get_users_db
 from app.models.user import User
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, status, Request
 from typing import List
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/login")

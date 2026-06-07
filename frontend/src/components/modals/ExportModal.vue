@@ -86,6 +86,7 @@
 <script setup>
 import { ref, onMounted, onUnmounted, computed } from 'vue'
 import axios from 'axios'
+import { useUserStore } from '@/stores/user'
 
 const emit = defineEmits(['close'])
 const exportInfo = ref(null)
@@ -159,18 +160,44 @@ const startExport = async () => {
 const downloadExport = async () => {
   try {
     const token = localStorage.getItem('token')
-    const response = await axios.get('/api/export-all/download', {
-      headers: { 'Authorization': `Bearer ${token}` },
-      responseType: 'blob'
+
+    // 1. Получаем JSON с URL-адресом
+    const res = await axios.get('/api/export-all/download', {
+      headers: { 'Authorization': `Bearer ${token}` }
     })
-    const url = window.URL.createObjectURL(new Blob([response.data]))
-    const link = document.createElement('a')
-    link.href = url
-    link.setAttribute('download', `journal_export.zip`)
-    document.body.appendChild(link)
-    link.click()
-    link.remove()
+    const downloadUrl = res.data.url
+
+    // ИСПРАВЛЕНИЕ: Проверяем саму ссылку, а не флаг в сторе
+    const isCloudUrl = downloadUrl.startsWith('http://') || downloadUrl.startsWith('https://')
+
+    if (!isCloudUrl) {
+      // --- ЛОКАЛЬНЫЙ РЕЖИМ ---
+      // Ссылка относительная (/api/...), качаем через Axios + Blob
+      const fileResponse = await axios.get(downloadUrl, {
+        headers: { 'Authorization': `Bearer ${token}` },
+        responseType: 'blob'
+      })
+      const url = window.URL.createObjectURL(new Blob([fileResponse.data]))
+      const link = document.createElement('a')
+      link.href = url
+      link.setAttribute('download', `journal_export.zip`)
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+      window.URL.revokeObjectURL(url)
+    } else {
+      // --- ПРОД РЕЖИМ (Cloudflare R2) ---
+      // Ссылка абсолютная, просто скачиваем её силами браузера
+      const link = document.createElement('a')
+      link.href = downloadUrl
+      // target="_blank" гарантирует, что даже если скачивание задержится, текущая вкладка не заблокируется
+      link.setAttribute('target', '_blank')
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+    }
   } catch (err) {
+    console.error("Детальная ошибка скачивания:", err) // Это выведет реальную причину в консоль, если что-то пойдет не так
     alert("Download failed. The file may no longer exist.")
   }
 }

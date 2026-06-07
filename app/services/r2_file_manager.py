@@ -176,4 +176,32 @@ class R2FileManager:
             if local_zip_path.exists():
                 local_zip_path.unlink()
 
+    def get_download_response(self, user_id: int, clean_path: str, expires_in: int = 900):
+        """
+        Режим продакшена: генерирует Presigned URL и возвращает RedirectResponse,
+        чтобы клиент качал файл напрямую из Cloudflare R2.
+        """
+        r2_key = f"{settings.R2_USER_DATA_STORAGE_PATH}/{user_id}/{clean_path}"
+
+        if not self._file_exists(r2_key):
+            raise HTTPException(status_code=404, detail="File not found in R2")
+
+        filename = r2_key.split("/")[-1]
+        encoded_filename = urllib.parse.quote(filename)
+
+        try:
+            url = self.s3_client.generate_presigned_url(
+                ClientMethod='get_object',
+                Params={
+                    'Bucket': self.bucket_name,
+                    'Key': r2_key,
+                    'ResponseContentDisposition': f"attachment; filename=\"{encoded_filename}\"; filename*=UTF-8''{encoded_filename}"
+                },
+                ExpiresIn=expires_in
+            )
+            from fastapi.responses import RedirectResponse
+            return {"url": url}
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Ошибка генерации ссылки R2: {str(e)}")
+
 

@@ -87,7 +87,8 @@ async def download_export_archive(
 
     # 3. Отдаем файл через FileManager, передавая относительный путь (например, "tmp/journal_export.zip")
     try:
-        return FileManager.get_file_response(current_user.id, user_export.path)
+        print(current_user.id, user_export.path)
+        return FileManager.get_download_response(current_user.id, user_export.path)
     except HTTPException as e:
         # Если FileManager выкинул 404 (файл удален с диска/бакета), превращаем в 410 GONE
         if e.status_code == 404:

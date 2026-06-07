@@ -181,3 +181,12 @@ class FileManager:
         """
         archive_base = user_tmp_dir / zip_filename
         shutil.make_archive(str(archive_base), 'zip', root_dir=root_build_dir)
+
+    @staticmethod
+    def get_download_response(user_id: int, clean_path: str) -> dict:
+        """
+        Локальный режим: возвращает URL на эндпоинт просмотра файлов.
+        """
+        # Формируем относительный URL для локального скачивания
+        local_url = f"/api/journal_attachment/view-user-file?file_path={clean_path}"
+        return {"url": local_url}
