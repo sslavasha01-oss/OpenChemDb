@@ -27,16 +27,7 @@
           <span class="icon">+</span> New Entry
         </button>
 
-        <div v-if="activeTab === 'table'" class="header-right-group">
-        <button
-               :class="isSelectionMode ? 'btn-cancel-main' : 'btn-edit-main'"
-               @click="isSelectionMode = !isSelectionMode"
-                >
-               {{ isSelectionMode ? 'Cancel Selection' : 'Select Records' }}
-          </button>
-          <button class="btn-edit-main" @click="showExportModal = true">Export</button>
-          <button class="btn-edit-main" @click="showImportModal = true">Import</button>
-        </div>
+
 
         <button
           v-if="activeTab === 'method'"
@@ -63,6 +54,30 @@
         >
           Delete
         </button>
+
+        <div v-if="activeTab === 'table' || activeTab === 'method'" class="header-right-group">
+          <!-- Кнопки для таблицы -->
+          <template v-if="activeTab === 'table'">
+            <button
+              :class="isSelectionMode ? 'btn-cancel-main' : 'btn-edit-main'"
+              @click="isSelectionMode = !isSelectionMode"
+            >
+              {{ isSelectionMode ? 'Cancel Selection' : 'Select Records' }}
+            </button>
+            <button class="btn-edit-main" @click="showExportModal = true">Export</button>
+            <button class="btn-edit-main" @click="showImportModal = true">Import</button>
+          </template>
+
+          <!-- Кнопка PDF для методики -->
+          <button
+            v-if="activeTab === 'method' && journalData?.id"
+            class="btn-edit-main"
+            @click="exportToPDF"
+            title="Print to PDF"
+          >
+            <span style="margin-right: 5px;">🖨️</span> PDF
+          </button>
+        </div>
       </template>
 
       <template v-else>
@@ -438,6 +453,7 @@ import JournalTable from '@/components/JournalTable.vue'
 import { useUserStore } from '@/stores/user'
 import ExportModal from '@/components/modals/ExportModal.vue'
 import ImportModal from '@/components/modals/ImportModal.vue'
+import { generateJournalPdf } from '@/utils/journalPdfExport'
 
 // Импортируем наши новые хуки
 import { useJournalCalculator } from '@/composables/useJournalCalculator'
@@ -486,6 +502,18 @@ const isUploading = ref(false)
 const articleInput = ref(null)
 const spectrumInput = ref(null)
 const mediaInput = ref(null)
+
+const exportToPDF = async () => {
+  try {
+    loading.value = true;
+    await generateJournalPdf(journalData.value);
+  } catch (err) {
+    console.error("PDF Export failed:", err);
+    alert("Could not generate PDF. Please check the console.");
+  } finally {
+    loading.value = false;
+  }
+};
 
 const triggerUploadOnZone = (event, inputRef) => {
   if (!isEditing.value || !inputRef) return
