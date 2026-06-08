@@ -52,7 +52,7 @@ export const generateJournalPdf = async (data) => {
   doc.setTextColor(0);
 
   // 2. PRODUCT SECTION
-  const pInfo = await svgToPngInfo(data.product_svg);
+  const pInfo = await svgToPngInfo(data.product_preview_svg || data.product_svg);
   if (pInfo) {
     const imgW = 65;
     const imgH = imgW / pInfo.ratio;
