@@ -254,7 +254,7 @@
                   <tr v-for="file in currentAttachments.SPECTRUM" :key="file.id">
                     <td><a href="#" @click.prevent="viewAttachment(file)" class="att-link">📊 {{ file.file_path.split('/').pop() }}</a></td>
                     <td>
-                      <input v-if="isEditing" v-model="file.description" class="desc-edit-input" placeholder="Add description...">
+                      <input v-if="isEditing" v-model="file.description" @input="file._isDirty = true" class="desc-edit-input" placeholder="Add description...">
                       <span v-else>{{ file.description || 'No description' }}</span>
                     </td>
                     <td class="att-actions">
