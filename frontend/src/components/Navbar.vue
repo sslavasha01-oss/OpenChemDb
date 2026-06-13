@@ -63,6 +63,7 @@ const toggleAccountMenu = () => { // <--- И это
               {{ acc.name }} <small v-if="acc.role === 'ADMIN'">(Admin)</small>
             </div>
             <hr>
+            <router-link to="/profile" @click="showAccountMenu = false">My Profile</router-link>
             <router-link to="/login" @click="showAccountMenu = false">Add Account</router-link>
             <a href="#" @click.prevent="userStore.logout(); showAccountMenu = false">Logout</a>
           </div>

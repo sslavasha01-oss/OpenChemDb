@@ -11,7 +11,7 @@ from app.api.comments import router as comments_router
 from app.api.comment_reactions import router as comment_reactions_router
 from app.api.register import router as register_router
 from fastapi.middleware.cors import CORSMiddleware
-from app.api.user_journal import router as users_router
+from app.api.user_journal import router as journal_router
 from app.api.journal_attachment import router as journal_attachment
 from app.api.export import router as export_router
 
@@ -45,6 +45,7 @@ app.add_middleware(
 )
 
 app.include_router(auth_router)
+app.include_router(journal_router)
 app.include_router(users_router)
 #
 app.include_router(reactions_router)
@@ -59,7 +60,7 @@ app.include_router(comment_reactions_router)
 
 app.include_router(register_router, tags=["Register"])
 
-app.include_router(users_router)
+app.include_router(journal_router)
 
 app.include_router(journal_attachment)
 

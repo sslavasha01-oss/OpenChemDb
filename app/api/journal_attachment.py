@@ -54,6 +54,15 @@ async def upload_journal_attachment(
                 status_code=413,  # 413 Payload Too Large
                 detail=f"File is too large. Maximum allowed: {max_mb:.0f} MB."
             )
+        # Проверка общего лимита пользователя по его тарифу
+        user_tariff = getattr(current_user, "tariff_plan")
+        max_allowed_total = settings.TARIFF_LIMITS.get(user_tariff, settings.TARIFF_LIMITS["FREE"])
+        current_total = getattr(current_user, "attachments_total_size")
+        if current_total + file.size > max_allowed_total:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Not enough space in cloud. Current tariff: {user_tariff}. Available: {(max_allowed_total - current_total) / (1024 * 1024):.1f} MB."
+            )
     # 1. Проверяем, существует ли запись в журнале и принадлежит ли она текущему пользователю
     query = select(UserJournal).where(
         UserJournal.id == journal_record_id,
@@ -109,10 +118,13 @@ async def upload_journal_attachment(
         type=attachment_type,
         description=description,
         file_path=db_file_path,
-        thumbnail_b64=thumbnail_data  # Сохраняем строку Base64
+        thumbnail_b64=thumbnail_data,
+        file_size=file.size
     )
 
     db.add(new_attachment)
+    current_user.attachments_total_size += file.size
+    db.add(current_user)
     await db.commit()
     await db.refresh(new_attachment)
 
@@ -204,6 +216,11 @@ async def delete_attachment(
             status_code=500,
             detail=f"Не удалось удалить файл с сервера: {str(e)}"
         )
+    attachment_size = attachment.file_size or 0
+
+    # Вычитаем размер, не уходя в минус
+    current_user.attachments_total_size = max(0, current_user.attachments_total_size - attachment_size)
+    db.add(current_user)
 
     # 4. Удаляем запись из базы данных
     await db.delete(attachment)

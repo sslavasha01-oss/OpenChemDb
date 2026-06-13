@@ -1,5 +1,5 @@
 import enum
-from sqlalchemy import Column, Integer, String, Text, ForeignKey, Enum, DateTime, func
+from sqlalchemy import Column, Integer, String, Text, ForeignKey, Enum, DateTime, func, BigInteger
 
 from app.core.db import Base
 
@@ -21,3 +21,4 @@ class JournalAttachment(Base):
     file_path = Column(String(1000), nullable=False)
     thumbnail_b64 = Column(Text, nullable=True)
     date_added = Column(DateTime, server_default=func.now(), nullable=False)
+    file_size = Column(BigInteger, server_default="0", default=0, nullable=False)

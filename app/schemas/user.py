@@ -14,6 +14,9 @@ class UserOut(BaseModel):
     email: EmailStr
     role: str
     is_active: bool
+    tariff_plan: str
+    max_allowed_size: int  # Вычисляемое поле для фронта
+    attachments_total_size: int
 
     class Config:
         from_attributes = True # Позволяет Pydantic работать с объектами SQLAlchemy

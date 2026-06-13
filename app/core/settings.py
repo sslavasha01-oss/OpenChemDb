@@ -1,7 +1,7 @@
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from typing import Optional
 import os
 from pydantic import EmailStr
+from typing import ClassVar, Dict
 
 # Находим путь к папке, где лежит этот файл (app/core)
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -59,6 +59,11 @@ class Settings(BaseSettings):
 
     LOCAL_MODE: bool
     NO_PASSWORD_LOGIN: bool
+
+    TARIFF_LIMITS: ClassVar[Dict[str, int]] = {
+        "FREE": 1 * 1024 * 1024 * 1024,
+        "PAID_1": 50 * 1024 * 1024 * 1024
+    }
 
     # Магия Pydantic:
     # 1. Сначала смотрим реальные переменные окружения (ОС)

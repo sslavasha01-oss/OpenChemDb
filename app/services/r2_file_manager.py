@@ -43,7 +43,6 @@ class R2FileManager:
             raise e
 
     def save_file(self, user_id: int, journal_external_id: str, filename: str, file_bytes: bytes) -> str:
-        print('SAVE to R2')
         original_name = Path(filename).name
         stem = Path(original_name).stem
         suffix = Path(original_name).suffix

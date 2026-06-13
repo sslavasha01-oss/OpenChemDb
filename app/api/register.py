@@ -38,7 +38,8 @@ async def register_prod(
             username=user_data.username,
             email=user_data.email,
             hashed_password=get_password_hash(user_data.password),
-            role="USER"  # По умолчанию все регистрируются как обычные юзеры
+            role="USER" ,
+            is_active=True
         )
     else:
         # 2. Создаем НЕАКТИВНОГО пользователя
@@ -51,14 +52,18 @@ async def register_prod(
         )
 
     db.add(new_user)
-    await db.commit()
-    await db.refresh(new_user)
-
     # 3. Генерируем токен и отправляем письмо в фоне (не тормозим ответ API)
     if not settings.LOCAL_MODE:
         token = create_verification_token(user_data.email)
         background_tasks.add_task(send_verification_email, user_data.email, token)
+    if not settings.LOCAL_MODE:
+        user_tariff = getattr(new_user, "tariff_plan", "FREE")
+        new_user.max_allowed_size = settings.TARIFF_LIMITS.get(user_tariff, settings.TARIFF_LIMITS["FREE"])
+    else:
+        new_user.max_allowed_size = 0
 
+    await db.commit()
+    await db.refresh(new_user)
     return new_user
 
 

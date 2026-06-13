@@ -419,6 +419,7 @@ async def background_import_task(
 
                 # Подготовка аттачментов для БД (БЕЗ копирования файлов)
                 attachments_to_insert = []
+                total_imported_size = 0
                 if "attachments.tsv" in namelist:
                     with archive.open("attachments.tsv") as tsv_file:
                         text_stream = io.TextIOWrapper(tsv_file, encoding="utf-8")
@@ -443,22 +444,30 @@ async def background_import_task(
 
                             file_name = clean_row["file_path"].split("/")[-1]
                             clean_row["file_path"] = f"{new_journal_ext_id}/{file_name}"
+                            zip_file_path = f"attachments/{old_journal_ext_id}/{file_name}"
+                            f_size = 0
+                            if zip_file_path in namelist:
+                                f_size = archive.getinfo(zip_file_path).file_size
 
-                            attachments_to_insert.append((clean_row, old_journal_ext_id, new_journal_ext_id, file_name))
+                            clean_row["file_size"] = f_size
+
+                            attachments_to_insert.append((clean_row, old_journal_ext_id, new_journal_ext_id, file_name, f_size))
 
                         # Если есть аттачменты — привязываем их к journal_record_id напрямую из словаря
+
                         if attachments_to_insert:
                             db_attachments = []
-                            for att_row, old_ext, new_ext, f_name in attachments_to_insert:
+                            for att_row, old_ext, new_ext, f_name, f_size in attachments_to_insert:
                                 # Достаем внутренний id записи из нашего маппинга по old_ext
                                 att_row["journal_record_id"] = old_to_new_ext_id[old_ext]["new_id"]
                                 db_attachments.append(att_row)
+                                total_imported_size += f_size
 
                             await db.execute(insert(JournalAttachment), db_attachments)
 
                         # Шаг 3: Физическое копирование файлов на диск (строго внутри сессии до коммита)
                         if attachments_to_insert:
-                            for att_row, old_ext, new_ext, f_name in attachments_to_insert:
+                            for att_row, old_ext, new_ext, f_name, f_size in attachments_to_insert:
                                 zip_file_path = f"attachments/{old_ext}/{f_name}"
                                 if zip_file_path in namelist:
                                     with archive.open(zip_file_path) as source_file:
@@ -469,6 +478,22 @@ async def background_import_task(
                                             source_stream=source_file
                                         )
                                         extracted_files.append((new_ext, f_name))
+                # Обновляем attachments_total_size у пользователя
+                if replace:
+                    # Если была полная очистка, то новый размер равен только импортированным файлам
+                    await db.execute(
+                        update(User)
+                        .where(User.id == user_id)
+                        .values(attachments_total_size=total_imported_size)
+                    )
+                else:
+                    # Если данные добавляются к текущим, то инкрементируем размер
+                    await db.execute(
+                        update(User)
+                        .where(User.id == user_id)
+                        .values(
+                            attachments_total_size=User.attachments_total_size + total_imported_size)
+                    )
 
                 await db.commit()
             # Снимаем блокировку импорта
