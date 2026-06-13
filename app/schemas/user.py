@@ -22,9 +22,11 @@ class UserOut(BaseModel):
         from_attributes = True # Позволяет Pydantic работать с объектами SQLAlchemy
 
 class Token(BaseModel):
+    user_id: int
     access_token: str
     token_type: str
-    role: str # Добавим роль в ответ, чтобы фронтенд сразу знал, что рисовать
+    expires_in: Optional[int] = None
+    role: str
 
 class ForgotPasswordRequest(BaseModel):
     email: EmailStr

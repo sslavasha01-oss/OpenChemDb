@@ -11,11 +11,32 @@
       <div v-else class="eval-list">
         <div v-for="(ev, idx) in evaluations" :key="idx" class="eval-item" :class="ev.status.toLowerCase()">
           <div class="eval-meta">
-            <strong>{{ ev.user }}</strong>
-            <span class="status-tag">{{ getStatusIcon(ev.status) }} {{ ev.status }}</span>
-            <small>{{ ev.date }}</small>
+            <div>
+              <strong>{{ ev.user }}</strong>
+              <span class="status-tag">{{ getStatusIcon(ev.status) }} {{ ev.status }}</span>
+              <small class="eval-date">{{ ev.date }}</small>
+            </div>
+
+            <div v-if="ev.user_id === currentUserId" class="eval-owner-actions">
+              <button class="btn-icon-action" title="Edit comment" @click="startEditEval(ev)">✏️</button>
+              <button class="btn-icon-action btn-delete" title="Delete evaluation" @click="deleteEval(ev)">❌</button>
+            </div>
           </div>
-          <p v-if="ev.comment" class="eval-comment">"{{ ev.comment }}"</p>
+
+          <div v-if="editingEvalId === ev.user_id" class="eval-edit-block">
+            <textarea
+              v-model="editCommentText"
+              rows="2"
+              placeholder="Edit your comment..."
+              :disabled="isSubmittingEvalEdit"
+            ></textarea>
+            <div class="eval-edit-buttons">
+              <button class="btn-save-mini" @click="saveEditEval(ev)" :disabled="isSubmittingEvalEdit">Save</button>
+              <button class="btn-cancel-mini" @click="cancelEditEval" :disabled="isSubmittingEvalEdit">Cancel</button>
+            </div>
+          </div>
+
+          <p v-else-if="ev.comment" class="eval-comment">"{{ ev.comment }}"</p>
         </div>
         <div v-if="evaluations.length === 0" class="empty-text">No evaluations yet.</div>
       </div>
@@ -156,13 +177,22 @@
 </template>
 
 <script setup>
-import { ref, watch, onMounted } from 'vue'
+import { ref, watch, onMounted, computed } from 'vue'
 import { apiRequest } from '@/api/client.js'
+import { useUserStore } from '@/stores/user'
 
 const props = defineProps({
   target: { type: String, required: true }, // 'REACTIONS' или 'BOOKS'
   entryId: { type: Number, required: true }
 })
+
+const userStore = useUserStore()
+const currentUserId = computed(() => userStore.currentUser?.id || null)
+
+// Состояние для редактирования комментария оценки
+const editingEvalId = ref(null) // Хранит user_id редактируемой оценки
+const editCommentText = ref('')
+const isSubmittingEvalEdit = ref(false)
 
 const emit = defineEmits(['request-add-eval'])
 const evaluations = ref([])
@@ -188,6 +218,56 @@ const showCommentInput = ref(false)
 
 const loadingMore = ref(false)
 const limit = 10
+const startEditEval = (ev) => {
+  editingEvalId.value = ev.user_id
+  editCommentText.value = ev.comment || ''
+}
+
+const cancelEditEval = () => {
+  editingEvalId.value = null
+  editCommentText.value = ''
+}
+
+const saveEditEval = async (ev) => {
+  isSubmittingEvalEdit.value = true
+  try {
+    const response = await apiRequest(
+      `/evaluations/update-comment?target=${props.target}&entry_id=${props.entryId}&comment=${encodeURIComponent(editCommentText.value)}`,
+      { method: 'PATCH' }
+    )
+    if (response.ok) {
+      ev.comment = editCommentText.value
+      cancelEditEval()
+    } else {
+      const errorData = await response.json()
+      alert(errorData.detail || "Error updating comment")
+    }
+  } catch (e) {
+    console.error("Eval edit error:", e)
+    alert("Failed to update comment")
+  } finally {
+    isSubmittingEvalEdit.value = false
+  }
+}
+
+const deleteEval = async (ev) => {
+  if (!confirm("Are you sure you want to delete your evaluation?")) return
+  try {
+    const response = await apiRequest(
+      `/evaluations/delete?target=${props.target}&entry_id=${props.entryId}`,
+      { method: 'DELETE' }
+    )
+    if (response.ok) {
+      evaluations.value = evaluations.value.filter(item => item.user_id !== ev.user_id)
+    } else {
+      const errorData = await response.json()
+      alert(errorData.detail || "Error deleting evaluation")
+    }
+  } catch (e) {
+    console.error("Eval delete error:", e)
+    alert("Failed to delete evaluation")
+  }
+}
 
 const submitComment = async () => {
   if (!commentText.value.trim()) return
@@ -289,7 +369,11 @@ const loadData = async () => {
       apiRequest(`/evaluations/details?target=${props.target}&entry_id=${props.entryId}`),
       apiRequest(`/comments/list?target=${props.target}&entry_id=${props.entryId}&limit=${limit}&offset=0`)
     ])
-    if (resEval.ok) evaluations.value = await resEval.json()
+    if (resEval.ok) {
+      evaluations.value = await resEval.json()
+      console.log("EVALUATIONS DATA:", evaluations.value) // <-- Дебаг в консоль браузера
+      console.log("CURRENT USER ID FROM STORE:", currentUserId.value)
+    }
     if (resComm.ok) {
       const data = await resComm.json()
       comments.value = data.items
@@ -393,6 +477,62 @@ defineExpose({ loadData })
 .eval-item.poo { border-color: #795548; background: #fdf5f2; }
 .eval-item.error { border-color: #f44336; background: #fff5f5; }
 .status-tag { font-weight: bold; margin-left: 10px; font-size: 0.8rem; }
+.eval-meta {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.eval-date {
+  margin-left: 10px;
+  color: #888;
+}
+
+/* Кнопки действий над своей оценкой */
+.eval-owner-actions {
+  display: flex;
+  gap: 8px;
+}
+.btn-icon-action {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 0.9rem;
+  padding: 2px;
+  opacity: 0.6;
+  transition: opacity 0.2s;
+}
+.btn-icon-action:hover {
+  opacity: 1;
+}
+.btn-delete:hover {
+  filter: drop-shadow(0 0 2px rgba(244, 67, 54, 0.4));
+}
+
+/* Блок инлайнового редактирования текста */
+.eval-edit-block {
+  margin-top: 8px;
+}
+.eval-edit-block textarea {
+  width: 100%;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  padding: 6px;
+  resize: vertical;
+  box-sizing: border-box;
+  font-size: 0.9rem;
+}
+.eval-edit-buttons {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 4px;
+}
+.btn-save-mini {
+  background: #42b983; color: white; border: none; padding: 4px 10px; border-radius: 4px; cursor: pointer; font-size: 0.75rem; font-weight: bold;
+}
+.btn-cancel-mini {
+  background: none; border: 1px solid #bbb; color: #666; padding: 3px 10px; border-radius: 4px; cursor: pointer; font-size: 0.75rem;
+}
 .comment-row { padding: 10px 0; border-bottom: 1px solid #eee; }
 .comment-author { font-weight: bold; font-size: 0.85rem; color: #555; }
 .comment-text { margin-top: 4px; font-size: 0.95rem; }

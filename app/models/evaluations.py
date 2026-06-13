@@ -19,6 +19,7 @@ class EntryEvaluation(Base):
     __tablename__ = "entry_evaluations"
 
     id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, nullable=False, index=True)
     user_nickname = Column(String, nullable=False, index=True)
 
     # ID записи в соответствующей таблице
@@ -49,6 +50,7 @@ class EntryEvaluation(Base):
         onupdate=text("TIMEZONE('utc', CURRENT_TIMESTAMP)")
     )
     # Ограничение: один пользователь — одна реакция на конкретную запись
+    # ВАЖНО: Обновили уникальный констреинт на user_id
     __table_args__ = (
-        UniqueConstraint('user_nickname', 'target_table', 'entry_id', name='_user_entry_uc'),
+        UniqueConstraint('user_id', 'target_table', 'entry_id', name='_user_entry_uc'),
     )

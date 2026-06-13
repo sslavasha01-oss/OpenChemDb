@@ -55,8 +55,8 @@ async function handleSubmit() {
         }
         throw new Error(typeof data.detail === 'string' ? data.detail : 'Login failed')
       }
-
       userStore.addAccount({
+        id: data.user_id,
         name: form.value.username,
         username: form.value.username,
         token: data.access_token,

@@ -40,8 +40,8 @@ async def login(
         )
     # 3. Генерируем токен (он будет вечным, если AUTHORIZATION_NEVER_EXPIRES=true)
     access_token = create_access_token(data={"id" : user.id, "sub": user.username, "role": user.role})
-
     return {
+        "user_id": user.id,
         "access_token": access_token,
         "token_type": "bearer",
         "role": user.role

@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, delete
 from typing import List, Dict
 
 from app.api.deps import get_current_user
@@ -31,7 +31,7 @@ async def add_evaluation(
     """
     # Проверяем, существует ли уже оценка (Upsert логика)
     query = select(EntryEvaluation).where(
-        EntryEvaluation.user_nickname == nickname,
+        EntryEvaluation.user_id == current_user.id,
         EntryEvaluation.target_table == target,
         EntryEvaluation.entry_id == entry_id
     )
@@ -41,8 +41,10 @@ async def add_evaluation(
     if existing:
         existing.status = status
         existing.comment = comment
+        existing.user_nickname = nickname
     else:
         new_eval = EntryEvaluation(
+            user_id=current_user.id,
             user_nickname=nickname,
             target_table=target,
             entry_id=entry_id,
@@ -54,8 +56,9 @@ async def add_evaluation(
     try:
         await db.commit()
     except Exception:
-        await db.rollback()
-        raise HTTPException(status_code=400, detail="Ошибка при сохранении оценки")
+
+       await db.rollback()
+       raise HTTPException(status_code=400, detail="Ошибка при сохранении оценки")
 
     return {"status": "ok"}
 
@@ -125,6 +128,7 @@ async def get_evaluation_details(
     Используется для тултипов при наведении на иконку статуса.
     """
     query = select(
+        EntryEvaluation.user_id,
         EntryEvaluation.user_nickname,
         EntryEvaluation.status,
         EntryEvaluation.comment,
@@ -147,6 +151,7 @@ async def get_evaluation_details(
     # Формируем красивый список объектов
     return [
         {
+            "user_id": row.user_id,
             "user": row.user_nickname,
             "status": row.status,
             "comment": row.comment,
@@ -154,3 +159,73 @@ async def get_evaluation_details(
         }
         for row in evals
     ]
+
+
+@router.patch("/update-comment")
+async def update_evaluation_comment(
+        target: TargetTable,
+        entry_id: int,
+        comment: str = None,
+        current_user: User = Depends(get_current_user),
+        db: AsyncSession = Depends(get_archive_db)
+):
+    """
+    Изменяет только комментарий у существующей оценки текущего пользователя.
+    """
+    query = select(EntryEvaluation).where(
+        EntryEvaluation.user_id == current_user.id,
+        EntryEvaluation.target_table == target,
+        EntryEvaluation.entry_id == entry_id
+    )
+    result = await db.execute(query)
+    evaluation = result.scalar_one_or_none()
+
+    if not evaluation:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Оценка не найдена или у вас нет прав на её изменение"
+        )
+
+    evaluation.comment = comment
+
+    try:
+        await db.commit()
+    except Exception:
+        await db.rollback()
+        raise HTTPException(status_code=400, detail="Ошибка при обновлении комментария")
+
+    return {"status": "updated", "comment": comment}
+
+
+@router.delete("/delete")
+async def delete_evaluation(
+        target: TargetTable,
+        entry_id: int,
+        current_user: User = Depends(get_current_user),
+        db: AsyncSession = Depends(get_archive_db)
+):
+    """
+    Удаляет оценку текущего пользователя для указанной записи.
+    """
+    stmt = delete(EntryEvaluation).where(
+        EntryEvaluation.user_id == current_user.id,
+        EntryEvaluation.target_table == target,
+        EntryEvaluation.entry_id == entry_id
+    ).returning(EntryEvaluation.id)  # Возвращает ID удаленной строки, если она была
+
+    result = await db.execute(stmt)
+    deleted_id = result.scalar_one_or_none()
+
+    if not deleted_id:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Оценка не найдена или уже удалена"
+        )
+
+    try:
+        await db.commit()
+    except Exception:
+        await db.rollback()
+        raise HTTPException(status_code=400, detail="Ошибка при удалении оценки")
+
+    return {"status": "deleted"}
