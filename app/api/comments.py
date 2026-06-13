@@ -9,6 +9,7 @@ from app.core.db import get_archive_db
 from app.models.comments import Comment, CommentReply
 from app.models.evaluations import TargetTable
 from app.models.user import User
+from fastapi import status
 
 router = APIRouter(prefix="/comments", tags=["Comments"])
 
@@ -157,3 +158,102 @@ async def get_replies_count(
     # Чтобы фронту было удобнее, можно вернуть количество для всех ID,
     # даже если ответов 0 (т.е. ID не нашелся в базе)
     return {cid: counts.get(cid, 0) for cid in comment_ids}
+
+
+@router.put("/{comment_id}/edit")
+async def edit_comment(
+        comment_id: int,
+        content: str,
+        current_user: User = Depends(get_current_user),
+        db: AsyncSession = Depends(get_archive_db)
+):
+    """Редактирование основного комментария (только автором)"""
+    comment = await db.get(Comment, comment_id)
+    if not comment:
+        raise HTTPException(status_code=404, detail="Comment not found")
+
+    # Проверка прав доступа
+    if comment.user_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You don't have permission to edit this comment"
+        )
+
+    comment.content = content
+    # Если в вашей модели Comment есть поле updated_at, можно обновить его здесь:
+    # comment.updated_at = func.now()
+
+    await db.commit()
+    return {"status": "success", "message": "Comment updated successfully"}
+
+
+@router.delete("/{comment_id}/delete")
+async def delete_comment(
+        comment_id: int,
+        current_user: User = Depends(get_current_user),
+        db: AsyncSession = Depends(get_archive_db)
+):
+    """Удаление основного комментария (только автором)"""
+    comment = await db.get(Comment, comment_id)
+    if not comment:
+        raise HTTPException(status_code=404, detail="Comment not found")
+
+    # Проверка прав доступа
+    if comment.user_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You don't have permission to delete this comment"
+        )
+
+    await db.delete(comment)
+    await db.commit()
+    return {"status": "success", "message": "Comment deleted successfully"}
+
+
+## --- Эндпоинты для Ответов (Replies) ---
+
+@router.put("/reply/{reply_id}/edit")
+async def edit_reply(
+        reply_id: int,
+        content: str,
+        current_user: User = Depends(get_current_user),
+        db: AsyncSession = Depends(get_archive_db)
+):
+    """Редактирование ответа на комментарий (только автором)"""
+    reply = await db.get(CommentReply, reply_id)
+    if not reply:
+        raise HTTPException(status_code=404, detail="Reply not found")
+
+    # Проверка прав доступа
+    if reply.user_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You don't have permission to edit this reply"
+        )
+
+    reply.content = content
+    await db.commit()
+    return {"status": "success", "message": "Reply updated successfully"}
+
+
+@router.delete("/reply/{reply_id}/delete")
+async def delete_reply(
+        reply_id: int,
+        current_user: User = Depends(get_current_user),
+        db: AsyncSession = Depends(get_archive_db)
+):
+    """Удаление ответа на комментарий (только автором)"""
+    reply = await db.get(CommentReply, reply_id)
+    if not reply:
+        raise HTTPException(status_code=404, detail="Reply not found")
+
+    # Проверка прав доступа
+    if reply.user_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You don't have permission to delete this reply"
+        )
+
+    await db.delete(reply)
+    await db.commit()
+    return {"status": "success", "message": "Reply deleted successfully"}

@@ -70,8 +70,22 @@
 
       <div class="comments-list">
         <div v-for="c in comments" :key="c.id" class="comment-row">
-          <div class="comment-author">
-            {{ c.user_nickname }} <small>{{ c.created_at }}</small>
+          <div class="comment-author-wrapper">
+            <div class="comment-author">
+              {{ c.user_nickname }} <small>{{ c.created_at }}</small>
+            </div>
+            <div v-if="c.user_id === currentUserId" class="comment-owner-actions">
+              <button class="btn-icon-action" title="Edit" @click="startEditComment(c)">✏️</button>
+              <button class="btn-icon-action btn-delete" title="Delete" @click="deleteComment(c)">❌</button>
+            </div>
+          </div>
+
+          <div v-if="editingCommentId === c.id" class="eval-edit-block" style="margin-bottom: 10px;">
+            <textarea v-model="editCommentTextGlobal" rows="2" :disabled="isSubmittingCommentEdit"></textarea>
+            <div class="eval-edit-buttons">
+              <button class="btn-save-mini" @click="saveEditComment(c)" :disabled="isSubmittingCommentEdit">Save</button>
+              <button class="btn-cancel-mini" @click="cancelEditComment" :disabled="isSubmittingCommentEdit">Cancel</button>
+            </div>
           </div>
           <div class="comment-text">{{ c.content }}</div>
 
@@ -114,8 +128,22 @@
           </div>
             <div v-if="expandedReplies.has(c.id)" class="replies-list">
               <div v-for="r in (repliesData[c.id] || [])" :key="r.id" class="reply-item">
-                <div class="comment-author">
-                  {{ r.user_nickname }} <small>{{ r.created_at }}</small>
+                <div class="comment-author-wrapper">
+                  <div class="comment-author">
+                    {{ r.user_nickname }} <small>{{ r.created_at }}</small>
+                  </div>
+                  <div v-if="r.user_id === currentUserId" class="comment-owner-actions">
+                    <button class="btn-icon-action" title="Edit" @click="startEditReply(r)">✏️</button>
+                    <button class="btn-icon-action btn-delete" title="Delete" @click="deleteReply(c.id, r)">❌</button>
+                  </div>
+                </div>
+
+                <div v-if="editingReplyId === r.id" class="eval-edit-block" style="margin-bottom: 10px;">
+                  <textarea v-model="editReplyTextGlobal" rows="2" :disabled="isSubmittingReplyEdit"></textarea>
+                  <div class="eval-edit-buttons">
+                    <button class="btn-save-mini" @click="saveEditReply(c.id, r)" :disabled="isSubmittingReplyEdit">Save</button>
+                    <button class="btn-cancel-mini" @click="cancelEditReply" :disabled="isSubmittingReplyEdit">Cancel</button>
+                  </div>
                 </div>
                 <div class="comment-text">{{ r.content }}</div>
                 <div class="comment-footer">
@@ -216,6 +244,14 @@ const commentText = ref('')
 const isSubmittingComment = ref(false)
 const showCommentInput = ref(false)
 
+const editingCommentId = ref(null)
+const editCommentTextGlobal = ref('')
+const isSubmittingCommentEdit = ref(false)
+
+const editingReplyId = ref(null)
+const editReplyTextGlobal = ref('')
+const isSubmittingReplyEdit = ref(false)
+
 const loadingMore = ref(false)
 const limit = 10
 const startEditEval = (ev) => {
@@ -291,6 +327,45 @@ const submitComment = async () => {
   } finally {
     isSubmittingComment.value = false
   }
+}
+
+const startEditComment = (c) => { editingCommentId.value = c.id; editCommentTextGlobal.value = c.content || ''; }
+const cancelEditComment = () => { editingCommentId.value = null; editCommentTextGlobal.value = ''; }
+const saveEditComment = async (c) => {
+  if (!editCommentTextGlobal.value.trim()) return
+  isSubmittingCommentEdit.value = true
+  try {
+    const res = await apiRequest(`/comments/${c.id}/edit?content=${encodeURIComponent(editCommentTextGlobal.value)}`, { method: 'PUT' })
+    if (res.ok) { c.content = editCommentTextGlobal.value; cancelEditComment(); }
+  } catch (e) { console.error(e) } finally { isSubmittingCommentEdit.value = false }
+}
+const deleteComment = async (c) => {
+  if (!confirm("Delete comment?")) return
+  try {
+    const res = await apiRequest(`/comments/${c.id}/delete`, { method: 'DELETE' })
+    if (res.ok) { comments.value = comments.value.filter(item => item.id !== c.id); totalComments.value = Math.max(0, totalComments.value - 1); }
+  } catch (e) { console.error(e) }
+}
+
+const startEditReply = (r) => { editingReplyId.value = r.id; editReplyTextGlobal.value = r.content || ''; }
+const cancelEditReply = () => { editingReplyId.value = null; editReplyTextGlobal.value = ''; }
+const saveEditReply = async (commentId, r) => {
+  if (!editReplyTextGlobal.value.trim()) return
+  isSubmittingReplyEdit.value = true
+  try {
+    const res = await apiRequest(`/comments/reply/${r.id}/edit?content=${encodeURIComponent(editReplyTextGlobal.value)}`, { method: 'PUT' })
+    if (res.ok) { r.content = editReplyTextGlobal.value; cancelEditReply(); }
+  } catch (e) { console.error(e) } finally { isSubmittingReplyEdit.value = false }
+}
+const deleteReply = async (commentId, r) => {
+  if (!confirm("Delete reply?")) return
+  try {
+    const res = await apiRequest(`/comments/reply/${r.id}/delete`, { method: 'DELETE' })
+    if (res.ok) {
+      if (repliesData.value[commentId]) repliesData.value[commentId] = repliesData.value[commentId].filter(item => item.id !== r.id)
+      if (repliesMap.value[commentId] !== undefined) repliesMap.value[commentId] = Math.max(0, repliesMap.value[commentId] - 1)
+    }
+  } catch (e) { console.error(e) }
 }
 
 const submitReply = async (commentId) => {
@@ -669,4 +744,7 @@ defineExpose({ loadData })
 .reply-item .comment-footer {
   justify-content: flex-start; /* У ответов лучше прижать кнопки к левому краю */
 }
+
+.comment-author-wrapper { display: flex; justify-content: space-between; align-items: center; }
+.comment-owner-actions { display: flex; gap: 6px; }
 </style>
