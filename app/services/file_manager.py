@@ -51,7 +51,7 @@ class FileManager:
         return f"{journal_external_id}/{file_name}"
 
     @staticmethod
-    def get_file_response(user_id: int, clean_path: str) -> FileResponse:
+    def get_file_response(user_id: int, clean_path: str, disposition: str = "inline") -> FileResponse:
         """
         Проверяет безопасность пути, существование файла и возвращает FileResponse.
         """
@@ -84,7 +84,8 @@ class FileManager:
         return FileResponse(
             path=full_path,
             media_type=media_type,
-            headers=headers
+            filename=encoded_filename,
+            content_disposition_type=disposition  # 'inline' или 'attachment'
         )
 
     @staticmethod
@@ -183,7 +184,7 @@ class FileManager:
         shutil.make_archive(str(archive_base), 'zip', root_dir=root_build_dir)
 
     @staticmethod
-    def get_download_response(user_id: int, clean_path: str) -> dict:
+    def get_download_response(user_id: int, clean_path: str, disposition: str = "inline") -> dict:
         """
         Локальный режим: возвращает URL на эндпоинт просмотра файлов.
         """

@@ -1,4 +1,5 @@
 import mimetypes
+import urllib
 from typing import Optional, List, Dict
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
@@ -134,6 +135,7 @@ async def upload_journal_attachment(
 @router.get("/view-user-file")
 async def view_user_file(
         file_path: str,  # Ожидаем формат: "external_id/filename.ext"
+        disposition: str = "inline",
         current_user: User = Depends(get_current_user)
 ):
     """
@@ -146,7 +148,7 @@ async def view_user_file(
         clean_path = clean_path[10:]
 
     # Делегируем логику проверки и отдачи ответа менеджеру файлов
-    return FileManager.get_file_response(current_user.id, clean_path)
+    return FileManager.get_file_response(current_user.id, clean_path, disposition=disposition)
 
 # Схема для входных данных
 class UpdateAttachmentDescriptionSchema(BaseModel):
@@ -283,3 +285,16 @@ async def get_batch_attachments(
             result_dict[rec_id][att_type].append(att)
 
     return {"attachments": result_dict}
+
+
+@router.get("/get-download-url")
+async def get_attachment_url(
+        file_path: str,
+        disposition: str = "inline",  # "inline" для просмотра, "attachment" для скачивания
+        current_user: User = Depends(get_current_user)
+):
+    # Чистим путь
+    clean_path = file_path.replace("\\", "/").replace("user_data/", "")
+
+    # Получаем URL (подписанный для R2 или локальный путь)
+    return FileManager.get_download_response(current_user.id, clean_path, disposition=disposition)

@@ -625,66 +625,56 @@ const removeAttachment = async (file, type, index) => {
   }
 }
 
-// Просмотр файла через защищенный эндпоинт
-const viewAttachment = async (file) => {
-  if (!file.file_path) return
-
-  try {
-    const token = localStorage.getItem('token')
-    const userId = userStore.currentUser.id
-
-    const response = await axios.get('/api/journal_attachment/view-user-file', {
-      params: { file_path: file.file_path },
-      headers: { 'Authorization': `Bearer ${token}` },
-      responseType: 'blob' // Важно для получения файла
-    })
-
-    // Создаем временную ссылку на скачанный объект
-    const blob = new Blob([response.data], { type: response.headers['content-type'] })
-    const fileUrl = window.URL.createObjectURL(blob)
-
-    // Открываем в новой вкладке
-    window.open(fileUrl, '_blank')
-
-    // Освобождаем память через небольшую задержку
-    setTimeout(() => window.URL.revokeObjectURL(fileUrl), 60000)
-  } catch (err) {
-    console.error("Error viewing file:", err)
-    alert("Could not open file. Maybe it was moved or deleted.")
-  }
-}
-
-// Функция для скачивания файла с оригинальным именем
-const downloadAttachment = async (file) => {
+const handleFileAction = async (file, disposition) => {
   if (!file.file_path) return
   try {
     const token = localStorage.getItem('token')
-    const response = await axios.get('/api/journal_attachment/view-user-file', {
-      params: { file_path: file.file_path },
-      headers: { 'Authorization': `Bearer ${token}` },
-      responseType: 'blob'
+
+    // ШАГ 1: Получаем URL от бэкенда (как и раньше)
+    const res = await axios.get('/api/journal_attachment/get-download-url', {
+      params: { file_path: file.file_path, disposition },
+      headers: { 'Authorization': `Bearer ${token}` }
     })
 
-    const blob = new Blob([response.data], { type: response.headers['content-type'] })
-    const fileUrl = window.URL.createObjectURL(blob)
+    const targetUrl = res.data.url
 
-    // Получаем имя файла из пути (или из заголовков, если нужно)
-    const fileName = file.file_path.split('/').pop() || 'file'
+    // ШАГ 2: Ключевое изменение. Проверяем саму ссылку, а не флаг в сторе.
+    // Если ссылка ведет на облако (начинается с http), работаем как с архивом.
+    if (targetUrl.startsWith('http')) {
+      // ОБЛАЧНЫЙ РЕЖИМ: Просто открываем ссылку в новой вкладке.
+      // Бэкенд уже подписал URL и добавил туда нужный disposition.
+      // Браузер сам решит: открыть PDF (inline) или скачать (attachment).
+      window.open(targetUrl, '_blank')
+    } else {
+      // ЛОКАЛЬНЫЙ РЕЖИМ: Оставляем как есть, так как для локального API нужен Bearer Token
+      const fileResponse = await axios.get(targetUrl, {
+        headers: { 'Authorization': `Bearer ${token}` },
+        responseType: 'blob'
+      })
 
-    const link = document.createElement('a')
-    link.href = fileUrl
-    link.setAttribute('download', fileName) // Вот это заставляет браузер качать с нужным именем
-    document.body.appendChild(link)
-    link.click()
+      const blob = new Blob([fileResponse.data], { type: fileResponse.headers['content-type'] })
+      const blobUrl = window.URL.createObjectURL(blob)
 
-    // Уборка
-    document.body.removeChild(link)
-    window.URL.revokeObjectURL(fileUrl)
+      if (disposition === 'inline') {
+        window.open(blobUrl, '_blank')
+      } else {
+        const link = document.createElement('a')
+        link.href = blobUrl
+        link.setAttribute('download', file.file_path.split('/').pop())
+        document.body.appendChild(link)
+        link.click()
+        document.body.removeChild(link)
+      }
+      setTimeout(() => window.URL.revokeObjectURL(blobUrl), 60000)
+    }
   } catch (err) {
-    console.error("Error downloading file:", err)
-    alert("Could not download file.")
+    console.error("Action failed:", err)
+    alert("Could not process file.")
   }
 }
+
+const viewAttachment = (file) => handleFileAction(file, 'inline')
+const downloadAttachment = (file) => handleFileAction(file, 'attachment')
 
 // Drag & Drop обработчики
 const onDrop = (event, type) => {
