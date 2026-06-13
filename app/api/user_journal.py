@@ -15,7 +15,7 @@ from app.models.user_journal import UserJournal
 from app.models.user import User
 from app.schemas.user_journal import UserJournalSchema
 from app.core.db import get_users_db
-from app.api.deps import get_current_user
+from app.api.deps import get_current_user, check_database_lock
 
 router = APIRouter(prefix="/my-journal", tags=["Journal"])
 
@@ -24,7 +24,8 @@ router = APIRouter(prefix="/my-journal", tags=["Journal"])
 async def add_journal_record(
         record_data: UserJournalSchema,
         current_user: User = Depends(get_current_user),
-        db: AsyncSession = Depends(get_users_db)
+        db: AsyncSession = Depends(get_users_db),
+        _=Depends(check_database_lock)
 ):
     # Превращаем Pydantic модель в словарь, исключая служебные поля и пустые mol_data
     data = record_data.model_dump(
@@ -87,7 +88,8 @@ async def update_journal_record(
         external_id: int,
         record_data: UserJournalSchema,
         current_user: User = Depends(get_current_user),
-        db: AsyncSession = Depends(get_users_db)
+        db: AsyncSession = Depends(get_users_db),
+        _=Depends(check_database_lock)
 ):
     # 1. Извлекаем только те поля, которые фронтенд явно передал в запросе
     data = record_data.model_dump(
@@ -170,7 +172,8 @@ async def update_journal_record(
 async def delete_journal_record(
         external_id: int,
         current_user: User = Depends(get_current_user),
-        db: AsyncSession = Depends(get_users_db)
+        db: AsyncSession = Depends(get_users_db),
+        _=Depends(check_database_lock)
 ):
     try:
         stmt = (

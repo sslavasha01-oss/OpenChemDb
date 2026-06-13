@@ -6,6 +6,7 @@ from sqlalchemy import select
 
 from app.core.settings import settings
 from app.core.db import get_users_db
+from app.models.export import UserExport, ProcessStatus
 from app.models.user import User
 from fastapi import Depends, HTTPException, status, Request
 from typing import List
@@ -57,3 +58,24 @@ class RoleChecker:
 
 
 allow_admin = RoleChecker(["ADMIN"])
+
+
+async def check_database_lock(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_users_db)
+) -> None:
+    """
+    Зависимость для проверки блокировки БД пользователя.
+    Выбрасывает 423 Locked, если идет процесс импорта или экспорта.
+    """
+    # Запрашиваем записи процессов для текущего пользователя
+    stmt = select(UserExport).where(UserExport.user_id == current_user.id)
+    res = await db.execute(stmt)
+    active_processes = res.scalars().all()
+
+    for process in active_processes:
+        if process.status in (ProcessStatus.PROCESSING_IMPORT, ProcessStatus.PROCESSING_EXPORT):
+            raise HTTPException(
+                status_code=status.HTTP_423_LOCKED,
+                detail=f"Database locked by background process: {process.status}"
+            )

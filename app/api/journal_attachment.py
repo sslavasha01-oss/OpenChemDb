@@ -8,7 +8,7 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_current_user
+from app.api.deps import get_current_user, check_database_lock
 from app.core.db import get_users_db
 from app.core.settings import settings
 from app.models.journal_attachment import JournalAttachment, AttachmentType
@@ -42,7 +42,8 @@ async def upload_journal_attachment(
         description: str = Form(None),
         file: UploadFile = File(...),
         current_user: User = Depends(get_current_user),
-        db: AsyncSession = Depends(get_users_db)
+        db: AsyncSession = Depends(get_users_db),
+        _=Depends(check_database_lock)
 ):
     """
     Загружает файл аттачмента, сохраняет его в user_data/{user_id}/{journal_record_external_id}/{file_name}
@@ -159,7 +160,8 @@ async def update_attachment_description(
     attachment_id: int,
     data: UpdateAttachmentDescriptionSchema,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_users_db)
+    db: AsyncSession = Depends(get_users_db),
+    _=Depends(check_database_lock)
 ):
     """
     Обновляет только поле description у аттачмента.
@@ -191,7 +193,8 @@ async def update_attachment_description(
 async def delete_attachment(
         attachment_id: int,
         current_user: User = Depends(get_current_user),
-        db: AsyncSession = Depends(get_users_db)
+        db: AsyncSession = Depends(get_users_db),
+        _=Depends(check_database_lock)
 ):
     """
     Удаляет файл аттачмента с диска и запись о нем из базы данных.

@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File,
 from sqlalchemy import select, insert, delete, func, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_current_user
+from app.api.deps import get_current_user, check_database_lock
 from app.api.user_journal import canonicalize_molecule_smiles
 from app.core.db import get_users_db, users_session_factory
 from app.core.settings import settings
@@ -103,7 +103,8 @@ async def download_export_archive(
 async def delete_export_data(
         process_type: Type = Query(...),
         current_user: User = Depends(get_current_user),
-        db: AsyncSession = Depends(get_users_db)
+        db: AsyncSession = Depends(get_users_db),
+        _=Depends(check_database_lock)
 ):
     """
     Удаляет файл экспорта с диска и очищает запись об экспорте из базы данных.
@@ -147,7 +148,8 @@ async def start_export_user_data(
         background_tasks: BackgroundTasks,
         record_ids: Optional[List[int]] = Query(None, description="Список ID записей для экспорта (?record_ids=1&record_ids=2)"),
         current_user: User = Depends(get_current_user),
-        db: AsyncSession = Depends(get_users_db)
+        db: AsyncSession = Depends(get_users_db),
+        _=Depends(check_database_lock)
 ):
     """
     Инициирует процесс экспорта данных в фоновом режиме.
@@ -298,7 +300,8 @@ async def start_import_user_data(
         file: UploadFile = File(...),
         background_tasks: BackgroundTasks = BackgroundTasks(),
         current_user: User = Depends(get_current_user),
-        db: AsyncSession = Depends(get_users_db)
+        db: AsyncSession = Depends(get_users_db),
+        _=Depends(check_database_lock)
 ):
     # Проверяем, нет ли уже запущенных процессов импорта или экспорта
     status_stmt = select(UserExport).where(UserExport.user_id == current_user.id)
