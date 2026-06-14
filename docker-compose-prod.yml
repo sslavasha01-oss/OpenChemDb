@@ -117,4 +117,10 @@ networks:
 
 #
 # app - app (на 16 воркеров) -> deploy.resources.limits.memory=8GB
-#sudo chown -R 1000:1000 ./data  -сделать перед депллоем для аппа
+## Для пользовательской базы
+#sudo chown -R 999:999 ./data/users
+#sudo chmod -R 700 ./data/users
+#
+## Для архивной базы на 3 млн реакций
+#sudo chown -R 999:999 ./data/archive
+#sudo chmod -R 700 ./data/archive
