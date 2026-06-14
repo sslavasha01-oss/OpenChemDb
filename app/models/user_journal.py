@@ -1,7 +1,7 @@
 from datetime import datetime
 from decimal import Decimal
 from typing import Optional
-from sqlalchemy import BigInteger, Integer, Text, Numeric, DateTime, func, Index
+from sqlalchemy import BigInteger, Integer, Text, Numeric, DateTime, func, Index, ForeignKey
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 from sqlalchemy.types import UserDefinedType
 
@@ -21,7 +21,7 @@ class UserJournal(Base):
     __tablename__ = 'user_journal'
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
-    user_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    user_id: Mapped[int] = mapped_column(Integer, ForeignKey('users.id', ondelete='CASCADE'), nullable=False)
     external_id: Mapped[int] = mapped_column(Integer, nullable=False)
 
     date_added: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
