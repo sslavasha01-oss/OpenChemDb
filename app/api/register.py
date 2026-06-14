@@ -250,7 +250,7 @@ async def reset_password_page(token: str):
             <div class="card">
                 <h2>New Password</h2>
                 <div id="message"></div>
-                <form id="resetForm" action="/reset-password-confirm-html" method="post">
+                <form id="resetForm" action="/api/reset-password-confirm-html" method="post">
                     <input type="hidden" name="token" value="{token}">
 
                     <input type="password" id="pass" name="new_password" 
