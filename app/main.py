@@ -12,8 +12,10 @@ from app.api.comment_reactions import router as comment_reactions_router
 from app.api.register import router as register_router
 from fastapi.middleware.cors import CORSMiddleware
 from app.api.user_journal import router as journal_router
+from app.api.webhooks import router as webhooks_router
 from app.api.journal_attachment import router as journal_attachment
 from app.api.export import router as export_router
+
 
 import logging
 
@@ -65,6 +67,7 @@ app.include_router(journal_router)
 app.include_router(journal_attachment)
 
 app.include_router(export_router)
+app.include_router(webhooks_router)
 
 
 @app.get("/version")
