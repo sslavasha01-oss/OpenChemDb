@@ -17,6 +17,28 @@ axios.interceptors.request.use(config => {
   }
   return config
 })
+
+axios.interceptors.response.use(
+  (response) => response, // Если всё хорошо, просто возвращаем ответ
+  (error) => {
+    // Проверяем, что ошибка именно 401 (Unauthorized)
+    if (error.response && error.response.status === 401) {
+      const userStore = useUserStore()
+
+      // 1. Очищаем данные пользователя в сторе (и токены)
+      userStore.logout?.() // Если есть метод logout, вызываем его
+      localStorage.removeItem('token')
+
+      // 2. Перенаправляем на страницу логина
+      // Проверяем, чтобы не редиректить бесконечно, если мы уже на странице логина
+      if (router.currentRoute.value.path !== '/login') {
+        router.push('/login')
+      }
+    }
+    return Promise.reject(error)
+  }
+)
+
 app.use(router)
 
 app.mount('#app')
