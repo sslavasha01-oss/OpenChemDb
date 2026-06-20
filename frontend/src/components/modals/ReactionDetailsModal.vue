@@ -18,7 +18,7 @@
         v-if="!isKetcherRender"
         ref="scrollContainer"
         class="modal-reaction-scroll"
-        v-html="reaction?.svg_content || ''"
+        v-html="makeSvgUnique(reaction?.svg_content, reaction?.id) || ''"
       ></div>
 
       <div
@@ -188,13 +188,14 @@ const generateKetcherImage = async (smiles) => {
           // Вызываем метод в точности как в SearchView/Родителе
           const blob = await ketcher.generateImage(smiles, { outputFormat: 'svg' })
           const text = await blob.text()
-          ketcherSvg.value = text
+          ketcherSvg.value = makeSvgUnique(text, props.reaction?.id)
         } catch (imageError) {
           console.warn("Ketcher details image generation temporary fail, retrying...", imageError)
           // Повторная точечная попытка при занятости Indigo
           setTimeout(async () => {
             const retryBlob = await ketcher.generateImage(smiles, { outputFormat: 'svg' })
-            ketcherSvg.value = await retryBlob.text()
+            const retryText = await retryBlob.text()
+            ketcherSvg.value = makeSvgUnique(retryText, props.reaction?.id)
           }, 100)
         }
       }
@@ -210,6 +211,27 @@ const generateKetcherImage = async (smiles) => {
       ketcherSvg.value = `<small style="color:#e74c3c; padding: 20px; display:block;">Ketcher engine timeout</small>`
     }
   }, 10000) // Защитный 10-секундный таймаут
+}
+
+// Уникализация ID внутри SVG, чтобы избежать конфликтов стилей и атомов в DOM
+const makeSvgUnique = (svgString, reactionId) => {
+  if (!svgString || !reactionId) return svgString;
+  const prefix = `rxn-${reactionId}-`;
+
+  // Заменяем id="idX" на id="rxn-ID-idX"
+  let processed = svgString.replace(/id=["']([^"']+)["']/g, (match, id) => {
+    return `id="${prefix}${id}"`;
+  });
+
+  // Заменяем ссылки href="#idX" или url(#idX) на новые уникальные
+  processed = processed.replace(/href=["']#([^"']+)["']/g, (match, href) => {
+    return `href="#${prefix}${href}"`;
+  });
+  processed = processed.replace(/url\(#([^)]+)\)/g, (match, urlId) => {
+    return `url(#${prefix}${urlId})`;
+  });
+
+  return processed;
 }
 
 // Функция для замены <NL> на переносы строк
