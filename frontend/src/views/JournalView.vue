@@ -150,9 +150,10 @@
         <div class="procedure-section">
           <h3>Method</h3>
           <textarea
+            ref="procedureRef"
             v-model="journalData.procedure"
             :disabled="!isEditing"
-            rows="5"
+            rows="1"
             @input="e => { e.target.style.height = 'auto'; e.target.style.height = e.target.scrollHeight + 'px' }"
             placeholder="Describe the synthesis procedure..."
           ></textarea>
@@ -486,6 +487,24 @@ const isEditing = computed({
   get: () => isGuest.value ? true : _isEditingInternal.value,
   set: (val) => { _isEditingInternal.value = val }
 })
+
+const procedureRef = ref(null)
+
+const adjustHeight = () => {
+  nextTick(() => {
+    const el = procedureRef.value
+    if (el) {
+      el.style.height = 'auto'
+      el.style.height = el.scrollHeight + 'px'
+    }
+  })
+}
+
+// Следим за изменением текста (при загрузке записи или вводе)
+watch(() => journalData.value.procedure, () => {
+  adjustHeight()
+})
+
 
 const activeTab = ref(isGuest.value ? 'method' : 'table')
 const loading = ref(false)
@@ -1273,6 +1292,12 @@ watch(() => tableRef.value?.records, (newRecords) => {
   }
 }, { immediate: true })
 
+watch(activeTab, (newTab) => {
+  if (newTab === 'method') {
+    adjustHeight()
+  }
+})
+
 </script>
 
 <style scoped>
@@ -1350,8 +1375,10 @@ watch(() => tableRef.value?.records, (newRecords) => {
   border-radius: 8px;
   border: 1px solid #ddd;
   resize: none;
-  overflow: hidden;
+  overflow-y: hidden; /* Скрываем вертикальный скролл, так как высота будет расти */
   line-height: 1.5;
+  display: block;    /* Убирает лишние отступы снизу */
+  height: auto;      /* Позволяет скрипту управлять высотой */
 }
 .extra-fields-row {
   display: grid;
