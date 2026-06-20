@@ -62,7 +62,7 @@ async function handleSubmit() {
         token: data.access_token,
         role: data.role
       })
-      router.push('/')
+      router.push('/journal')
 
     } else if (mode.value === 'register') {
       if (!passwordsMatch.value) throw new Error('Passwords do not match')
