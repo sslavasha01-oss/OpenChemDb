@@ -344,21 +344,20 @@ defineExpose({performNewSearch})
 .col-ref   { width: 220px; text-align: left; }
 
 .reaction-container {
-  display: inline-block; /* Позволяет ячейке схлопываться до реальной ширины SVG */
+  display: block;        /* Изменено с inline-block */
+  width: 100%;           /* Занимает всю доступную ширину */
+  overflow: hidden;      /* Гарантирует, что ничего не вылезет */
   background: #fff;
   padding: 2px 0;
 }
 
 .reaction-container :deep(svg) {
-  width: auto;
-  max-width: 100%; /* Позволяет схеме растянуться почти на весь экран */
-
-  /* Поднимаем планку высоты до 180px. Теперь длинные молекулы развернутся вширь,
-     а сложные/высокие циклы не будут сплющиваться в кашу */
-  max-height: 180px;
-
   display: block;
-  margin: 0; /* Выравнивание по левому краю ячейки */
+  width: 100% !important;
+  height: auto !important;
+  max-width: 100% !important; /* Это заставит SVG сжиматься */
+  max-height: 180px;
+  margin: 0 auto;
 }
 
 .ref-block { display: flex; flex-direction: column; gap: 2px; }
@@ -396,6 +395,11 @@ defineExpose({performNewSearch})
     display: block;
   }
 
+  .col-viz {
+    min-width: 0 !important;
+    width: 100% !important;
+    max-width: none !important; /* Сбрасываем 70%, чтобы занять всю ширину карточки */
+  }
   .reaction-table thead { display: none; }
 
   .reaction-table tr {
@@ -429,18 +433,23 @@ defineExpose({performNewSearch})
 
   .col-viz {
     order: -1;
+    padding: 0 !important; /* Картинка будет от края до края внутренних границ карточки */
     border-bottom: 2px solid #eee !important;
     padding-bottom: 12px !important;
   }
   .col-viz::before { display: none; }
 
   .reaction-container {
-    border: none;
-    padding: 0;
+    width: 100%;
+    overflow: hidden; /* Обрезает всё, что не влезло, если вдруг масштаб не сработал */
+    display: flex;
+    justify-content: center;
   }
 
   .reaction-container :deep(svg) {
-    max-height: 160px;
+    width: 100% !important;   /* Растягиваем на всю ширину */
+    height: auto !important;  /* Пропорционально увеличиваем высоту */
+    max-height: 400px;        /* Увеличиваем лимит, чтобы картинка могла вырасти */
     margin: 0 auto;
   }
 }
