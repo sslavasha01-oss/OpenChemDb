@@ -30,19 +30,19 @@ def _send_mail_sync(email_to: str, verify_url: str):
     mail = mt.Mail(
         sender=mt.Address(email=settings.MAIL_FROM, name=settings.MAIL_FROM_NAME),
         to=[mt.Address(email=email_to)],
-        subject="Подтверждение регистрации OpenChemDB",
+        subject="OpenChemDB Registration Confirmation",
         html=f"""
         <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #eee; padding: 20px;">
-            <h2 style="color: #2c3e50;">Добро пожаловать в OpenChemDB!</h2>
-            <p>Вы успешно зарегистрировались в системе химических баз данных.</p>
-            <p>Для активации вашего аккаунта, пожалуйста, нажмите на кнопку ниже:</p>
-            <div style="text-align: center; margin: 30px 0;">
-                <a href="{verify_url}" 
-                   style="background-color: #4CAF50; color: white; padding: 12px 25px; text-decoration: none; border-radius: 4px; font-weight: bold;">
-                   Активировать аккаунт
-                </a>
-            </div>
-            <p style="font-size: 0.8em; color: #7f8c8d;">Ссылка действительна в течение 24 часов.</p>
+            <h2 style="color: #2c3e50;">Welcome to OpenChemDB!</h2>
+                <p>You have successfully registered in the chemical database system.</p>
+                <p>To activate your account, please click the button below:</p>
+                <div style="text-align: center; margin: 30px 0;">
+                    <a href="{verify_url}" 
+                           style="background-color: #4CAF50; color: white; padding: 12px 25px; text-decoration: none; border-radius: 4px; font-weight: bold;">
+                           Activate Account
+                     </a>
+                </div>
+               <p style="font-size: 0.8em; color: #7f8c8d;">This link is valid for 24 hours.</p>
         </div>
         """,
         category="Registration"
@@ -67,19 +67,19 @@ def _send_reset_password_sync(email_to: str, reset_url: str):
     mail = mt.Mail(
         sender=mt.Address(email=settings.MAIL_FROM, name=settings.MAIL_FROM_NAME),
         to=[mt.Address(email=email_to)],
-        subject="Сброс пароля OpenChemDB",
+        subject="OpenChemDB Password Reset",
         html=f"""
         <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #eee; padding: 20px;">
-            <h2 style="color: #2c3e50;">Восстановление доступа</h2>
-            <p>Мы получили запрос на сброс пароля для вашего аккаунта в OpenChemDB.</p>
-            <p>Если вы этого не делали, просто проигнорируйте это письмо.</p>
+            <h2 style="color: #2c3e50;">Password Reset Request</h2>
+            <p>We received a request to reset the password for your OpenChemDB account.</p>
+            <p>If you did not request this, please ignore this email.</p>
             <div style="text-align: center; margin: 30px 0;">
-                <a href="{reset_url}" 
-                   style="background-color: #e74c3c; color: white; padding: 12px 25px; text-decoration: none; border-radius: 4px; font-weight: bold;">
-                   Сбросить пароль
-                </a>
+               <a href="{reset_url}" 
+                    style="background-color: #e74c3c; color: white; padding: 12px 25px; text-decoration: none; border-radius: 4px; font-weight: bold;">
+                    Reset Password
+               </a>
             </div>
-            <p style="font-size: 0.8em; color: #7f8c8d;">Ссылка действительна 1 час.</p>
+        <p style="font-size: 0.8em; color: #7f8c8d;">This link is valid for 1 hour.</p>
         </div>
         """,
         category="Password Reset"
