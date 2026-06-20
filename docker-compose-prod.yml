@@ -40,7 +40,7 @@ services:
       resources:
         limits:
           memory: 1G
-          cpus: '2.0'
+          cpus: '5.0'
     networks:
       - chem_network
 
@@ -71,7 +71,7 @@ services:
       resources:
         limits:
           memory: 16G    # Максимум, который может взять база 18 ядер поднять до 16
-          cpus: '12.0'
+          cpus: '24.0'
         reservations:
           memory: 12G
     networks:
@@ -84,6 +84,7 @@ services:
     container_name: openchem_app
     ports:
       - "8000:8000"
+    restart: always
     environment:
       - WORKERS_COUNT=16  #16 на 18ядрах
       - PYTHONUNBUFFERED=1
@@ -104,7 +105,7 @@ services:
       resources:
         limits:
           memory: 8G    # FastAPI + 4 воркера + RDKit обычно едят около 1-1.5 ГБ на зеон - deploy.resources.limits.memory=8GB
-          cpus: '16.0'
+          cpus: '30.0'
         reservations:
           memory: 2G
     networks:
