@@ -27,12 +27,10 @@ restart: down up
 # 4. УМНОЕ ОБНОВЛЕНИЕ ПРИЛОЖЕНИЯ И ФРОНТЕНДА (--no-cache)
 # Пересобирает только app и frontend-builder без кэша, остальные контейнеры просто перезапускает при необходимости
 update:
-	@echo "--- Пересборка frontend-builder и app без кэша ---"
+	@echo "--- Пересборка фронтенда и апп без кэша ---"
 	docker compose -f $(COMPOSE_APP_FILE) build --no-cache frontend-builder app
-	@echo "--- Перезапуск обновленного приложения ---"
-	docker compose -f $(COMPOSE_APP_FILE) up -d --no-deps frontend-builder app
-	@echo "--- Проверка и поднятие остального стека приложения ---"
-	docker compose -f $(COMPOSE_APP_FILE) up -d
-	@echo "--- Синхронизация инфраструктурного стека ---"
-	docker compose -f $(COMPOSE_INFRA_FILE) up -d
-	@echo "--- Обновление завершено! ---"
+	@echo "--- Перезапуск контейнера сборщика фронта ---"
+	docker compose -f $(COMPOSE_APP_FILE) up -d --no-deps frontend-builder
+	@echo "--- Перезапуск контейнера FastAPI (app) ---"
+	docker compose -f $(COMPOSE_APP_FILE) up -d --no-deps app
+	@echo "--- Обновление завершено! Базы и инфра не затрагивались. ---"
