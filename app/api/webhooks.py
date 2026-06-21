@@ -1,10 +1,9 @@
-import traceback
-
-from fastapi import FastAPI, Request, APIRouter, HTTPException, status, Depends
-import hmac
 import hashlib
+import hmac
+import traceback
 from datetime import datetime
 
+from fastapi import Request, APIRouter, HTTPException, status, Depends
 from sqlalchemy import select, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -128,12 +127,33 @@ async def receive_webhook(request: Request,
         return {"status": "error_logged", "message": "Failed to save webhook but request accepted"}
 
     # 6. Если сматчили и событие верное — обновляем тариф пользователя
-    if event_type == "membership.started" and user:
+    if user:
         try:
-            user.tariff_plan = TariffPlan.PAID_1.value
-            if current_period_end:
-                user.subscription_period_end = current_period_end
-            print(f" Пользователь {user.username} успешно переведен на тариф PAID_1")
+            # Сценарий А: Подписка стартовала (первая оплата)
+            if event_type == "membership.started":
+                user.tariff_plan = TariffPlan.PAID_1.value
+                if current_period_end:
+                    user.subscription_period_end = current_period_end
+                print(f" Пользователь {user.username} успешно переведен на тариф PAID_1")
+
+            # Сценарий Б: Подписка обновилась (продление, отмена автопродления и т.д.)
+            elif event_type == "membership.updated":
+                cancel_at_period_end = data.get("cancel_at_period_end") == "true" or data.get(
+                    "cancel_at_period_end") is True
+
+                if cancel_at_period_end:
+                    # Пользователь отменил автопродление.
+                    # Мы НЕ снимаем тариф, просто обновляем финальную дату, до которой он допущен
+                    if current_period_end:
+                        user.subscription_period_end = current_period_end
+                    print(f" Пользователь {user.username} отменил автопродление. Доступ до: {current_period_end}")
+                else:
+                    # Это обычное обновление (например, успешное автопродление на следующий месяц)
+                    # На всякий случай продлеваем ему дату окончания
+                    user.tariff_plan = TariffPlan.PAID_1.value
+                    if current_period_end:
+                        user.subscription_period_end = current_period_end
+                    print(f" Подписка пользователя {user.username} обновлена/продлена до {current_period_end}")
         except Exception as e:
             print(f"Ошибка обновления тарифа для пользователя {user.id}: {e}")
 

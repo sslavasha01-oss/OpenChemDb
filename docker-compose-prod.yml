@@ -111,6 +111,25 @@ services:
     networks:
       - chem_network
 
+
+  scheduler:
+    image: mcuadros/ofelia:latest
+    container_name: app_scheduler
+    command: daemon --docker
+    depends_on:
+      - app
+    volumes:
+      # Это критично: Ofelia управляет контейнерами через сокет хоста
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    labels:
+      # Имя задачи
+      ofelia.job-exec.check_subscriptions.schedule: "@daily" # Раз в сутки (в полночь) @daily "@every 1m"
+      # В каком контейнере запускать команду
+      ofelia.job-exec.check_subscriptions.container: "openchem_app"
+      # Какую команду запускать внутри контейнера
+      ofelia.job-exec.check_subscriptions.command: "env PYTHONPATH=. python app/cron_check_subscriptions.py"
+    restart: always
+
 networks:
   chem_network:
     name: chem_network
