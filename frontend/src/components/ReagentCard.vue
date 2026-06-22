@@ -152,7 +152,7 @@ const showKetcher = ref(false)
 const ketcherToBackground = () => {
   const globalFrame = window.ketcherIframeElement || document.getElementById('global-ketcher-iframe')
   if (globalFrame) {
-    globalFrame.style.cssText = "position: fixed; top: -5000px; left: -5000px; width: 800px; height: 600px; visibility: visible; border: none; pointer-events: none;"
+    globalFrame.style.cssText = "position: fixed; top: -5000px; left: -5000px; width: 1000px; height: 800px; visibility: visible; border: none; pointer-events: none;";
   }
 }
 
@@ -176,6 +176,7 @@ const copyToClipboard = (text) => {
   }
 }
 
+let lastRenderedSmiles = '';
 
 // 2. Фоновая отрисовка с детальным логированием шагов
 const drawSmiles = async (smiles) => {
@@ -183,10 +184,14 @@ const drawSmiles = async (smiles) => {
   console.time(`[Draw Performance #${props.index}-${timestamp}]`);
 
   const globalFrame = window.ketcherIframeElement || document.getElementById('global-ketcher-iframe')
+  if (smiles === lastRenderedSmiles && smiles !== '') return;
+  lastRenderedSmiles = smiles;
 
   if (!smiles || smiles.trim() === "") {
     console.log(`[ReagentCard #${props.index}] Пустой SMILES, очищаем поле.`);
-    const ketcher = window.ketcherSingleton || globalFrame?.contentWindow?.ketcher;
+    const ketcher = window.ketcherSingleton ||
+                    globalFrame?.contentWindow?.ketcher ||
+                    document.getElementById('global-ketcher-iframe')?.contentWindow?.ketcher;
     if (ketcher && typeof ketcher.setMolecule === 'function') ketcher.setMolecule("");
 
     const updated = { ...props.modelValue };
@@ -199,11 +204,14 @@ const drawSmiles = async (smiles) => {
   }
 
   const tryDraw = (attempts = 0) => {
-    const ketcher = window.ketcherSingleton || globalFrame?.contentWindow?.ketcher;
+    const ketcher = window.ketcherSingleton ||
+                    globalFrame?.contentWindow?.ketcher ||
+                    document.getElementById('global-ketcher-iframe')?.contentWindow?.ketcher;
 
     if (window.ketcherIsBusy) {
-      console.warn(`[Collision Lock] Реагент #${props.index} ждет, Кетчер занят отрисовкой другого компонента. Попытка: ${attempts}`);
-      setTimeout(() => tryDraw(attempts + 1), 50);
+      if (attempts < 10) {
+        setTimeout(() => tryDraw(attempts + 1), 200);
+      }
       return;
     }
 
@@ -325,7 +333,9 @@ const openEditor = async () => {
     }
 
     const checkAndSet = async () => {
-      const ketcher = window.ketcherSingleton || globalFrame?.contentWindow?.ketcher;
+      const ketcher = window.ketcherSingleton ||
+                    globalFrame?.contentWindow?.ketcher ||
+                    document.getElementById('global-ketcher-iframe')?.contentWindow?.ketcher;
       if (ketcher && typeof ketcher.setMolecule === 'function') {
         if (!window.ketcherSingleton) window.ketcherSingleton = ketcher;
         const smiles = props.modelValue[`reagent${props.index}_smiles`];

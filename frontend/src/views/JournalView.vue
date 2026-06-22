@@ -429,12 +429,6 @@
         </div>
       </section>
     </main>
-    <iframe
-      id="global-ketcher-iframe"
-      ref="globalKetcherFrame"
-      src="/standalone/index.html?hidden_controls=all"
-      class="invisible-ketcher">
-    </iframe>
     <ExportModal
       v-if="showExportModal"
       :selected-ids="selectedExportIds"
@@ -927,6 +921,11 @@ const handleSubstructureSearch = async () => {
 }
 
 onMounted(() => {
+  // Находим глобальный айфрейм, так как локальный мы удалили
+  globalKetcherFrame.value = document.getElementById('global-ketcher-iframe')
+
+  // Принудительно сбрасываем флаг занятости, чтобы журнал мог рисовать
+  window.ketcherIsBusy = false
   setTimeout(() => {
     isKetcherInjected.value = true
   }, 1000)

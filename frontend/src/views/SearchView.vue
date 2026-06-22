@@ -26,120 +26,87 @@ let debounceTimer = null
 
 // Вспомогательная функция: возвращает фрейм в скрытое состояние в самый низ экрана
 const ketcherToBackground = () => {
-  const globalFrame = window.ketcherIframeElement || document.getElementById('global-ketcher-iframe')
+  window.ketcherIsBusy = false;
+  const globalFrame = document.getElementById('global-ketcher-iframe');
   if (globalFrame) {
-    globalFrame.style.cssText = "position: fixed; top: -9999px; left: -9999px; width: 1px; height: 1px; visibility: hidden; z-index: -1;"
+    // Просто уносим в "космос", не меняя URL!
+    globalFrame.style.cssText = "position: fixed; top: -5000px; left: -5000px; width: 1000px; height: 800px; visibility: visible; z-index: -1000; pointer-events: none; border: none;";
   }
 }
 
 const openEditor = async () => {
-  showKetcher.value = true
-  await nextTick()
+  const ts = Date.now();
+  console.log(`%c[DEBUG ${ts}] 1. OpenEditor Start`, "color: #42b983; font-weight: bold");
 
-  const globalFrame = window.ketcherIframeElement || document.getElementById('global-ketcher-iframe')
-  const marker = document.getElementById('ketcher-placeholder-marker')
+  window.ketcherIsBusy = true;
+  showKetcher.value = true;
+  await nextTick();
 
-  if (globalFrame && marker) {
-    // === ВОТ ЭТОТ БЛОК ИСПРАВЛЯЕТ ПОЛОМКУ UI ===
-    // Если фрейм до этого использовался в режиме скрытых кнопок (hidden_controls=all)
-    // возвращаем ему чистый дефолтный URL, чтобы отрисовались все инструменты рисования
-    try {
-      if (globalFrame.src.includes('hidden_controls=all')) {
-        globalFrame.src = "/standalone/index.html";
-        // Даем микропаузу, чтобы Ketcher успел перерисовать интерфейс
-        await new Promise(resolve => setTimeout(resolve, 150));
-      }
-    } catch (e) {
-      console.warn("Не удалось сбросить скрытие контролов:", e);
-    }
-    // ===========================================
+  const globalFrame = document.getElementById('global-ketcher-iframe');
+  const marker = document.getElementById('ketcher-placeholder-marker');
 
-    // Получаем точные экранные координаты блока-маркера внутри модального окна
-    const rect = marker.getBoundingClientRect()
+  if (!globalFrame || !marker) return;
 
-    // Поверх него накладываем наш глобальный фрейм через fixed, не перезагружая iframe!
-    globalFrame.style.cssText = `
-      position: fixed;
-      top: ${rect.top}px;
-      left: ${rect.left}px;
-      width: ${rect.width}px;
-      height: ${rect.height}px;
-      border: none;
-      visibility: visible;
-      display: block;
-      z-index: 2100; /* Выше модального окна */
-    `
-  }
+  const rect = marker.getBoundingClientRect();
 
-  // Запускаем ваш оригинальный интервал 1 в 1
+  // Сразу ставим фрейм в нужное место, но прозрачным
+  globalFrame.style.cssText = `
+    position: fixed;
+    top: ${rect.top}px;
+    left: ${rect.left}px;
+    width: ${rect.width}px;
+    height: ${rect.height}px;
+    border: none;
+    visibility: visible !important;
+    display: block !important;
+    z-index: 3000;
+    pointer-events: auto !important;
+    opacity: 0;
+  `;
+
+  // Если раскоментить Кетчер перезагрузится с зумом 100%??
+  //window.ketcherSingleton = null;
+  //globalFrame.src = "/standalone/index.html?mode=search";
+
   const timer = setInterval(async () => {
-    try {
-      const ketcher = window.ketcherSingleton || globalFrame?.contentWindow?.ketcher
+    const k = globalFrame?.contentWindow?.ketcher;
+    const isReady = k && typeof k.setMolecule === 'function' && k.editor;
 
-      if (ketcher && typeof ketcher.getSmiles === 'function') {
-        clearInterval(timer)
-        if (!window.ketcherSingleton) window.ketcherSingleton = ketcher
+    if (isReady) {
+      clearInterval(timer);
+      window.ketcherSingleton = k;
 
-        let smilesToLoad = reactionSmiles.value
-
+      try {
+        let smilesToLoad = reactionSmiles.value;
         if (smilesToLoad) {
-          if (smilesToLoad.startsWith('>>')) {
-            smilesToLoad = smilesToLoad.substring(2)
-          }
-
-          try {
-            await ketcher.setMolecule(smilesToLoad)
-          } catch (e) {
-            console.warn("Retrying setMolecule...", e)
-            setTimeout(() => ketcher.setMolecule(smilesToLoad), 100)
-          }
+          if (smilesToLoad.startsWith('>>')) smilesToLoad = smilesToLoad.substring(2);
+          await k.setMolecule(smilesToLoad);
         } else {
-          // Если строка поиска пустая — обязательно очищаем холст Кетчера от старых структур!
-          await ketcher.setMolecule('')
+          await k.setMolecule('');
         }
+
+        // Проявляем и фиксим вид
+        globalFrame.style.opacity = '1';
+
+        setTimeout(() => {
+          try {
+            globalFrame.contentWindow.dispatchEvent(new Event('resize'));
+            k.setZoom(1.0);
+            if (k.editor.centerXy) k.editor.centerXy();
+          } catch (e) {}
+        }, 150);
+
+      } catch (err) {
+        console.error("Error loading molecule:", err);
       }
-    } catch (e) {
-      // Игнорируем ошибки доступа
     }
-  }, 250)
+  }, 100);
 
-  setTimeout(() => clearInterval(timer), 5000)
-}
-
-const saveFromKetcher = async () => {
-  try {
-    const ketcher = window.ketcherSingleton
-    if (!ketcher) return
-
-    const result = searchMode.value === 'advanced'
-      ? await ketcher.getSmarts()
-      : await ketcher.getSmiles()
-
-    if (result && result.trim().length > 0) {
-      let finalStr = result.trim()
-
-      if (!finalStr.includes('>>')) {
-        finalStr = `>>${finalStr}`
-      }
-
-      reactionSmiles.value = finalStr
-      const blob = await ketcher.generateImage(finalStr, {outputFormat: 'svg'})
-      reactionSvg.value = await blob.text()
-    } else {
-      // Если в редакторе всё стерли и нажали Save
-      reactionSmiles.value = ''
-      reactionSvg.value = ''
-    }
-    ketcherToBackground()
-    showKetcher.value = false
-  } catch (e) {
-    console.error("Save Error:", e)
-    ketcherToBackground()
-    showKetcher.value = false
-  }
+  setTimeout(() => clearInterval(timer), 10000);
 }
 
 const closeEditorWithoutSaving = () => {
+  window.ketcherIsBusy = false;
   ketcherToBackground()
   showKetcher.value = false
 }

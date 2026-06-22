@@ -40,8 +40,8 @@ onMounted(() => {
   </main>
   <iframe
     id="global-ketcher-iframe"
-    src="/standalone/index.html?hidden_controls=help,settings,save&api_path=/&allow_reaction=true"
-    style="position: fixed; top: -9999px; left: -9999px; width: 1px; height: 1px; visibility: hidden;"
+    src="/standalone/index.html""
+    style="position: fixed; top: -9999px; left: -9999px; width: 900px; height: 700px; visibility: hidden; border: none;"
     @load="initGlobalKetcher"
   ></iframe>
 </template>
