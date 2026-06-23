@@ -1757,12 +1757,21 @@ watch(activeTab, (newTab) => {
   margin-top: 30px;
   padding-top: 20px;
   border-top: 2px solid #eee;
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 20px;
+  display: flex; /* Переключаемся на flex */
+  flex-wrap: wrap; /* Разрешаем перенос */
+  gap: 30px;
 }
-@media (max-width: 850px) {
-  .attachments-section { grid-template-columns: 1fr; }
+
+.attachment-block {
+  flex: 1 1 450px; /* Базовая ширина 450px. Если места меньше - блок прыгнет вниз и растянется на 100% */
+  min-width: 0; /* Важно для предотвращения распирания в flex-боксах */
+}
+
+/* Стек в одну колонку на экранах меньше 1024px (планшеты и ниже) */
+@media (max-width: 1024px) {
+  .attachments-section {
+    grid-template-columns: 1fr;
+  }
 }
 .attachment-block h3 {
   font-size: 1.1rem;
@@ -1772,21 +1781,33 @@ watch(activeTab, (newTab) => {
 .attachment-table {
   width: 100%;
   border-collapse: collapse;
-  background: white;
-  border-radius: 6px;
-  overflow: hidden;
-  box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+  table-layout: fixed; /* Жесткий контроль ширины */
 }
-.attachment-table th, .attachment-table td {
-  padding: 10px;
-  text-align: left;
-  border-bottom: 1px solid #eee;
-  font-size: 0.9rem;
+
+/* Колонки: */
+/* 1. Имя файла (30% ширины) */
+.attachment-table th:nth-child(1),
+.attachment-table td:nth-child(1) {
+  width: 30%;
 }
-.attachment-table th {
-  background: #f8f9fa;
-  font-weight: bold;
-  color: #666;
+
+/* 2. Описание (заберет всё свободное место) */
+.attachment-table th:nth-child(2),
+.attachment-table td:nth-child(2) {
+  width: auto;
+}
+
+/* 3. Действия (фиксированно 90 пикселей, чтобы не сжимались) */
+.attachment-table th:nth-child(3),
+.attachment-table td:nth-child(3) {
+  width: 90px;
+  text-align: center;
+}
+
+.attachment-table td {
+  padding: 8px 5px; /* Уменьшаем боковые отступы, чтобы выиграть место */
+  vertical-align: middle;
+  word-wrap: break-word; /* Разрешаем перенос длинных слов в описании */
 }
 .att-link {
   color: #3498db;
@@ -1842,9 +1863,10 @@ watch(activeTab, (newTab) => {
 
 .att-actions {
   display: flex;
-  gap: 8px;
+  gap: 4px;
   justify-content: center;
   align-items: center;
+  white-space: nowrap; /* Запрещаем кнопкам вставать друг под друга */
 }
 .btn-att-save, .btn-att-delete {
   background: none;
@@ -2022,5 +2044,27 @@ watch(activeTab, (newTab) => {
 
 .btn-add-att-large .icon {
   font-size: 1.2rem;
+}
+
+.attachment-table th:nth-child(1),
+.attachment-table td:nth-child(1) {
+  width: 40%;
+  word-break: break-all; /* Чтобы длинные имена файлов не ломали верстку */
+}
+
+/* Стилизация ссылок, чтобы они не слипались */
+.att-link {
+  color: #3498db;
+  text-decoration: none;
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis; /* Три точки, если имя файла гигантское */
+  white-space: nowrap;
+}
+
+.att-link:hover {
+  text-overflow: initial;
+  white-space: normal;
+  word-break: break-all;
 }
 </style>
