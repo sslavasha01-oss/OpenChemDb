@@ -191,3 +191,24 @@ class FileManager:
         # Формируем относительный URL для локального скачивания
         local_url = f"/api/journal_attachment/view-user-file?file_path={clean_path}"
         return {"url": local_url}
+
+    @staticmethod
+    def delete_record_directory(user_id: int, journal_external_id: int) -> None:
+        """
+        Удаляет папку записи со всеми файлами на локальном диске.
+        """
+        base_user_data_path = Path(settings.USER_DATA_STORAGE_PATH).resolve()
+        record_dir = (base_user_data_path / str(user_id) / str(journal_external_id)).resolve()
+
+        # Безопасность: проверяем, что мы внутри базового пути
+        if str(record_dir).startswith(str(base_user_data_path)):
+            if record_dir.exists() and record_dir.is_dir():
+                shutil.rmtree(record_dir)
+
+                # Чистим за собой папку юзера, если она опустела
+                user_dir = record_dir.parent
+                if user_dir.exists() and not os.listdir(user_dir):
+                    try:
+                        user_dir.rmdir()
+                    except OSError:
+                        pass  # Папка может быть не пуста из-за скрытых файлов или tmp

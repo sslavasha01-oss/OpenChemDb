@@ -201,3 +201,30 @@ class R2FileManager:
             raise HTTPException(status_code=500, detail=f"Ошибка R2: {str(e)}")
 
 
+    def delete_record_directory(self, user_id: int, journal_external_id: int) -> None:
+        """
+        Удаляет все файлы, относящиеся к конкретной записи журнала в R2.
+        """
+        prefix = f"{settings.R2_USER_DATA_STORAGE_PATH}/{user_id}/{journal_external_id}/"
+        try:
+            paginator = self.s3_client.get_paginator('list_objects_v2')
+            pages = paginator.paginate(Bucket=self.bucket_name, Prefix=prefix)
+
+            delete_us = []
+            for page in pages:
+                if 'Contents' in page:
+                    for obj in page['Contents']:
+                        delete_us.append({'Key': obj['Key']})
+
+            if delete_us:
+                # S3 позволяет удалять до 1000 объектов за один запрос
+                for i in range(0, len(delete_us), 1000):
+                    self.s3_client.delete_objects(
+                        Bucket=self.bucket_name,
+                        Delete={'Objects': delete_us[i:i + 1000]}
+                    )
+        except Exception as e:
+            print(f"Ошибка удаления директории записи {journal_external_id} из R2: {str(e)}")
+            # Здесь можно либо пробросить ошибку, либо просто залогировать
+
+
