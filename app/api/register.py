@@ -14,6 +14,7 @@ from app.core.security import get_password_hash
 from app.core.settings import settings
 from app.models.user import User
 from app.schemas.user import UserCreate, UserOut, ResetPasswordUpdate, ForgotPasswordRequest  # Ваши схемы
+from sqlalchemy import func, or_
 
 router = APIRouter()
 
@@ -26,17 +27,29 @@ async def register_prod(
         background_tasks: BackgroundTasks,
         db: AsyncSession = Depends(get_users_db)
 ):
-    # 1. Проверка на дубликаты (как в вашем коде)
-    result = await db.execute(select(User).where(
-        (User.username == user_data.username) | (User.email == user_data.email)
-    ))
-    if result.scalar_one_or_none():
-        raise HTTPException(status_code=400, detail="User with this email or username already exists")
+    incoming_email = user_data.email.strip().lower()
+
+    stmt = select(User).where(
+        (User.username == user_data.username) |
+        (User.email == incoming_email) |
+        (User.billing_email == incoming_email)
+    )
+
+    result = await db.execute(stmt)
+    existing_user = result.scalars().first()  # возвращает объект пользователя или None
+
+    if existing_user:
+        # Опционально: делаем детальные подсказки для фронтенда
+        if existing_user.username == user_data.username:
+            raise HTTPException(status_code=400, detail="Username is already taken")
+        if (existing_user.email == incoming_email or
+                (existing_user.billing_email and existing_user.billing_email == incoming_email)):
+            raise HTTPException(status_code=400, detail="Email is already registered")
 
     if settings.LOCAL_MODE:
         new_user = User(
             username=user_data.username,
-            email=user_data.email,
+            email=incoming_email,
             hashed_password=get_password_hash(user_data.password),
             role="USER" ,
             is_active=True
@@ -45,7 +58,7 @@ async def register_prod(
         # 2. Создаем НЕАКТИВНОГО пользователя
         new_user = User(
             username=user_data.username,
-            email=user_data.email,
+            email=incoming_email,
             hashed_password=get_password_hash(user_data.password),
             role="USER",
             is_active=False
@@ -54,8 +67,8 @@ async def register_prod(
     db.add(new_user)
     # 3. Генерируем токен и отправляем письмо в фоне (не тормозим ответ API)
     if not settings.LOCAL_MODE:
-        token = create_verification_token(user_data.email)
-        background_tasks.add_task(send_verification_email, user_data.email, token)
+        token = create_verification_token(incoming_email)
+        background_tasks.add_task(send_verification_email, incoming_email, token)
     if not settings.LOCAL_MODE:
         user_tariff = getattr(new_user, "tariff_plan", "FREE")
         new_user.max_allowed_size = settings.TARIFF_LIMITS.get(user_tariff, settings.TARIFF_LIMITS["FREE"])

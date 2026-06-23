@@ -12,6 +12,7 @@ class UserOut(BaseModel):
     id: int
     username: str
     email: EmailStr
+    billing_email: Optional[EmailStr] = None
     role: str
     is_active: bool
     tariff_plan: str

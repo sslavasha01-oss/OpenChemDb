@@ -6,6 +6,51 @@ const user = ref(null)
 const loading = ref(true)
 const error = ref(null)
 
+// 1. Добавьте импорт стора в самый верх (где остальные импорты)
+import { useUserStore } from '@/stores/user' // проверьте путь к стору
+
+const userStore = useUserStore()
+
+// 2. Добавьте эти переменные для модального окна и формы
+const isModalOpen = ref(false)
+const billingEmailInput = ref('')
+const linkLoading = ref(false)
+const linkError = ref(null)
+const linkSuccessMessage = ref(null)
+
+// 3. Вычисляемое свойство для проверки режима
+const isCloudMode = computed(() => !userStore.appStatus?.local_mode)
+
+// 4. Функция для отправки email на бэкенд
+const handleManualLink = async () => {
+  if (!billingEmailInput.value) return
+  linkLoading.value = true
+  linkError.value = null
+  linkSuccessMessage.value = null
+
+  try {
+    const token = localStorage.getItem('token')
+    const response = await axios.post('/api/billing/link-manual',
+      { email: billingEmailInput.value.trim() },
+      { headers: { 'Authorization': `Bearer ${token}` } }
+    )
+    linkSuccessMessage.value = response.data.message
+    billingEmailInput.value = ''
+    await fetchProfile() // Обновляем данные профиля на странице
+  } catch (err) {
+    linkError.value = err.response?.data?.detail || 'An error occurred.'
+  } finally {
+    linkLoading.value = false
+  }
+}
+
+const closeModal = () => {
+  isModalOpen.value = false
+  linkError.value = null
+  linkSuccessMessage.value = null
+  billingEmailInput.value = ''
+}
+
 const fetchProfile = async () => {
   try {
     const token = localStorage.getItem('token') // Достаем токен
@@ -56,6 +101,10 @@ const storagePercentage = computed(() => {
           <strong>Email:</strong> {{ user.email }}
           <span class="privacy-badge">Visible only to you</span>
         </p>
+        <p v-if="user.billing_email">
+          <strong>Billing Email:</strong> {{ user.billing_email }}
+          <span class="privacy-badge">Visible only to you</span>
+        </p>
         <p><strong>Role:</strong> {{ user.role }}</p>
         <p><strong>Tariff Plan:</strong> <span class="tariff-badge">{{ user.tariff_plan }}</span></p>
       </div>
@@ -80,6 +129,56 @@ const storagePercentage = computed(() => {
           <span v-if="user.max_allowed_size > 0">{{ storagePercentage }}% space used</span>
           <span v-else>No storage limits applied</span>
         </div>
+      </div>
+      <div v-if="isCloudMode" class="billing-section">
+        <h3>Premium Features</h3>
+        <p class="billing-text">
+          Want more space? You can buy <strong>50GB Cloud Storage</strong> for your attachments.
+          Please join our membership program on Buy Me a Coffee:
+        </p>
+        <a href="https://buymeacoffee.com/ninjachemist/membership" target="_blank" class="bmc-button">
+          🚀 Upgrade on Buy Me a Coffee
+        </a>
+        <blockquote class="billing-note">
+          <strong>Important:</strong> Please ensure you provide the exact same email address you use for your OpenChemDb account during checkout.
+        </blockquote>
+
+        <div class="manual-link-trigger">
+          <button @click="isModalOpen = true" class="link-btn-text">
+            I already paid but my subscription didn't update
+          </button>
+        </div>
+      </div>
+    </div>
+    <div v-if="isModalOpen" class="modal-overlay" @click.self="closeModal">
+      <div class="modal-content">
+        <h3>Link Payment Manually</h3>
+        <p class="modal-desc">
+          If your payment didn't sync automatically, please enter the email address you used during payment on Buy Me a Coffee.
+        </p>
+        <p class="modal-warn">
+          💡 <strong>Note:</strong> If you used Google Pay or Apple Pay, this might be the email address associated with your Apple/Google account.
+        </p>
+
+        <form @submit.prevent="handleManualLink" class="modal-form">
+          <input
+            v-model="billingEmailInput"
+            type="email"
+            placeholder="Enter payment email"
+            required
+            :disabled="linkLoading"
+            class="modal-input"
+          />
+          <div v-if="linkError" class="modal-error">{{ linkError }}</div>
+          <div v-if="linkSuccessMessage" class="modal-success">{{ linkSuccessMessage }}</div>
+
+          <div class="modal-actions">
+            <button type="button" @click="closeModal" :disabled="linkLoading" class="btn-cancel">Close</button>
+            <button type="submit" :disabled="linkLoading || !billingEmailInput" class="btn-submit">
+              {{ linkLoading ? 'Verifying...' : 'Link Payment' }}
+            </button>
+          </div>
+        </form>
       </div>
     </div>
   </div>
@@ -171,4 +270,37 @@ const storagePercentage = computed(() => {
 .error-box {
   color: #e74c3c;
 }
+
+/* Дополнительные стили для биллинга и модалки */
+.billing-section {
+  margin-top: 30px;
+  border-top: 1px dashed #e2e8f0;
+  padding-top: 20px;
+}
+.billing-text { font-size: 0.95rem; line-height: 1.5; margin-bottom: 15px; }
+.bmc-button {
+  display: inline-block; background: #ffdd00; color: #000; font-weight: bold;
+  padding: 10px 20px; border-radius: 6px; text-decoration: none; margin-bottom: 15px;
+}
+.billing-note {
+  background: #f8fafc; border-left: 4px solid #3498db; padding: 10px 15px;
+  margin: 10px 0; font-size: 0.9rem; border-radius: 0 6px 6px 0;
+}
+.manual-link-trigger { margin-top: 15px; text-align: center; }
+.link-btn-text { background: none; border: none; color: #3498db; text-decoration: underline; cursor: pointer; }
+.modal-overlay {
+  position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+  background: rgba(0, 0, 0, 0.5); display: flex; align-items: center; justify-content: center; z-index: 1000;
+}
+.modal-content { background: white; padding: 25px; border-radius: 8px; max-width: 450px; width: 90%; }
+.modal-desc { font-size: 0.95rem; color: #34495e; margin-bottom: 10px; }
+.modal-warn { font-size: 0.85rem; background: #fff9db; color: #664d03; padding: 8px 12px; border-radius: 6px; margin-bottom: 15px; }
+.modal-form { display: flex; flex-direction: column; }
+.modal-input { padding: 10px; border: 1px solid #ccd1d9; border-radius: 4px; margin-bottom: 15px; }
+.modal-error { color: #e74c3c; font-size: 0.9rem; margin-bottom: 10px; }
+.modal-success { color: #27ae60; font-size: 0.9rem; margin-bottom: 10px; }
+.modal-actions { display: flex; justify-content: flex-end; gap: 10px; }
+.btn-cancel { background: #e2e8f0; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer; }
+.btn-submit { background: #3498db; color: white; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer; }
+.btn-submit:disabled { background: #bdc3c7; cursor: not-allowed; }
 </style>
