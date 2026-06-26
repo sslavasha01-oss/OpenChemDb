@@ -322,6 +322,48 @@ async def start_import_user_data(
     finally:
         await file.close()
 
+    if not settings.LOCAL_MODE:
+        try:
+            import zipfile
+            total_archive_attachments_size = 0
+
+            with zipfile.ZipFile(temp_zip_path, "r") as archive:
+                for z_info in archive.infolist():
+                    # Считаем только файлы, которые находятся внутри директории attachments/
+                    if z_info.filename.startswith("attachments/") and not z_info.is_dir():
+                        total_archive_attachments_size += z_info.file_size
+
+            # Рассчитываем, сколько места займет импорт
+            current_total = getattr(current_user, "attachments_total_size", 0)
+            projected_total = total_archive_attachments_size if replace else (
+                        current_total + total_archive_attachments_size)
+
+            # Получаем лимит тарифа
+            user_tariff = getattr(current_user, "tariff_plan")
+            max_allowed_total = settings.TARIFF_LIMITS.get(user_tariff, settings.TARIFF_LIMITS["FREE"])
+            print('User allowed', max_allowed_total)
+            print('Adding', projected_total)
+            if projected_total > max_allowed_total:
+                # Удаляем временный архив, так как мы прерываем операцию
+                if temp_zip_path.exists():
+                    temp_zip_path.unlink()
+
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        f"Недостаточно места в облаке для импорта. Ваш тариф: {user_tariff}. "
+                        f"Требуется: {projected_total / (1024 * 1024):.1f} MB, "
+                        f"Доступно: {max_allowed_total / (1024 * 1024):.1f} MB."
+                    )
+                )
+        except HTTPException:
+            raise
+        except Exception as e:
+            # Если архив битый или не открывается, удаляем его и отдаем 400/500
+            if temp_zip_path.exists():
+                temp_zip_path.unlink()
+            raise HTTPException(status_code=400, detail=f"Ошибка при валидации ZIP-архива: {str(e)}")
+
     # Устанавливаем блокировку импорта
     if active_process:
         await db.execute(delete(UserExport).where(UserExport.user_id == current_user.id and UserExport.type == Type.IMPORT))
