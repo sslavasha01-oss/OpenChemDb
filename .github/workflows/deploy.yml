@@ -1,0 +1,35 @@
+name: Production Deployment
+
+# Запуск пайплайна при пуше в ветку main (можешь поменять на master)
+# А также возможность запустить деплой руками одной кнопкой из GitHub Web UI
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository code
+        uses: actions/checkout@v4
+
+      - name: Deploy to Server via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_KEY }}
+          port: 22 # Если ты поменял дефолтный порт SSH наружу, укажи его тут вместо 22
+          script_stop: true # Остановить пайплайн, если Makefile вернет ошибку
+          script: |
+            # Переходим в папку с проектом (замени путь на свой реальный путь на сервере!)
+            cd ~/openchemdb
+            
+            echo "--- Подтягиваем свежий код из Git ---"
+            git pull origin main
+            
+            echo "--- Запускаем сборку и миграции через Makefile ---"
+            make update
