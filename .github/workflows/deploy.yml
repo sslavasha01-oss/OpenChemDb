@@ -1,11 +1,7 @@
 name: Production Deployment
 
-# Запуск пайплайна при пуше в ветку main (можешь поменять на master)
-# А также возможность запустить деплой руками одной кнопкой из GitHub Web UI
+# Запуск СТРОГО вручную из веб-интерфейса GitHub
 on:
-  push:
-    branches:
-      - main
   workflow_dispatch:
 
 jobs:
@@ -22,11 +18,11 @@ jobs:
           host: ${{ secrets.SSH_HOST }}
           username: ${{ secrets.SSH_USER }}
           key: ${{ secrets.SSH_KEY }}
-          port: 22 # Если ты поменял дефолтный порт SSH наружу, укажи его тут вместо 22
-          script_stop: true # Остановить пайплайн, если Makefile вернет ошибку
+          port: 22 # <--- ЕСЛИ ПРОБРОШЕН ДРУГОЙ ПОРТ, ПОМЕНЯЙ ЕГО ТУТ (например: 2222)
+          script_stop: true
           script: |
-            # Переходим в папку с проектом (замени путь на свой реальный путь на сервере!)
-            cd ~/openchemdb
+            # Переходим в твой RAID-массив, где лежит проект
+            cd /mnt/raid1/OpenChemDb
             
             echo "--- Подтягиваем свежий код из Git ---"
             git pull origin main

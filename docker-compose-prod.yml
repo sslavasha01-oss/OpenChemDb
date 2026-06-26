@@ -89,8 +89,6 @@ services:
       - WORKERS_COUNT=30  #16 на 18ядрах
       - PYTHONUNBUFFERED=1
       - REDIS_URL=redis://redis:6379/0
-      - USERS_DATABASE_URL=postgresql+asyncpg://chemist:users_pass@users_db:5432/users_db
-      - ARCHIVE_DATABASE_URL=postgresql+asyncpg://chemist:archive_pass@archive_db:5432/archive_db
     env_file:
       - .env
     volumes:
