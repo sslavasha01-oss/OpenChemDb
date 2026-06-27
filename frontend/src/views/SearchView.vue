@@ -142,6 +142,39 @@ const updatePreviewFromSmiles = async (smiles) => {
   }
 }
 
+const saveFromKetcher = async () => {
+  try {
+    const ketcher = window.ketcherSingleton
+    if (!ketcher) return
+
+    const result = searchMode.value === 'advanced'
+      ? await ketcher.getSmarts()
+      : await ketcher.getSmiles()
+
+    if (result && result.trim().length > 0) {
+      let finalStr = result.trim()
+
+      if (!finalStr.includes('>>')) {
+        finalStr = `>>${finalStr}`
+      }
+
+      reactionSmiles.value = finalStr
+      const blob = await ketcher.generateImage(finalStr, {outputFormat: 'svg'})
+      reactionSvg.value = await blob.text()
+    } else {
+      // Если в редакторе всё стерли и нажали Save
+      reactionSmiles.value = ''
+      reactionSvg.value = ''
+    }
+    ketcherToBackground()
+    showKetcher.value = false
+  } catch (e) {
+    console.error("Save Error:", e)
+    ketcherToBackground()
+    showKetcher.value = false
+  }
+}
+
 // Следим за вводом в текстовое поле
 watch(reactionSmiles, (newValue) => {
   if (!showKetcher.value) {
