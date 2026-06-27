@@ -1,6 +1,7 @@
 <script setup>
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted, computed, watch } from 'vue'
 import axios from 'axios' // или ваш кастомный клиент api
+import { useRouter } from 'vue-router'
 
 const user = ref(null)
 const loading = ref(true)
@@ -10,6 +11,7 @@ const error = ref(null)
 import { useUserStore } from '@/stores/user' // проверьте путь к стору
 
 const userStore = useUserStore()
+const router = useRouter()
 
 // 2. Добавьте эти переменные для модального окна и формы
 const isModalOpen = ref(false)
@@ -70,6 +72,24 @@ const fetchProfile = async () => {
 
 onMounted(() => {
   fetchProfile()
+})
+
+// Следим за сменой активного аккаунта
+watch(() => userStore.currentAccountIndex, () => {
+  user.value = null
+  loading.value = true
+  error.value = null
+  fetchProfile()
+})
+
+// Следим за статусом входа (очищаем данные при выходе)
+watch(() => userStore.isLoggedIn, (isLoggedIn) => {
+  if (!isLoggedIn) {
+    user.value = null
+    router.push('/') // Выбрасываем пользователя на SearchView
+  } else {
+    fetchProfile()
+  }
 })
 
 // Хелпер для перевода байт в мегабайты

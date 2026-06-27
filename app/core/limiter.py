@@ -44,7 +44,7 @@ def rate_limit(requests: int, window_seconds: int):
             # Используем вашу функцию для определения реального гостя
             ip = get_real_ip(request)
             key = f"rate_limit:{func.__module__}.{func.__name__}:{ip}"
-
+            print("Rate limiting key:", key)
             try:
                 current = redis_client.incr(key)
                 if current == 1:
