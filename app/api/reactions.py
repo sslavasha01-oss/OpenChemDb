@@ -24,6 +24,8 @@ async def search_reaction_ids_smiles(
 ):
     # 1. Сначала чистим ввод
     clean_smiles = canonicalize_reaction_smiles(smiles)
+    if not clean_smiles:
+        raise HTTPException(status_code=400, detail=f"Invalid Reaction SMILES: {smiles}")
 
     # Определяем колонку
     use_mapped = bool(ATOM_MAPPING_REGEX.search(smiles))
@@ -90,6 +92,13 @@ async def search_reaction_ids_smarts(
     Поиск ID реакций.
     Если в smiles есть маппинг (символ ':'), ищем по mapped_data, иначе по raw_data.
     """
+    try:
+        # Проверяем SMARTS перед тем как идти в базу
+        rxn = rdChemReactions.ReactionFromSmarts(smiles)
+        if not rxn:
+            raise ValueError("Could not parse SMARTS")
+    except Exception:
+        raise HTTPException(status_code=400, detail=f"Invalid Reaction SMARTS: {smiles}")
     # Определяем, есть ли маппинг в запросе
     use_mapped = bool(ATOM_MAPPING_REGEX.search(smiles))
     column_name = "reaction_mapped_data" if use_mapped else "reaction_raw_data"
@@ -327,6 +336,14 @@ def canonicalize_reaction_smiles(smi: str):
     if not smi:
         return None
 
+    try:
+        # Пытаемся создать реакцию. Именно тут вылетает ValueError
+        rxn = rdChemReactions.ReactionFromSmarts(smi, useSmiles=True)
+        if not rxn:
+            return None
+    except Exception as e:
+        print(f"RDKit Reaction Parse Error: {e}")
+        return None
     # Вспомогательная функция для канонизации отдельного блока (реагентов или продуктов)
     def canonicalize_side(side_str: str) -> str:
         if not side_str.strip():
@@ -344,6 +361,7 @@ def canonicalize_reaction_smiles(smi: str):
             # MolFromSmiles из коробки идеально парсит И Кекуле, И ароматику,
             # автоматически приводя всё к единому ароматическому виду.
             mol = Chem.MolFromSmiles(part)
+            if not mol: return None
             if mol:
                 # Генерируем каноничный SMILES для этой конкретной молекулы
                 canonical_mols.append(Chem.MolToSmiles(mol))

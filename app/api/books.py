@@ -27,9 +27,12 @@ async def search_book_ids(
                 return Chem.MolToSmiles(mol)
         except:
             pass
-        return smi
+        return None
 
     clean_smiles = canonicalize_molecule_smiles(smiles)
+
+    if not clean_smiles:
+        raise HTTPException(status_code=400, detail=f"Invalid Molecule SMILES: {smiles}")
 
     if not exact:
         # Для подструктурного поиска оставляем работу с типом mol
@@ -73,6 +76,9 @@ async def search_book_ids_smarts(
     """
     Поиск ID молекул в книжной базе по SMARTS паттерну.
     """
+    mol_pat = Chem.MolFromSmarts(smarts)
+    if not mol_pat:
+        raise HTTPException(status_code=400, detail=f"Invalid Molecule SMARTS: {smarts}")
     # Используем mol_from_smarts, так как он корректно интерпретирует
     # специфические для SMARTS запросы (дикие карты, количество связей и т.д.)
     query = sa.text("""
