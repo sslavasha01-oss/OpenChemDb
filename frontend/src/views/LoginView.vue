@@ -3,7 +3,7 @@ import { ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useUserStore } from '@/stores/user'
 
-const mode = ref('login') // 'login', 'register', 'forgot'
+const mode = ref('login') // 'login', 'register', 'forgot', 'resend_invite'
 const router = useRouter()
 const userStore = useUserStore()
 
@@ -115,6 +115,27 @@ async function handleSubmit() {
         mode.value = 'login'
         message.value = ''
       }, 5000)
+    } else if (mode.value === 'resend_invite') {
+      const res = await fetch(`/api/resend-verification`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: form.value.email })
+      })
+
+      const data = await res.json()
+      if (!res.ok) {
+        if (Array.isArray(data.detail)) {
+          handleValidationError(data.detail)
+          throw new Error('Validation failed')
+        }
+        throw new Error(typeof data.detail === 'string' ? data.detail : 'Something went wrong')
+      }
+      message.value = data.message || 'Verification link has been sent if the email exists'
+
+      setTimeout(() => {
+        mode.value = 'login'
+        message.value = ''
+      }, 5000)
     }
   } catch (e) {
     error.value = e.message
@@ -124,20 +145,24 @@ async function handleSubmit() {
 
 <template>
   <div class="auth-container">
-    <div class="tabs" v-if="mode !== 'forgot'">
+    <div class="tabs" v-if="mode !== 'forgot' && mode !== 'resend_invite'">
       <button :class="{ active: mode === 'login' }" @click="mode = 'login'">Login</button>
       <button :class="{ active: mode === 'register' }" @click="mode = 'register'">Register</button>
     </div>
 
-    <div v-else class="forgot-header">
+    <div v-else-if="mode === 'forgot'" class="forgot-header">
       <h3>Reset Password</h3>
+    </div>
+
+    <div v-else-if="mode === 'resend_invite'" class="forgot-header">
+      <h3>Resend Invitation</h3>
     </div>
 
     <form @submit.prevent="handleSubmit" class="auth-form">
       <div v-if="error" class="error">{{ error }}</div>
       <div v-if="message" class="success">{{ message }}</div>
 
-      <template v-if="mode !== 'forgot'">
+      <template v-if="mode !== 'forgot' && mode !== 'resend_invite'">
         <input v-model="form.username" placeholder="Username" required />
         <span v-if="fieldErrors.username" class="field-error">{{ fieldErrors.username }}</span>
 
@@ -168,18 +193,25 @@ async function handleSubmit() {
       </template>
 
       <template v-else>
-        <p>Enter your email to receive a reset link</p>
+        <p v-if="mode === 'forgot'">Enter your email to receive a reset link</p>
+        <p v-else-if="mode === 'resend_invite'">Enter your email to resend the verification link</p>
+
         <input v-model="form.email" type="email" placeholder="Your Email" required />
         <span v-if="fieldErrors.email" class="field-error">{{ fieldErrors.email }}</span>
       </template>
 
       <button type="submit" :disabled="mode === 'register' && !userStore.appStatus?.no_password_login && !passwordsMatch">
-        {{ mode === 'login' ? 'Sign In' : (mode === 'register' ? 'Create Account' : 'Send Reset Link') }}
+        {{
+          mode === 'login' ? 'Sign In' :
+          mode === 'register' ? 'Create Account' :
+          mode === 'forgot' ? 'Send Reset Link' : 'Send Invite'
+        }}
       </button>
 
       <div class="extra-links">
         <a v-if="mode === 'login' && !userStore.appStatus?.local_mode && !userStore.appStatus?.no_password_login" @click.prevent="mode = 'forgot'" href="#">Forgot password?</a>
-        <a v-if="mode === 'forgot'" @click.prevent="mode = 'login'" href="#">Back to Login</a>
+        <a v-if="mode === 'register' && !userStore.appStatus?.local_mode" @click.prevent="mode = 'resend_invite'" href="#">Resend verification email?</a>
+        <a v-if="mode === 'forgot' || mode === 'resend_invite'" @click.prevent="mode = 'login'" href="#">Back to Login</a>
       </div>
     </form>
   </div>

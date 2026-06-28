@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, Form
 from fastapi import Request
 from fastapi.responses import HTMLResponse
 from jose import jwt, JWTError
+from pydantic import EmailStr, BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -78,6 +79,52 @@ async def register_prod(
     await db.commit()
     await db.refresh(new_user)
     return new_user
+
+class UserResendEmail(BaseModel):
+    email: EmailStr
+
+@router.post("/resend-verification", response_model=dict)
+@rate_limit(requests=3, window_seconds=1800)  # Более строгий лимит для защиты от спама
+async def resend_verification(
+    request: Request,
+    payload: UserResendEmail,  # Схема Pydantic, содержащая только email
+    background_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(get_users_db)
+):
+    # 1. Проверяем локальный режим (работает только в prod)
+    if settings.LOCAL_MODE:
+        raise HTTPException(
+            status_code=400,
+            detail="Email verification is disabled in local mode"
+        )
+
+    incoming_email = payload.email.strip().lower()
+
+    # 2. Ищем пользователя по email или billing_email
+    stmt = select(User).where(
+        (User.email == incoming_email) |
+        (User.billing_email == incoming_email)
+    )
+    result = await db.execute(stmt)
+    user = result.scalars().first()
+
+    # Безопасность: если пользователь не найден, возвращаем 200 OK с размытым текстом,
+    # чтобы злоумышленники не могли парсить базу на наличие зарегистрированных email.
+    if not user:
+        return {"message": "If the email is registered, a new verification link has been sent."}
+
+    # 3. Если пользователь уже активирован — отправка не нужна
+    if user.is_active:
+        raise HTTPException(
+            status_code=400,
+            detail="This account is already verified and active"
+        )
+
+    # 4. Генерируем новый токен и отправляем письмо в фоне
+    # Используем user.email, так как токен должен привязываться к основному аккаунту
+    token = create_verification_token(user.email)
+    background_tasks.add_task(send_verification_email, user.email, token)
+    return {"message": "If the email is registered, a new verification link has been sent."}
 
 
 @router.get("/verify-email", response_class=HTMLResponse)
