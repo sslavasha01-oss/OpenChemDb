@@ -17,6 +17,7 @@
           <thead>
             <tr>
               <th class="col-viz">Molecule</th>
+              <th class="col-name">Name</th>
               <th class="col-book">Book Name</th>
               <th class="col-pages">Pages</th>
               <th class="col-ref">References</th>
@@ -26,6 +27,10 @@
             <tr v-for="res in currentResults" :key="res.id" class="reaction-row" @click="showDetails(res)">
               <td class="col-viz">
                 <div class="reaction-container" v-html="res.svg_content"></div>
+              </td>
+
+              <td class="col-name" data-label="Name">
+                 <div class="compound-name">{{ res.name || '—' }}</div>
               </td>
               <td class="col-book" data-label="Book" @click.stop="openFileModal(res.book_name)">
                 <a href="#" class="book-link" @click.prevent>{{ getShortName(res.book_name) }}</a>
@@ -379,9 +384,17 @@ defineExpose({performNewSearch})
 
 /* Колонки */
 .col-viz { width: 35%; }
-.col-book { width: 25%; text-align: left; font-weight: bold; }
+.col-name { width: 20%; text-align: left; font-weight: 500; } /* Новая колонка */
+.col-book { width: 10%; text-align: left; } /* Уменьшили с 25% до 10% */
 .col-pages { width: 10%; text-align: center; }
-.col-ref { width: 30%; }
+.col-ref { width: 25%; }
+
+.compound-name {
+  font-size: 0.95rem;
+  line-height: 1.2;
+  word-break: break-word; /* Чтобы длинные химические названия не ломали верстку */
+  color: #2c3e50;
+}
 
 .reaction-container {
   width: 100%;
@@ -443,6 +456,12 @@ defineExpose({performNewSearch})
     color: #999;
     text-transform: uppercase;
     margin-bottom: 4px;
+  }
+  .col-name {
+    order: 0; /* Будет идти вторым после картинки (у которой order: -1) */
+  }
+  .col-book {
+    font-weight: normal; /* В мобилке акцент лучше сделать на Name */
   }
   .col-viz { order: -1; border-bottom: 2px solid #eee !important; padding-bottom: 15px !important; }
   .col-viz::before { display: none; }
