@@ -171,7 +171,7 @@ async def get_reactions_by_ids(
             "conditions": row[6],
             "yield_text": row[7],
             "procedure": row[8],
-            "svg_content": generate_reaction_svg(raw_smiles),
+            "svg_content": generate_reaction_svg_coordgen(raw_smiles),
         })
 
     return reactions
@@ -393,3 +393,65 @@ def canonicalize_reaction_smiles(smi: str):
 
     # Если это вообще не реакция, а просто набор молекул
     return canonicalize_side(smi)
+
+
+from rdkit import Chem
+from rdkit.Chem import AllChem, Draw
+from rdkit.Chem import rdChemReactions
+
+
+def generate_reaction_svg_coordgen(smiles: str) -> str:
+    if not smiles:
+        return ""
+
+    try:
+        # Переключаем RDKit на использование продвинутого движка CoordGen
+        # Он на порядок лучше рисует мостики, адамантаны и сложные циклы
+        try:
+            from rdkit.Chem import rdDepictor
+            rdDepictor.SetPreferCoordGen(True)
+        except ImportError:
+            pass
+
+        if ">>" in smiles:
+            rxn = rdChemReactions.ReactionFromSmarts(smiles, useSmiles=True)
+            if rxn:
+                # Генерируем 2D координаты с помощью нового движка
+                for i in range(rxn.GetNumReactantTemplates()):
+                    rdDepictor.Compute2DCoords(rxn.GetReactantTemplate(i))
+                for i in range(rxn.GetNumProductTemplates()):
+                    rdDepictor.Compute2DCoords(rxn.GetProductTemplate(i))
+                for i in range(rxn.GetNumAgentTemplates()):
+                    rdDepictor.Compute2DCoords(rxn.GetAgentTemplate(i))
+
+                # Вместо подбора размеров, даем фиксированный адекватный шаг
+                d2d = Draw.MolDraw2DSVG(800, 300)
+
+                # Секретные опции RDKit для авто-масштабирования контента под viewBox
+                opts = d2d.drawOptions()
+                opts.fixedFontSize = 14
+                opts.padding = 0.05
+
+                d2d.DrawReaction(rxn)
+                d2d.FinishDrawing()
+                return d2d.GetDrawingText()
+
+        # Одиночная молекула
+        mol = Chem.MolFromSmiles(smiles)
+        if mol:
+            from rdkit.Chem import rdDepictor
+            rdDepictor.Compute2DCoords(mol)
+
+            d2d = Draw.MolDraw2DSVG(400, 400)
+            opts = d2d.drawOptions()
+            opts.fixedFontSize = 14
+            opts.padding = 0.05
+
+            d2d.DrawMolecule(mol)
+            d2d.FinishDrawing()
+            return d2d.GetDrawingText()
+
+    except Exception as e:
+        print(f"Render Error: {e}")
+
+    return ""

@@ -143,7 +143,7 @@ async def get_books_by_ids(
                 "smiles": current_smiles,
                 "references": row[6],
                 "date_added": row[7].isoformat() if row[7] else None,
-                "svg_content": generate_molecule_svg(current_smiles)
+                "svg_content": generate_molecule_svg_coordgen(current_smiles)
             })
 
         return books
@@ -176,6 +176,64 @@ def generate_molecule_svg(smiles: str) -> str:
             svg = d2d.GetDrawingText()
             # Делаем SVG адаптивным для фронтенда
             return svg.replace('width="400px"', 'width="100%"').replace('height="200px"', 'height="auto"')
+
+    except Exception as e:
+        print(f"RDKit Render Error (Molecule) for {smiles[:20]}: {e}")
+
+    return ""
+
+
+from rdkit import Chem
+from rdkit.Chem import Draw
+from rdkit.Chem import rdDepictor
+
+
+def generate_molecule_svg_coordgen(smiles: str) -> str:
+    """
+    Генерация качественного адаптивного SVG для одной молекулы (или смеси)
+    с использованием улучшенного движка макетирования CoordGen.
+    """
+    if not smiles:
+        return ""
+
+    try:
+        mol = Chem.MolFromSmiles(smiles)
+        if mol:
+            # 1. Включаем продвинутый движок генерации координат (как в Schrodinger/ChemDraw)
+            rdDepictor.SetPreferCoordGen(True)
+
+            # Сбрасываем старые конформации и генерируем идеальную 2D-сетку
+            mol.RemoveAllConformers()
+            rdDepictor.Compute2DCoords(mol)
+
+            # 2. Инициализируем холст
+            # Размеры холста задают базовое соотношение сторон (2:1)
+            init_w, init_h = 400, 200
+            d2d = Draw.MolDraw2DSVG(init_w, init_h)
+
+            opts = d2d.drawOptions()
+            opts.prepareMolsBeforeDrawing = True
+            opts.fixedFontSize = 14
+            opts.padding = 0.08  # Небольшой отступ, чтобы атомы не прижимались к краям холста
+
+            # 3. Отрисовка
+            d2d.DrawMolecule(mol)
+            d2d.FinishDrawing()
+            svg = d2d.GetDrawingText()
+
+            # 4. Делаем SVG адаптивным через добавление viewBox.
+            # Если просто заменить width/height на 100%, браузер может некорректно
+            # масштабировать холст без указания соотношения сторон.
+            if f'width="{init_w}px"' in svg:
+                svg = svg.replace(
+                    f'width="{init_w}px" height="{init_h}px"',
+                    f'viewBox="0 0 {init_w} {init_h}" width="100%" height="auto"'
+                )
+            else:
+                # На случай, если RDKit выдал строку без "px"
+                svg = svg.replace(f'width="{init_w}"', 'width="100%"').replace(f'height="{init_h}"', 'height="auto"')
+
+            return svg
 
     except Exception as e:
         print(f"RDKit Render Error (Molecule) for {smiles[:20]}: {e}")
