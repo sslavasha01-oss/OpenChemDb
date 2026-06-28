@@ -841,6 +841,29 @@ const openSearchEditor = async (target) => {
       if (!window.ketcherSingleton) window.ketcherSingleton = ketcher
       const smiles = searchState.value[`${currentSearchTarget.value}_smiles`]
       await ketcher.setMolecule(smiles || "")
+      setTimeout(() => {
+        try {
+          if (typeof ketcher.setZoom === 'function') ketcher.setZoom(1.0);
+          else if (ketcher.editor?.setZoom) ketcher.editor.setZoom(1.0);
+          if (ketcher.editor?.centerXy) ketcher.editor.centerXy();
+
+          const editor = ketcher.editor;
+          if (editor) {
+            if (Array.isArray(editor.historyStack)) editor.historyStack = [];
+            editor.historyPtr = 0;
+
+            if (Array.isArray(editor.originalHistoryStack)) editor.originalHistoryStack = [];
+            editor.originalHistoryPointer = 0;
+
+            // Гасим стрелочки Undo/Redo в UI
+            if (editor.event?.historyChange?.dispatch) {
+              editor.event.historyChange.dispatch();
+            }
+          }
+        } catch (e) {
+          console.warn("Ketcher history clear failed in search view:", e);
+        }
+      }, 150);
       globalFrame?.contentWindow?.focus()
     } else {
       setTimeout(checkAndSet, 50)

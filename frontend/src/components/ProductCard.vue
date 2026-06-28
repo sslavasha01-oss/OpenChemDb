@@ -336,15 +336,33 @@ const openEditor = async () => {
       const smiles = props.modelValue.product_smiles;
       await ketcher.setMolecule(smiles || "");
 
-      try {
-        if (typeof ketcher.setZoom === 'function') ketcher.setZoom(1.0);
-        else if (ketcher.editor && typeof ketcher.editor.setZoom === 'function') ketcher.editor.setZoom(1.0);
-      } catch (e) {}
+      // Обертка для фикса истории и зума после рендеринга структуры
+      setTimeout(() => {
+        try {
+          if (typeof ketcher.setZoom === 'function') ketcher.setZoom(1.0);
+          else if (ketcher.editor?.setZoom) ketcher.editor.setZoom(1.0);
 
-      if (ketcher.editor?.centerXy) ketcher.editor.centerXy();
+          if (ketcher.editor?.centerXy) ketcher.editor.centerXy();
 
-      // <- ИСПРАВЛЕНО: Принудительно передаем фокус ввода внутрь фрейма,
-      // чтобы клавиатурные сокращения и холст сразу стали активными
+          // Очистка стеков истории, которые мы нашли в дампе
+          const editor = ketcher.editor;
+          if (editor) {
+            if (Array.isArray(editor.historyStack)) editor.historyStack = [];
+            editor.historyPtr = 0;
+
+            if (Array.isArray(editor.originalHistoryStack)) editor.originalHistoryStack = [];
+            editor.originalHistoryPointer = 0;
+
+            // Принудительно тушим стрелочки Undo/Redo в UI Кетчера
+            if (editor.event?.historyChange?.dispatch) {
+              editor.event.historyChange.dispatch();
+            }
+          }
+        } catch (e) {
+          console.warn("Ketcher history clear failed silently:", e);
+        }
+      }, 150); // 150мс задержки как раз хватает, чтобы Epam-стейт "успокоился"
+
       globalFrame?.contentWindow?.focus();
 
     } else {

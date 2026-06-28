@@ -75,7 +75,6 @@ const openEditor = async () => {
     if (isReady) {
       clearInterval(timer);
       window.ketcherSingleton = k;
-
       try {
         let smilesToLoad = reactionSmiles.value;
         if (smilesToLoad) {
@@ -89,12 +88,39 @@ const openEditor = async () => {
         globalFrame.style.opacity = '1';
 
         setTimeout(() => {
-          try {
-            globalFrame.contentWindow.dispatchEvent(new Event('resize'));
-            k.setZoom(1.0);
-            if (k.editor.centerXy) k.editor.centerXy();
-          } catch (e) {}
-        }, 150);
+      try {
+        globalFrame.contentWindow.dispatchEvent(new Event('resize'));
+        k.setZoom(1.0);
+        if (k.editor.centerXy) k.editor.centerXy();
+
+        const editor = k.editor;
+        if (editor) {
+          // === ФИКС ИСТОРИИ НА ОСНОВЕ ТВОЕГО ДАМПА ===
+
+          // 1. Очищаем основной стек истории и сбрасываем указатель в ноль
+          if (Array.isArray(editor.historyStack)) {
+            editor.historyStack = [];
+          }
+          editor.historyPtr = 0;
+
+          // 2. Очищаем оригинальный стек (используется для отслеживания изменений от базовой структуры)
+          if (Array.isArray(editor.originalHistoryStack)) {
+            editor.originalHistoryStack = [];
+          }
+          editor.originalHistoryPointer = 0;
+
+          // 3. Уведомляем интерфейс Ketcher, что история изменилась,
+          // чтобы кнопки Undo/Redo на панели мгновенно задисейблились
+          if (editor.event?.historyChange?.dispatch) {
+            editor.event.historyChange.dispatch();
+          }
+
+          console.log("%c[Ketcher Фикс] История успешно затерта!", "color: #2ecc71; font-weight: bold;");
+        }
+      } catch (e) {
+        console.error("Не удалось сбросить историю Кетчера:", e);
+      }
+    }, 150);
 
       } catch (err) {
         console.error("Error loading molecule:", err);

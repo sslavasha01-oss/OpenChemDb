@@ -339,15 +339,35 @@ const openEditor = async () => {
       if (ketcher && typeof ketcher.setMolecule === 'function') {
         if (!window.ketcherSingleton) window.ketcherSingleton = ketcher;
         const smiles = props.modelValue[`reagent${props.index}_smiles`];
+
         try { await ketcher.setMolecule(""); } catch (e) {}
         if (smiles && smiles.trim() !== "") { await ketcher.setMolecule(smiles); }
+
+        // Фикс зума, центрирования и затирание истории для конкретного реагента
         setTimeout(() => {
           try {
             if (typeof ketcher.setZoom === 'function') ketcher.setZoom(1.0);
             else if (ketcher.editor?.setZoom) ketcher.editor.setZoom(1.0);
             if (ketcher.editor?.centerXy) ketcher.editor.centerXy();
-          } catch (zoomErr) {}
-        }, 50);
+
+            // Сброс истории Ketcher
+            const editor = ketcher.editor;
+            if (editor) {
+              if (Array.isArray(editor.historyStack)) editor.historyStack = [];
+              editor.historyPtr = 0;
+
+              if (Array.isArray(editor.originalHistoryStack)) editor.originalHistoryStack = [];
+              editor.originalHistoryPointer = 0;
+
+              // Гасим кнопки Undo/Redo в UI
+              if (editor.event?.historyChange?.dispatch) {
+                editor.event.historyChange.dispatch();
+              }
+            }
+          } catch (zoomErr) {
+            console.warn("Ketcher history clear failed on reagent:", zoomErr);
+          }
+        }, 150); // Ждем 150мс, пока Epam-редактор переварит setMolecule
       } else {
         setTimeout(checkAndSet, 50);
       }
