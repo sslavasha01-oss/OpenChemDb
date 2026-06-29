@@ -484,16 +484,46 @@ const isEditing = computed({
 const procedureRef = ref(null)
 
 const adjustHeight = () => {
-  // Используем requestAnimationFrame или просто убираем лишние сбросы высоты
   nextTick(() => {
     const el = procedureRef.value
-    if (el) {
-      // Чтобы избежать резкого прыжка скролла на мобилках,
-      // мы сбрасываем высоту только если текст действительно изменился.
-      // Но самый надежный способ — сделать это быстро:
-      const offset = el.offsetHeight - el.clientHeight;
-      el.style.height = 'auto';
-      el.style.height = (el.scrollHeight + offset) + 'px';
+    if (!el) return
+
+    // Создаем или находим зеркальный элемент
+    let mirror = document.getElementById('textarea-mirror')
+    if (!mirror) {
+      mirror = document.createElement('div')
+      mirror.id = 'textarea-mirror'
+      // Стили для полной имитации textarea, но вне видимости
+      Object.assign(mirror.style, {
+        position: 'absolute',
+        visibility: 'hidden',
+        top: '-9999px',
+        left: '-9999px',
+        whiteSpace: 'pre-wrap',
+        wordWrap: 'break-word',
+        zIndex: '-1',
+      })
+      document.body.appendChild(mirror)
+    }
+
+    // Копируем стили из оригинала, чтобы размеры совпали идеально
+    const styles = window.getComputedStyle(el)
+    mirror.style.width = el.clientWidth + 'px' // Важна точная ширина
+    mirror.style.font = styles.font
+    mirror.style.padding = styles.padding
+    mirror.style.lineHeight = styles.lineHeight
+    mirror.style.border = styles.border
+    mirror.style.boxSizing = styles.boxSizing
+
+    // Добавляем текст + невидимый символ в конце, чтобы учитывать пустые строки
+    mirror.textContent = el.value + '\u200b'
+
+    const newHeight = mirror.offsetHeight
+
+    // Применяем высоту только если она изменилась
+    if (el.style.height !== newHeight + 'px') {
+      console.log(`[TextareaAdj Fixed] Applying height: ${newHeight}px (No jump)`)
+      el.style.height = newHeight + 'px'
     }
   })
 }
@@ -1406,8 +1436,8 @@ watch(activeTab, (newTab) => {
   display: block;    /* Убирает лишние отступы снизу */
   height: auto;      /* Позволяет скрипту управлять высотой */
   overflow: hidden;
-  transition: height 0.05s ease; /* Совсем небольшая задержка сгладит рывок */
   box-sizing: border-box;
+  scroll-margin-bottom: 100px;
 }
 .extra-fields-row {
   display: grid;
