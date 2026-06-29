@@ -154,7 +154,6 @@
             v-model="journalData.procedure"
             :disabled="!isEditing"
             rows="1"
-            @input="e => { e.target.style.height = 'auto'; e.target.style.height = e.target.scrollHeight + 'px' }"
             placeholder="Describe the synthesis procedure..."
           ></textarea>
 
@@ -485,11 +484,16 @@ const isEditing = computed({
 const procedureRef = ref(null)
 
 const adjustHeight = () => {
+  // Используем requestAnimationFrame или просто убираем лишние сбросы высоты
   nextTick(() => {
     const el = procedureRef.value
     if (el) {
-      el.style.height = 'auto'
-      el.style.height = el.scrollHeight + 'px'
+      // Чтобы избежать резкого прыжка скролла на мобилках,
+      // мы сбрасываем высоту только если текст действительно изменился.
+      // Но самый надежный способ — сделать это быстро:
+      const offset = el.offsetHeight - el.clientHeight;
+      el.style.height = 'auto';
+      el.style.height = (el.scrollHeight + offset) + 'px';
     }
   })
 }
@@ -1401,6 +1405,9 @@ watch(activeTab, (newTab) => {
   line-height: 1.5;
   display: block;    /* Убирает лишние отступы снизу */
   height: auto;      /* Позволяет скрипту управлять высотой */
+  overflow: hidden;
+  transition: height 0.05s ease; /* Совсем небольшая задержка сгладит рывок */
+  box-sizing: border-box;
 }
 .extra-fields-row {
   display: grid;
