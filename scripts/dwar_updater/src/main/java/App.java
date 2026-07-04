@@ -20,23 +20,22 @@ public class App {
     private static final String PASSWORD = "archive_pass";
 
     public static void main(String[] args) {
-        System.out.println("=== STARTING SAFE LINEAR RESTORATION ===");
+        System.out.println("=== STARTING CLEAN LINEAR RESTORATION ===");
 
         Properties props = new Properties();
         props.setProperty("user", USER);
         props.setProperty("password", PASSWORD);
         props.setProperty("options", "-c timezone=UTC");
 
-        // Выбираем строго по возрастанию ID, которые больше предыдущего максимального
         String selectQuery = "SELECT id, idcode, id_coords_2d FROM book_base " +
                 "WHERE id > ? AND idcode IS NOT NULL AND id_coords_2d IS NOT NULL " +
                 "ORDER BY id ASC LIMIT ?;";
 
         String updateQuery = "UPDATE book_base SET mol_file = ?::mol WHERE id = ?;";
 
-        int batchSize = 2500;
+        int batchSize = 5000;
         long totalProcessed = 0;
-        long lastId = -1; // Сюда пишем последний обработанный ID, чтобы двигаться строго вперед
+        long lastId = -1;
 
         IDCodeParser parser = new IDCodeParser();
 
@@ -58,7 +57,7 @@ public class App {
                     while (rs.next()) {
                         foundAnyRows = true;
                         long id = rs.getLong("id");
-                        lastId = id; // Запоминаем самый большой ID в текущем батче
+                        lastId = id;
 
                         String idcode = rs.getString("idcode");
                         String idCoords2D = rs.getString("id_coords_2d");
@@ -74,7 +73,13 @@ public class App {
 
                             if (molfileContent == null || molfileContent.trim().isEmpty()) continue;
 
-                            updateStmt.setString(1, molfileContent);
+                            // ГЛАВНОЕ ИСПРАВЛЕНИЕ: вычищаем неразрывные пробелы (NBSP)
+                            // и на всякий случай возвраты каретки, оставляя чистый ASCII-текст
+                            String cleanMolfile = molfileContent
+                                    .replace('\u00A0', ' ')
+                                    .replace("\r\n", "\n");
+
+                            updateStmt.setString(1, cleanMolfile);
                             updateStmt.setLong(2, id);
                             updateStmt.addBatch();
 
@@ -84,33 +89,32 @@ public class App {
                         }
                     }
 
-                    // Если ResultSet оказался абсолютно пустым — мы 100% дошли до конца таблицы
                     if (!foundAnyRows) {
-                        System.out.println("[INFO] No more rows found in database. Finishing.");
+                        System.out.println("[INFO] Reached the end of the table. Finishing processing.");
                         hasMore = false;
                         break;
                     }
 
-                    // Если в батче были валидные апдейты — выполняем
                     if (rowsInBatch > 0) {
                         updateStmt.executeBatch();
-                        conn.commit();
-                    } else {
-                        conn.commit();
                     }
 
+                    // Всегда коммитим шаг батча, продвигая транзакцию вперед
+                    conn.commit();
+
                     totalProcessed += rowsInBatch;
-                    System.out.println("Processed up to ID: " + lastId + ". Total updated in this session: " + totalProcessed);
+                    System.out.println("Processed up to ID: " + lastId + ". Total records updated: " + totalProcessed);
 
                 } catch (Exception e) {
                     conn.rollback();
-                    System.err.println("Batch failed at ID " + lastId + ", rolling back batch. Error: " + e.getMessage());
+                    System.err.println("Batch failed around ID " + lastId + ", rolling back batch. Error: " + e.getMessage());
+                    // Шагаем через один ID, чтобы гарантированно не зависнуть, если попалась критически битая структура
                     lastId++;
                 }
             }
 
             System.out.println("\n--- Done! ---");
-            System.out.println("Linear processing finished. Total attempted updates: " + totalProcessed);
+            System.out.println("Processing finished successfully. Total structures restored: " + totalProcessed);
 
         } catch (Exception e) {
             System.err.println("Database error occurred: " + e.getMessage());
