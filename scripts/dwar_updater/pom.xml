@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>org.openchem</groupId>
+    <artifactId>dwar-updater</artifactId>
+    <version>1.0-SNAPSHOT</version>
+
+    <properties>
+        <maven.compiler.source>17</maven.compiler.source>
+        <maven.compiler.target>17</maven.compiler.target>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    </properties>
+
+    <dependencies>
+        <!-- Драйвер для подключения к PostgreSQL -->
+        <dependency>
+            <groupId>org.postgresql</groupId>
+            <artifactId>postgresql</artifactId>
+            <version>42.7.3</version>
+        </dependency>
+
+        <!-- Ядро DataWarrior (Actelion) для работы с IdCode -->
+        <dependency>
+            <groupId>com.actelion.research</groupId>
+            <artifactId>datawarrior-core</artifactId>
+            <version>1.0</version>
+            <scope>system</scope>
+            <!-- Укажи здесь точный путь к твоему datawarrior.jar -->
+            <systemPath>C:/Program Files/DataWarrior/datawarrior_all.jar</systemPath>
+        </dependency>
+
+        <!-- Логгер, чтобы драйвер базы не ругался в консоль -->
+        <dependency>
+            <groupId>org.slf4j</groupId>
+            <artifactId>slf4j-simple</artifactId>
+            <version>2.0.13</version>
+        </dependency>
+    </dependencies>
+</project>
