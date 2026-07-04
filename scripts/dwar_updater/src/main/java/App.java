@@ -17,7 +17,7 @@ public class App {
     }
 
     public static void main(String[] args) {
-        System.out.println("=== PRODUCTION MOLFILE PARSING ===");
+        System.out.println("=== STARTING MOL_FILE COLUMN UPDATE ===");
 
         Properties props = new Properties();
         props.setProperty("user", USER);
@@ -25,79 +25,71 @@ public class App {
 
         IDCodeParser parser = new IDCodeParser();
 
-        try (Connection conn = DriverManager.getConnection(DB_URL, props)) {
+        // Берем только те строки, где есть idcode, но mol_file еще не заполнен
+        String selectQuery = "SELECT id, idcode, id_coords_2d FROM public.book_base WHERE idcode IS NOT NULL AND mol_file IS NULL;";
+        String updateQuery = "UPDATE public.book_base SET mol_file = public.mol_from_ctab(?::cstring) WHERE id = ?;";
 
-            String selectQuery = "SELECT id, idcode, id_coords_2d FROM book_base WHERE id = 48673;";
-            String cleanMolfile = "";
+        try (Connection conn = DriverManager.getConnection(DB_URL, props);
+             PreparedStatement selectStmt = conn.prepareStatement(selectQuery);
+             PreparedStatement updateStmt = conn.prepareStatement(updateQuery);
+             ResultSet rs = selectStmt.executeQuery()) {
 
-            // 1. Извлекаем данные из book_base и генерируем чистый Molfile
-            try (PreparedStatement selectStmt = conn.prepareStatement(selectQuery);
-                 ResultSet rs = selectStmt.executeQuery()) {
-                if (rs.next()) {
+            // Отключаем автокоммит для пакетного выполнения апдейтов
+            conn.setAutoCommit(false);
+
+            int count = 0;
+            int batchSize = 1000;
+
+            while (rs.next()) {
+                int id = rs.getInt("id");
+                String idcode = rs.getString("idcode");
+                String coords = rs.getString("id_coords_2d");
+
+                if (idcode.trim().isEmpty()) continue;
+
+                try {
+                    // Генерируем мольфайл из Actelion IDCode
                     StereoMolecule mol = new StereoMolecule();
-                    parser.parse(mol, rs.getString("idcode"), rs.getString("id_coords_2d"));
-
+                    parser.parse(mol, idcode, coords);
                     MolfileCreator creator = new MolfileCreator(mol);
                     String rawMolfile = creator.getMolfile();
 
-                    // Посимвольно вычищаем неразрывные пробелы (NBSP / 160)
-                    String[] lines = rawMolfile.split("\\r?\\n");
-                    java.util.List<String> cleanLines = new java.util.ArrayList<>();
+                    // Подставляем параметры: 1 — строка мольфайла, 2 — ID для WHERE
+                    updateStmt.setString(1, rawMolfile);
+                    updateStmt.setInt(2, id);
+                    updateStmt.addBatch();
 
-                    for (String line : lines) {
-                        StringBuilder sb = new StringBuilder();
-                        for (int i = 0; i < line.length(); i++) {
-                            char c = line.charAt(i);
-                            if (c == 160 || Character.isWhitespace(c)) {
-                                sb.append(' '); // Строго ASCII-пробел
-                            } else if (c == 8203) {
-                                continue; // Нулевой пробел дропаем
-                            } else {
-                                sb.append(c);
-                            }
-                        }
-                        cleanLines.add(sb.toString());
+                    count++;
+
+                    // Отправляем пачку в базу каждые 1000 записей
+                    if (count % batchSize == 0) {
+                        updateStmt.executeBatch();
+                        conn.commit();
+                        System.out.println("Обновлено строк: " + count);
                     }
 
-                    int countsLineIndex = -1;
-                    for (int i = 0; i < cleanLines.size(); i++) {
-                        if (cleanLines.get(i).contains("V2000")) {
-                            countsLineIndex = i;
-                            break;
-                        }
-                    }
-
-                    StringBuilder validMolfile = new StringBuilder();
-                    if (countsLineIndex != -1) {
-                        // Гарантируем валидную структуру заголовка MDL V2000
-                        validMolfile.append("Actelion Java MolfileCreator 1.0\n\n\n");
-                        validMolfile.append(cleanLines.get(countsLineIndex)).append("\n");
-                        for (int i = countsLineIndex + 1; i < cleanLines.size(); i++) {
-                            validMolfile.append(cleanLines.get(i)).append("\n");
-                        }
-                    } else {
-                        for (String line : cleanLines) {
-                            validMolfile.append(line).append("\n");
-                        }
-                    }
-
-                    cleanMolfile = validMolfile.toString();
+                } catch (Exception e) {
+                    System.err.println("[SKIP] Ошибка генерации структуры для ID " + id + ": " + e.getMessage());
                 }
             }
 
-            // 2. Тестируем боевую вставку/парсинг через правильный каст к cstring
-            String insertTestSql = "SELECT public.mol_from_ctab(?::cstring);";
-
-            try (PreparedStatement stmt = conn.prepareStatement(insertTestSql)) {
-                stmt.setString(1, cleanMolfile);
-                try (ResultSet rs = stmt.executeQuery()) {
-                    if (rs.next()) {
-                        Object res = rs.getObject(1);
-                        System.out.println("-> Сast Result: " + (res != null ? "УСПЕШНО (Объект mol создан)" : "NULL"));
-                    }
-                }
+            // Сбрасываем остатки
+            if (count % batchSize != 0) {
+                updateStmt.executeBatch();
+                conn.commit();
             }
 
+            System.out.println("\n=== ОБНОВЛЕНИЕ ЗАВЕРШЕНО! Всего заполнено ячеек mol_file: " + count + " ===");
+
+        } catch (SQLException e) {
+            System.err.println("\n[CRITICAL SQL ERROR] Сбой при выполнении пакета обновлений. Откат изменений.");
+            e.printStackTrace();
+
+            SQLException nextEx = e.getNextException();
+            while (nextEx != null) {
+                System.err.println("Детали ошибки базы: " + nextEx.getMessage());
+                nextEx = nextEx.getNextException();
+            }
         } catch (Exception e) {
             e.printStackTrace();
         }
