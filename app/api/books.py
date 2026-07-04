@@ -112,6 +112,7 @@ async def get_books_by_ids(
     if not ids:
         return []
 
+    # Извлекаем мольфайл в текстовом формате CTAB. Если его нет, подстрахуемся старым smiles
     query = sa.text("""
                     SELECT id,
                            external_id,
@@ -120,7 +121,8 @@ async def get_books_by_ids(
                            pages,
                            smiles,
                            "references",
-                           date_added
+                           date_added,
+                           public.mol_to_ctab(mol_file) as mol_text
                     FROM book_base
                     WHERE id = ANY (:ids)
                       AND is_deleted = false
@@ -133,6 +135,7 @@ async def get_books_by_ids(
         books = []
         for row in rows:
             current_smiles = row[5]
+            mol_text = row[8]  # Получаем текстовый блок Molfile
 
             books.append({
                 "id": row[0],
@@ -143,9 +146,9 @@ async def get_books_by_ids(
                 "smiles": current_smiles,
                 "references": row[6],
                 "date_added": row[7].isoformat() if row[7] else None,
-                "svg_content": generate_molecule_svg_coordgen(current_smiles)
+                # Если mol_text пустой, плавно откатываемся на smiles
+                "svg_content": generate_molecule_svg_from_molfile(mol_text)
             })
-
         return books
 
     except Exception as e:
@@ -237,5 +240,47 @@ def generate_molecule_svg_coordgen(smiles: str) -> str:
 
     except Exception as e:
         print(f"RDKit Render Error (Molecule) for {smiles[:20]}: {e}")
+
+    return ""
+
+
+def generate_molecule_svg_from_molfile(mol_block: str) -> str:
+    """
+    Генерация качественного адаптивного SVG напрямую из MDL Molfile (CTAB block),
+    сохраняя оригинальные координаты и стереохимию.
+    """
+    if not mol_block:
+        return ""
+
+    try:
+        mol = Chem.MolFromMolBlock(mol_block)
+        if mol and mol.GetNumConformers() > 0:
+            init_w, init_h = 400, 200
+            d2d = Draw.MolDraw2DSVG(init_w, init_h)
+
+            opts = d2d.drawOptions()
+            # КРИТИЧЕСКИЙ ФЛАГ: запрещаем RDKit пересчитывать координаты и химию перед отрисовкой
+            opts.prepareMolsBeforeDrawing = False
+            opts.fixedFontSize = 14
+            opts.padding = 0.12  # Чуть увеличим отступ, чтобы каркас красиво встал по центру холста
+
+            # Отрисовываем строго по ID конформации (0), которая пришла из Molfile
+            d2d.DrawMolecule(mol, confId=0)
+            d2d.FinishDrawing()
+            svg = d2d.GetDrawingText()
+
+            # Делаем SVG адаптивным через viewBox
+            if f'width="{init_w}px"' in svg:
+                svg = svg.replace(
+                    f'width="{init_w}px" height="{init_h}px"',
+                    f'viewBox="0 0 {init_w} {init_h}" width="100%" height="auto"'
+                )
+            else:
+                svg = svg.replace(f'width="{init_w}"', 'width="100%"').replace(f'height="{init_h}"', 'height="auto"')
+
+            return svg
+
+    except Exception as e:
+        print(f"RDKit Render Error (MolBlock) for ID block: {e}")
 
     return ""
