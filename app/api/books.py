@@ -106,13 +106,10 @@ async def get_books_by_ids(
         ids: List[int] = Query(...),
         db: AsyncSession = Depends(get_archive_db)
 ):
-    """
-    Получение полных данных по списку ID из книжной базы.
-    """
     if not ids:
         return []
 
-    # Извлекаем мольфайл в текстовом формате CTAB. Если его нет, подстрахуемся старым smiles
+    # ТЯНЕМ НАПРЯМУЮ ТЕКСТОВОЕ ПОЛЕ mol_file_raw
     query = sa.text("""
                     SELECT id,
                            external_id,
@@ -122,7 +119,7 @@ async def get_books_by_ids(
                            smiles,
                            "references",
                            date_added,
-                           public.mol_to_ctab(mol_file) as mol_text
+                           mol_file_raw
                     FROM book_base
                     WHERE id = ANY (:ids)
                       AND is_deleted = false
@@ -134,11 +131,18 @@ async def get_books_by_ids(
 
         books = []
         for row in rows:
+            book_id = row[0]
             current_smiles = row[5]
-            mol_text = row[8]  # Получаем текстовый блок Molfile
+            mol_text_raw = row[8]  # Чистый текстовый мольфайл с координатами Actelion
+
+            # Если mol_file_raw почему-то пустой, фолбэкаемся на обычный smiles-генератор
+            if mol_text_raw:
+                svg = generate_molecule_svg_from_molfile(mol_text_raw, book_id)
+            else:
+                svg = generate_molecule_svg_coordgen(current_smiles)
 
             books.append({
-                "id": row[0],
+                "id": book_id,
                 "external_id": row[1],
                 "name": row[2],
                 "book_name": row[3],
@@ -146,44 +150,13 @@ async def get_books_by_ids(
                 "smiles": current_smiles,
                 "references": row[6],
                 "date_added": row[7].isoformat() if row[7] else None,
-                # Если mol_text пустой, плавно откатываемся на smiles
-                "svg_content": generate_molecule_svg_from_molfile(mol_text)
+                "svg_content": svg
             })
         return books
 
     except Exception as e:
         print(f"Error fetching books by IDs: {e}")
         return []
-
-
-def generate_molecule_svg(smiles: str) -> str:
-    """
-    Генерация SVG для одиночной молекулы.
-    """
-    if not smiles:
-        return ""
-
-    try:
-        mol = Chem.MolFromSmiles(smiles)
-        if mol:
-            # Для одиночной молекулы 400x200 обычно достаточно
-            d2d = Draw.MolDraw2DSVG(400, 200)
-
-            opts = d2d.drawOptions()
-            opts.prepareMolsBeforeDrawing = True
-            opts.fixedFontSize = 14
-
-            d2d.DrawMolecule(mol)
-            d2d.FinishDrawing()
-
-            svg = d2d.GetDrawingText()
-            # Делаем SVG адаптивным для фронтенда
-            return svg.replace('width="400px"', 'width="100%"').replace('height="200px"', 'height="auto"')
-
-    except Exception as e:
-        print(f"RDKit Render Error (Molecule) for {smiles[:20]}: {e}")
-
-    return ""
 
 
 from rdkit import Chem
@@ -244,43 +217,40 @@ def generate_molecule_svg_coordgen(smiles: str) -> str:
     return ""
 
 
-def generate_molecule_svg_from_molfile(mol_block: str) -> str:
-    """
-    Генерация качественного адаптивного SVG напрямую из MDL Molfile (CTAB block),
-    сохраняя оригинальные координаты и стереохимию.
-    """
+def generate_molecule_svg_from_molfile(mol_block: str, book_id: int) -> str:
     if not mol_block:
         return ""
 
     try:
-        mol = Chem.MolFromMolBlock(mol_block)
-        if mol and mol.GetNumConformers() > 0:
-            init_w, init_h = 400, 200
-            d2d = Draw.MolDraw2DSVG(init_w, init_h)
+        # 1. Парсим строго без санитизации, чтобы сохранить стерео-узы и сетку Actelion
+        mol = Chem.MolFromMolBlock(mol_block, sanitize=False, removeHs=False)
+        if not mol or mol.GetNumConformers() == 0:
+            return ""
 
-            opts = d2d.drawOptions()
-            # КРИТИЧЕСКИЙ ФЛАГ: запрещаем RDKit пересчитывать координаты и химию перед отрисовкой
-            opts.prepareMolsBeforeDrawing = False
-            opts.fixedFontSize = 14
-            opts.padding = 0.12  # Чуть увеличим отступ, чтобы каркас красиво встал по центру холста
+        # 2. Считаем только свойства/валентности атомов (защита от С++ Pre-condition падения)
+        mol.UpdatePropertyCache(strict=False)
 
-            # Отрисовываем строго по ID конформации (0), которая пришла из Molfile
-            d2d.DrawMolecule(mol, confId=0)
-            d2d.FinishDrawing()
-            svg = d2d.GetDrawingText()
+        # 3. Инициализируем холст фиксированного размера
+        init_w, init_h = 400, 200
+        d2d = Draw.MolDraw2DSVG(init_w, init_h)
 
-            # Делаем SVG адаптивным через viewBox
-            if f'width="{init_w}px"' in svg:
-                svg = svg.replace(
-                    f'width="{init_w}px" height="{init_h}px"',
-                    f'viewBox="0 0 {init_w} {init_h}" width="100%" height="auto"'
-                )
-            else:
-                svg = svg.replace(f'width="{init_w}"', 'width="100%"').replace(f'height="{init_h}"', 'height="auto"')
+        # Настройки отображения
+        opts = d2d.drawOptions()
+        opts.prepareMolsBeforeDrawing = False  # ЗАПРЕЩАЕМ RDKit менять координаты и генерировать свою сетку
+        opts.fixedFontSize = 14
+        opts.padding = 0.12
 
-            return svg
+        # 4. Отрисовка конкретного конформера с родными координатами
+        d2d.DrawMolecule(mol, confId=0)
+        d2d.FinishDrawing()
+        svg = d2d.GetDrawingText()
+
+        # 5. Делаем SVG резиновым для фронтенда
+        if f'width="{init_w}px"' in svg:
+            return svg.replace(f'width="{init_w}px" height="{init_h}px"',
+                               f'viewBox="0 0 {init_w} {init_h}" width="100%" height="auto"')
+        return svg.replace(f'width="{init_w}"', 'width="100%"').replace(f'height="{init_h}"', 'height="auto"')
 
     except Exception as e:
-        print(f"RDKit Render Error (MolBlock) for ID block: {e}")
-
-    return ""
+        print(f"[RAW MOL RENDER ERROR {book_id}]: {e}")
+        return ""

@@ -17,7 +17,7 @@ public class App {
     }
 
     public static void main(String[] args) {
-        System.out.println("=== STARTING MOL_FILE COLUMN UPDATE ===");
+        System.out.println("=== STARTING MOL_FILE AND MOL_FILE_RAW UPDATE ===");
 
         Properties props = new Properties();
         props.setProperty("user", USER);
@@ -25,16 +25,14 @@ public class App {
 
         IDCodeParser parser = new IDCodeParser();
 
-        // Берем только те строки, где есть idcode, но mol_file еще не заполнен
-        String selectQuery = "SELECT id, idcode, id_coords_2d FROM public.book_base WHERE idcode IS NOT NULL AND mol_file IS NULL;";
-        String updateQuery = "UPDATE public.book_base SET mol_file = public.mol_from_ctab(?::cstring) WHERE id = ?;";
+        String selectQuery = "SELECT id, idcode, id_coords_2d FROM public.book_base WHERE idcode IS NOT NULL AND mol_file_raw IS NULL;";
+        String updateQuery = "UPDATE public.book_base SET mol_file = public.mol_from_ctab(?::cstring), mol_file_raw = ? WHERE id = ?;";
 
         try (Connection conn = DriverManager.getConnection(DB_URL, props);
              PreparedStatement selectStmt = conn.prepareStatement(selectQuery);
              PreparedStatement updateStmt = conn.prepareStatement(updateQuery);
              ResultSet rs = selectStmt.executeQuery()) {
 
-            // Отключаем автокоммит для пакетного выполнения апдейтов
             conn.setAutoCommit(false);
 
             int count = 0;
@@ -48,20 +46,21 @@ public class App {
                 if (idcode.trim().isEmpty()) continue;
 
                 try {
-                    // Генерируем мольфайл из Actelion IDCode
                     StereoMolecule mol = new StereoMolecule();
                     parser.parse(mol, idcode, coords);
                     MolfileCreator creator = new MolfileCreator(mol);
                     String rawMolfile = creator.getMolfile();
 
-                    // Подставляем параметры: 1 — строка мольфайла, 2 — ID для WHERE
+                    // 1 — вставляем в mol_file (конвертируется картриджем)
                     updateStmt.setString(1, rawMolfile);
-                    updateStmt.setInt(2, id);
-                    updateStmt.addBatch();
+                    // 2 — сохраняем чистый текст с координатами в mol_file_raw
+                    updateStmt.setString(2, rawMolfile);
+                    // 3 — ID для WHERE
+                    updateStmt.setInt(3, id);
 
+                    updateStmt.addBatch();
                     count++;
 
-                    // Отправляем пачку в базу каждые 1000 записей
                     if (count % batchSize == 0) {
                         updateStmt.executeBatch();
                         conn.commit();
@@ -73,16 +72,15 @@ public class App {
                 }
             }
 
-            // Сбрасываем остатки
             if (count % batchSize != 0) {
                 updateStmt.executeBatch();
                 conn.commit();
             }
 
-            System.out.println("\n=== ОБНОВЛЕНИЕ ЗАВЕРШЕНО! Всего заполнено ячеек mol_file: " + count + " ===");
+            System.out.println("\n=== ОБНОВЛЕНИЕ ЗАВЕРШЕНО! Заполнено строк: " + count + " ===");
 
         } catch (SQLException e) {
-            System.err.println("\n[CRITICAL SQL ERROR] Сбой при выполнении пакета обновлений. Откат изменений.");
+            System.err.println("\n[CRITICAL SQL ERROR] Сбой выполнения пакета. Откат изменений.");
             e.printStackTrace();
 
             SQLException nextEx = e.getNextException();
