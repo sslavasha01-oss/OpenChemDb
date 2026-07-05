@@ -5,7 +5,7 @@ import com.actelion.research.chem.IDCodeParser;
 import com.actelion.research.chem.StereoMolecule;
 import com.actelion.research.chem.MolfileCreator;
 
-public class App {
+public class ProcessBooks {
 
     private static final String DB_URL = "jdbc:postgresql://localhost:5433/archive_db";
     private static final String USER = "chemist";

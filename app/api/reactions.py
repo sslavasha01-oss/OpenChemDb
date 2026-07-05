@@ -149,7 +149,9 @@ async def get_reactions_by_ids(
                            reaction_mapped_smiles,
                            "references",
                            conditions,
-                           yield_text, procedure
+                           yield_text,
+                           procedure,
+                           raw_rxn_file
                     FROM archive_reactions
                     WHERE id = ANY (:ids)
                       AND is_deleted = false
@@ -161,6 +163,7 @@ async def get_reactions_by_ids(
     reactions = []
     for row in result.fetchall():
         raw_smiles = row[3]
+        raw_rxn_block = row[9]
         reactions.append({
             "id": row[0],
             "external_id": row[1],
@@ -171,13 +174,73 @@ async def get_reactions_by_ids(
             "conditions": row[6],
             "yield_text": row[7],
             "procedure": row[8],
-            "svg_content": generate_reaction_svg_coordgen(raw_smiles),
+            "svg_content": generate_reaction_svg_from_block(raw_rxn_block if raw_rxn_block else raw_smiles),
         })
 
     return reactions
 
 
 from xml.etree.ElementTree import fromstring as xml_fromstring
+
+
+def generate_reaction_svg_from_block(rxn_data: str) -> str:
+    """
+    Генерирует SVG из MDL RXN блока (сохраняя родные 2D-координаты)
+    или из SMILES (как запасной вариант).
+    """
+    if not rxn_data:
+        return ""
+
+    try:
+        rxn = None
+        is_rxn_block = "$RXN" in rxn_data
+
+        if is_rxn_block:
+            # Парсим из сохраненного MDL RXN текстового блока
+            rxn = rdChemReactions.ReactionFromRxnBlock(rxn_data)
+            # ВАЖНО: Координаты уже внутри блока, пересчитывать их НЕ НАДО!
+        elif ">>" in rxn_data:
+            # Фоллбэк, если пришел SMILES
+            rxn = rdChemReactions.ReactionFromSmarts(rxn_data, useSmiles=True)
+            if rxn:
+                from rdkit.Chem import rdDepictor
+                rdDepictor.SetPreferCoordGen(True)
+                for i in range(rxn.GetNumReactantTemplates()):
+                    rdDepictor.Compute2DCoords(rxn.GetReactantTemplate(i))
+                for i in range(rxn.GetNumProductTemplates()):
+                    rdDepictor.Compute2DCoords(rxn.GetProductTemplate(i))
+                for i in range(rxn.GetNumAgentTemplates()):
+                    rdDepictor.Compute2DCoords(rxn.GetAgentTemplate(i))
+
+        if rxn:
+            # Отрисовка на фиксированный холст
+            d2d = Draw.MolDraw2DSVG(800, 300)
+            opts = d2d.drawOptions()
+            opts.fixedFontSize = 14
+            opts.padding = 0.05
+
+            d2d.DrawReaction(rxn)
+            d2d.FinishDrawing()
+
+            # Прогоняем через ваш кроппер границ для идеального адаптивного отображения во фронтенде
+            return crop_svg_borders(d2d.GetDrawingText(), padding=15)
+
+        # Фоллбэк для одиночной молекулы (если прилетел чистый SMILES)
+        mol = Chem.MolFromSmiles(rxn_data)
+        if mol:
+            from rdkit.Chem import rdDepictor
+            rdDepictor.Compute2DCoords(mol)
+            d2d = Draw.MolDraw2DSVG(400, 400)
+            d2d.drawOptions().fixedFontSize = 14
+            d2d.drawOptions().padding = 0.05
+            d2d.DrawMolecule(mol)
+            d2d.FinishDrawing()
+            return crop_svg_borders(d2d.GetDrawingText(), padding=12)
+
+    except Exception as e:
+        print(f"Render Error from block/smiles: {e}")
+
+    return ""
 
 
 def crop_svg_borders(svg_text: str, padding: int = 15) -> str:
