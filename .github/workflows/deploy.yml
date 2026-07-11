@@ -28,4 +28,4 @@ jobs:
             git pull origin main
             
             echo "--- Запускаем сборку и миграции через Makefile ---"
-            make update
+            make prod-update
