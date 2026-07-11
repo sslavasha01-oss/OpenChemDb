@@ -43,6 +43,11 @@ services:
           cpus: '5.0'
     networks:
       - chem_network
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U chemist -d users_db" ]
+      interval: 3s
+      timeout: 3s
+      retries: 5
 
   # Контейнер для 3 млн публичных реакций
   archive_db:
@@ -76,6 +81,11 @@ services:
           memory: 12G
     networks:
       - chem_network
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U chemist -d archive_db" ]
+      interval: 3s
+      timeout: 3s
+      retries: 5
 
   app:
     build:
@@ -97,8 +107,10 @@ services:
       sh -c "gunicorn app.main:app -w $${WORKERS_COUNT} -k uvicorn.workers.UvicornWorker -b 0.0.0.0:8000 --forwarded-allow-ips='*' --access-logfile - 
                                                                                                                                       --error-logfile - --capture-output"
     depends_on:
-      - users_db
-      - archive_db
+      users_db:
+        condition: service_healthy
+      archive_db:
+        condition: service_healthy
     deploy:
       resources:
         limits:
