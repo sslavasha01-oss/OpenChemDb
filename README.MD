@@ -12,6 +12,30 @@ The project uses a split-database architecture:
 
 ---
 
+## ⚡ Quick Start with Makefile (Docker Compose)
+
+The easiest way to orchestrate the application locally is by using the provided `Makefile`. 
+
+### Prerequisites
+Before running the commands, ensure you have installed:
+1. **Docker & Docker Compose**
+2. **GNU Make** (On Windows, install via `winget install ezwinports.make` or `scoop install make`)
+
+### Environment Setup
+First, create your local environment file:
+```bash
+cp .env.example .env
+```
+
+### Commands Reference
+
+| Action | Command | Description                                                                                                                                                       |
+|---|---|-------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| **Start** | `make up` | Standard launch of the local environment in the background.  Open http://localhost:8080/ to see the interface.                                                    |
+| **Update** | `make update` | Rebuilds the app and frontend builder without cache, restarts containers, waits for databases to pass healthchecks, and automatically applies Alembic migrations. |
+| **Stop** | `make down` | Safely stops and removes local containers without losing named volumes.                                                                                           |
+
+
 ## Development Setup
 
 Follow these steps to set up the project locally for development.
@@ -86,7 +110,7 @@ If you want to spin up the entire stack (including Caddy and the built frontend)
 
 ```Bash
 #Set permissions for the data directory (Linux/macOS)
-sudo chown -R 1000:1000 ./data
+sudo chown -R 999:999 ./data
 
 # Build and start all services
 docker compose up --build
