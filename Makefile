@@ -8,15 +8,15 @@ COMPOSE_LOCAL_FILE := docker-compose.yml
 
 up:
 	@echo "--- Starting local environment ---"
-	docker compose -f $(COMPOSE_LOCAL_FILE) up -d --wait
-	@echo "--- Running Alembic migrations on LOCAL ---"
-	docker compose -f $(COMPOSE_LOCAL_FILE) exec app alembic upgrade head
+	docker compose -f $(COMPOSE_LOCAL_FILE) up -d
 
 update:
 	@echo "--- Rebuilding local frontend and app without cache ---"
 	docker compose -f $(COMPOSE_LOCAL_FILE) build --no-cache frontend-builder app
-	@echo "--- Restarting containers and waiting for healthchecks ---"
-	docker compose -f $(COMPOSE_LOCAL_FILE) up -d --no-deps --wait frontend-builder app
+	@echo "--- Running frontend builder ---"
+	docker compose -f $(COMPOSE_LOCAL_FILE) up -d --no-deps frontend-builder
+	@echo "--- Restarting app container and waiting for healthchecks ---"
+	docker compose -f $(COMPOSE_LOCAL_FILE) up -d --no-deps --wait app
 	@echo "--- Running Alembic migrations locally ---"
 	docker compose -f $(COMPOSE_LOCAL_FILE) exec app alembic upgrade head
 	@echo "--- Local update completed! ---"
@@ -45,8 +45,10 @@ prod-down:
 prod-update:
 	@echo "--- Rebuilding PROD frontend and app without cache ---"
 	docker compose -f $(COMPOSE_APP_FILE) build --no-cache frontend-builder app
-	@echo "--- Restarting app containers and waiting for healthchecks ---"
-	docker compose -f $(COMPOSE_APP_FILE) up -d --no-deps --wait frontend-builder app
+	@echo "--- Running frontend builder ---"
+	docker compose -f $(COMPOSE_APP_FILE) up -d --no-deps frontend-builder
+	@echo "--- Restarting app container and waiting for healthchecks ---"
+	docker compose -f $(COMPOSE_APP_FILE) up -d --no-deps --wait app
 	@echo "--- Running Alembic migrations on PROD ---"
 	docker compose -f $(COMPOSE_APP_FILE) exec app alembic upgrade head
 	@echo "--- PROD update completed! ---"
