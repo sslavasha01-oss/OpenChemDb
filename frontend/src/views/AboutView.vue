@@ -29,7 +29,7 @@
         <ul class="social-links">
           <li><a href="https://t.me/ninja_chemist" target="_blank">✈️ Telegram channel</a></li>
           <li><a href="https://youtube.com/@NinjaChemistChannel" target="_blank">📺 YouTube channel</a></li>
-          <li><a href="https://github.com/ТВОЙ_РЕПО" target="_blank">💻 GitHub (Coming soon)</a></li>
+          <li><a href="https://github.com/sslavasha01-oss/OpenChemDb" target="_blank">💻 GitHub (Coming soon)</a></li>
         </ul>
       </div>
     </div>
