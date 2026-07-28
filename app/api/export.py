@@ -412,6 +412,8 @@ async def background_import_task(
                     text_stream = io.TextIOWrapper(tsv_file, encoding="utf-8")
                     reader = csv.DictReader(text_stream, delimiter="\t")
 
+                    valid_columns = {c.name for c in UserJournal.__table__.columns}
+
                     for row in reader:
                         old_ext_id = int(row.pop("external_id"))
 
@@ -455,7 +457,12 @@ async def background_import_task(
 
                         insert_data['user_id'] = user_id
 
-                        stmt = insert(UserJournal).values(**insert_data).returning(UserJournal.id,
+                        final_insert_data = {
+                            k: v for k, v in insert_data.items()
+                            if k in valid_columns
+                        }
+
+                        stmt = insert(UserJournal).values(**final_insert_data).returning(UserJournal.id,
                                                                                    UserJournal.external_id)
                         res = await db.execute(stmt)
                         new_id, new_ext_id = res.fetchone()
