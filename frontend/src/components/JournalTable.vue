@@ -45,7 +45,7 @@
              </td>
              <td class="col-viz">
                 <!-- Теперь рендерим из smiles через нашу функцию -->
-                <div class="reaction-container" v-if="rec.product_smiles" v-html="renderStructure(rec.product_smiles)"></div>
+                <div class="reaction-container" v-if="rec.rendered_svg" v-html="rec.rendered_svg"></div>
                 <div class="no-viz" v-else>No Structure</div>
              </td>
 
@@ -100,6 +100,29 @@ const error = ref(null)
 const pagesCache = ref({})
 
 const isSearchMode = ref(false);
+
+// Функция ожидания загрузки OCL (ретрай)
+const ensureOCLReady = async (maxAttempts = 5) => {
+  for (let i = 0; i < maxAttempts; i++) {
+    if (window.OCL || (typeof renderStructure === 'function' && renderStructure('C'))) {
+      return true;
+    }
+    console.log(`Waiting for OCL... attempt ${i + 1}`);
+    await new Promise(resolve => setTimeout(resolve, 200));
+  }
+  return false;
+};
+
+// Функция подготовки SVG с уникальными ID
+const prepareSvgForTable = (smiles, recordId) => {
+  const rawSvg = renderStructure(smiles, 160, 120);
+  if (!rawSvg) return null;
+  const prefix = `table-rec-${recordId}`;
+  return rawSvg
+    .replace(/id=["']([^"']+)["']/g, (match, id) => `id="${prefix}-${id}"`)
+    .replace(/href=["']#([^"']+)["']/g, (match, href) => `href="#${prefix}-${href}"`)
+    .replace(/url\(#([^)]+)\)/g, (match, url) => `url(#${prefix}-${url})`);
+};
 
 // Хранилище ID для активного поиска
 const searchResultsIds = ref([])
@@ -164,41 +187,34 @@ const fetchCount = async () => {
 const fetchRecords = async (forceRefresh = false) => {
   if (!forceRefresh && pagesCache.value[currentPage.value]) {
     records.value = pagesCache.value[currentPage.value];
-    return records.value; // ВАЖНО: возвращаем данные!
+    return records.value;
   }
 
   loading.value = true;
-  error.value = null; // Сбрасываем старую ошибку перед новым запросом
+  error.value = null;
 
   try {
-    if (!localStorage.getItem('token')) {
-      console.log("[Table] Запрос отменен: пользователь не авторизован");
-      return;
-    }
+    if (!localStorage.getItem('token')) return;
     const token = localStorage.getItem('token');
 
-    let responseData;
+    // Ждем загрузку химии перед отрисовкой
+    await ensureOCLReady();
 
+    let responseData;
     if (isSearchMode.value) {
-      // Режим ПОИСКА: вырезаем ID для текущей страницы
       const pageIds = searchResultsIds.value.slice(offset.value, offset.value + limit);
-      console.log("[Journal Debug Table] Выполняется fetchRecords в режиме ПОИСКА по ID");
       if (pageIds.length === 0) {
         responseData = [];
       } else {
-        // Запрашиваем полные данные порции ID (FastAPI ожидает ?ids=1&ids=2...)
         const params = new URLSearchParams();
         pageIds.forEach(id => params.append('ids', id));
-
         const response = await axios.get('/api/my-journal/search/by-ids', {
-          params: params,
+          params,
           headers: { 'Authorization': `Bearer ${token}` }
         });
         responseData = response.data;
       }
     } else {
-      // ОБЫЧНЫЙ режим: стандартный запрос с пагинацией
-      console.log("[Journal Debug Table] Выполняется fetchRecords в ОБЫЧНОМ режиме /list");
       const response = await axios.get('/api/my-journal/list', {
         params: { limit: limit, offset: offset.value },
         headers: { 'Authorization': `Bearer ${token}` }
@@ -206,17 +222,21 @@ const fetchRecords = async (forceRefresh = false) => {
       responseData = response.data;
     }
 
-    pagesCache.value[currentPage.value] = responseData;
-    records.value = responseData;
+    // ПРЕ-РЕНДЕР: Готовим SVG заранее с изоляцией ID
+    const processedData = responseData.map(rec => ({
+      ...rec,
+      rendered_svg: rec.product_smiles ? prepareSvgForTable(rec.product_smiles, rec.id) : null
+    }));
 
-    // Авто-выбор первой записи:
-    // Если id не передан извне, мы на 1 странице и есть данные
-    if (!props.selectedId && responseData.length > 0 && currentPage.value === 1) {
-       emit('select-record', responseData[0], false);
+    pagesCache.value[currentPage.value] = processedData;
+    records.value = processedData;
+
+    if (!props.selectedId && processedData.length > 0 && currentPage.value === 1) {
+       emit('select-record', processedData[0], false);
     }
-    return responseData;
+    return processedData;
   } catch (err) {
-    console.error("Fetch error details:", err);
+    console.error(err);
     error.value = "Load failed";
   } finally {
     loading.value = false;

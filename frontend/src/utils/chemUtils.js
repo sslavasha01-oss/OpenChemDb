@@ -11,6 +11,11 @@ import OCL from 'openchemlib';
 export const renderStructure = (smiles, width = 160, height = 120) => {
   if (!smiles) return null;
 
+  if (!OCL || typeof OCL.Molecule === 'undefined') {
+    console.error("OCL is not initialized yet");
+    return null;
+  }
+
   try {
     const mol = OCL.Molecule.fromSmiles(smiles);
 
