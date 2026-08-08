@@ -9,8 +9,10 @@ import OCL from 'openchemlib';
  * @returns {string|null} - Строка SVG или null в случае ошибки
  */
 export const renderStructure = (smiles, width = 160, height = 120) => {
-  if (!smiles) return null;
+  // Если строка пустая или слишком короткая, даже не пытаемся
+  if (!smiles || smiles.length < 1) return null;
 
+  // Пытаемся взять библиотеку отовсюду
   const oclLib = window.OCL || OCL;
 
   if (!oclLib || !oclLib.Molecule) {
@@ -20,14 +22,18 @@ export const renderStructure = (smiles, width = 160, height = 120) => {
   try {
     const mol = oclLib.Molecule.fromSmiles(smiles);
 
+    // Важно: проверяем, не пустая ли молекула получилась
+    if (mol.getAllAtoms() === 0) return null;
+
     return mol.toSVG(width, height, null, {
-      noMatter: true,            // Вписать в размеры
-      suppressChiralText: true,  // Убрать надписи типа (R)/(S) для компактности
-      suppressESR: true,         // Убрать технические метки
+      noMatter: true,
+      suppressChiralText: true,
+      suppressESR: true,
       fontWeight: 'normal',
     });
   } catch (e) {
-    console.error("OCL Render Error for SMILES:", smiles, e);
+    // Не логируем ошибку в консоль на каждый чих, чтобы не забивать поток,
+    // если пользователь просто не дописал SMILES
     return null;
   }
 };

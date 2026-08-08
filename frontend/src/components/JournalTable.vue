@@ -45,16 +45,16 @@
              </td>
              <td class="col-viz">
   <div class="reaction-container">
-    <!-- СЛУЧАЙ 1: Картинка уже отрисована -->
+    <!-- Состояние 1: SVG успешно создан -->
     <div v-if="rec.rendered_svg" v-html="rec.rendered_svg"></div>
 
-    <!-- СЛУЧАЙ 2: SMILES есть, но SVG еще не готов (ждем библиотеку) -->
-    <div v-else-if="rec.product_smiles" class="chem-loading">
+    <!-- Состояние 2: SMILES есть, но SVG еще нет (идет рендер или ожидание либы) -->
+    <div v-else-if="rec.product_smiles && rec.product_smiles.trim() !== ''" class="chem-loading">
       <div class="mini-spinner"></div>
       <span>Rendering...</span>
     </div>
 
-    <!-- СЛУЧАЙ 3: В базе действительно нет SMILES -->
+    <!-- Состояние 3: SMILES реально пустой -->
     <div v-else class="no-viz">No Structure</div>
   </div>
 </td>
@@ -99,6 +99,7 @@
 // ... (Весь JS код остается точно таким же, как в твоем рабочем примере) ...
 import { ref, watch, onMounted, computed, nextTick } from 'vue'
 import axios from 'axios'
+import OCL from 'openchemlib'
 import { renderStructure } from '@/utils/chemUtils'
 const emit = defineEmits(['select-record', 'update:selected-export-ids'])
 const records = ref([])
@@ -115,13 +116,19 @@ const isChemReady = ref(false);
 
 // 1. Проверка готовности библиотеки
 const checkChemLib = () => {
-  // Проверяем наличие Molecule в глобальном объекте или импорте
-  if (window.OCL?.Molecule || (typeof renderStructure === 'function' && renderStructure('C'))) {
-    isChemReady.value = true;
-    return true;
+  try {
+    // Проверяем и глобальный объект, и импортированный
+    const lib = window.OCL || OCL;
+    if (lib && lib.Molecule) {
+      isChemReady.value = true;
+      return true;
+    }
+  } catch (e) {
+    return false;
   }
   return false;
 };
+
 
 // 3. Главная функция отрисовки (теперь она реактивна)
 const renderAllVisibleRecords = () => {
@@ -249,7 +256,6 @@ const fetchRecords = async (forceRefresh = false) => {
 
     // Сохраняем данные как есть (без немедленного рендеринга, если OCL тормозит)
     records.value = responseData;
-    pagesCache.value[currentPage.value] = responseData;
 
     // Запускаем попытку отрисовки
     await nextTick();
@@ -269,24 +275,35 @@ const fetchRecords = async (forceRefresh = false) => {
 
 // Эта функция будет «дорисовывать» то, что не отрисовалось сразу
 const forceRenderMissing = async () => {
-  // 1. Ждем библиотеку (увеличим время ожидания для мобилок)
-  const ready = await ensureOCLReady(15); // до 3 секунд ожидания
-  if (!ready) return;
+  // Ждем до 5 секунд (на медленных телефонах OCL может долго инициализироваться в фоне)
+  let attempts = 0;
+  while (!checkChemLib() && attempts < 25) {
+    await new Promise(r => setTimeout(r, 200));
+    attempts++;
+  }
+
+  if (!isChemReady.value) {
+    console.error("Chemical library failed to load");
+    return;
+  }
 
   let changed = false;
-
-  // 2. Проходим по текущим записям
-  records.value.forEach(rec => {
-    // Если SMILES есть, а картинки еще нет — рисуем
+  // Используем map для создания нового массива, чтобы Vue гарантированно увидел изменения
+  const updatedRecords = records.value.map(rec => {
     if (rec.product_smiles && !rec.rendered_svg) {
-      rec.rendered_svg = prepareSvgForTable(rec.product_smiles, rec.id);
-      if (rec.rendered_svg) changed = true;
+      const svg = prepareSvgForTable(rec.product_smiles, rec.id);
+      if (svg) {
+        changed = true;
+        return { ...rec, rendered_svg: svg };
+      }
     }
+    return rec;
   });
 
-  // 3. Если что-то изменилось, обновляем кэш, чтобы при переходах назад всё было на месте
   if (changed) {
-    pagesCache.value[currentPage.value] = JSON.parse(JSON.stringify(records.value));
+    records.value = updatedRecords;
+    // Обновляем кэш
+    pagesCache.value[currentPage.value] = JSON.parse(JSON.stringify(updatedRecords));
   }
 };
 
@@ -363,11 +380,11 @@ const formatDate = (dateStr) => {
   })
 }
 
-watch([isChemReady, records], () => {
-  if (isChemReady.value) {
-    renderAllVisibleRecords();
+watch(isChemReady, (ready) => {
+  if (ready && records.value.length > 0) {
+    forceRenderMissing();
   }
-}, { deep: true });
+});
 
 
 onMounted(() => {
