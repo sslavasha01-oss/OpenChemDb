@@ -9,21 +9,17 @@ import OCL from 'openchemlib';
  * @returns {string|null} - Строка SVG или null в случае ошибки
  */
 export const renderStructure = (smiles, width = 160, height = 120) => {
-  // Если строка пустая или слишком короткая, даже не пытаемся
   if (!smiles || smiles.length < 1) return null;
 
-  // Пытаемся взять библиотеку отовсюду
   const oclLib = window.OCL || OCL;
-
-  if (!oclLib || !oclLib.Molecule) {
-    return null;
-  }
+  if (!oclLib || !oclLib.Molecule || typeof oclLib.Molecule.fromSmiles !== 'function') return null;
 
   try {
     const mol = oclLib.Molecule.fromSmiles(smiles);
+    if (!mol || mol.getAllAtoms() === 0) return null;
 
-    // Важно: проверяем, не пустая ли молекула получилась
-    if (mol.getAllAtoms() === 0) return null;
+    // Добавляем проверку на наличие метода toSVG (иногда он грузится отдельно)
+    if (typeof mol.toSVG !== 'function') return null;
 
     return mol.toSVG(width, height, null, {
       noMatter: true,
@@ -32,9 +28,7 @@ export const renderStructure = (smiles, width = 160, height = 120) => {
       fontWeight: 'normal',
     });
   } catch (e) {
-    // Не логируем ошибку в консоль на каждый чих, чтобы не забивать поток,
-    // если пользователь просто не дописал SMILES
-    return null;
+    return null; // Тихо возвращаем null, Watcher попробует позже
   }
 };
 

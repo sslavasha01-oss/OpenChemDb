@@ -114,14 +114,17 @@ const isSearchMode = ref(false);
 
 const isChemReady = ref(false);
 
-// 1. Проверка готовности библиотеки
 const checkChemLib = () => {
   try {
-    // Проверяем и глобальный объект, и импортированный
     const lib = window.OCL || OCL;
-    if (lib && lib.Molecule) {
-      isChemReady.value = true;
-      return true;
+    // Проверяем не просто наличие, а работоспособность
+    if (lib && lib.Molecule && typeof lib.Molecule.fromSmiles === 'function') {
+      // Пробный рендер, чтобы убедиться, что библиотека "прогрета"
+      const test = lib.Molecule.fromSmiles('C');
+      if (test && test.getAllAtoms() > 0) {
+        isChemReady.value = true;
+        return true;
+      }
     }
   } catch (e) {
     return false;
@@ -130,15 +133,24 @@ const checkChemLib = () => {
 };
 
 
-// 3. Главная функция отрисовки (теперь она реактивна)
 const renderAllVisibleRecords = () => {
-  if (!isChemReady.value) return;
+  if (!isChemReady.value || records.value.length === 0) return;
 
+  let hasChanges = false;
   records.value.forEach(rec => {
     if (rec.product_smiles && !rec.rendered_svg) {
-      rec.rendered_svg = prepareSvgForTable(rec.product_smiles, rec.id);
+      const svg = prepareSvgForTable(rec.product_smiles, rec.id);
+      if (svg) {
+        rec.rendered_svg = svg;
+        hasChanges = true;
+      }
     }
   });
+
+  // Если мы что-то отрисовали, обновляем кэш текущей страницы
+  if (hasChanges) {
+    pagesCache.value[currentPage.value] = JSON.parse(JSON.stringify(records.value));
+  }
 };
 
 // Функция ожидания загрузки OCL (ретрай)
@@ -391,13 +403,22 @@ const waitForOCL = async () => {
   return false;
 };
 
-onMounted(() => {
-  // Предзагрузка библиотеки в фоне (чтобы ускорить первый рендер)
+watch([isChemReady, () => records.value.length], ([ready, count]) => {
+  if (ready && count > 0) {
+    console.log("[Table Debug] Chem ready or records updated. Rendering...");
+    renderAllVisibleRecords();
+  }
+}, { immediate: true });
+
+
+onMounted(async () => {
+  // 1. Запускаем опрос готовности библиотеки (фоново)
   waitForOCL();
 
+  // 2. Если мы не в режиме ожидания поиска, грузим данные
   if (!isSearchPending.value && !isSearchActive.value) {
-    fetchCount();
-    fetchRecords();
+    await fetchCount();
+    await fetchRecords(); // Когда это закончится, сработает Watcher из п.1
   }
 });
 
