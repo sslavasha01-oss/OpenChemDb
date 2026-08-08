@@ -227,8 +227,9 @@ const fetchCount = async () => {
 const fetchRecords = async (forceRefresh = false) => {
   if (!forceRefresh && pagesCache.value[currentPage.value]) {
     records.value = pagesCache.value[currentPage.value];
-    // Даже если берем из кэша, проверяем — вдруг химия в прошлый раз не отрисовалась?
-    forceRenderMissing();
+
+    // Передаем текущие записи по ссылке
+    forceRenderMissing(records.value, currentPage.value);
     return records.value;
   }
 
@@ -254,12 +255,13 @@ const fetchRecords = async (forceRefresh = false) => {
       responseData = res.data;
     }
 
-    // Сохраняем данные как есть (без немедленного рендеринга, если OCL тормозит)
     records.value = responseData;
 
-    // Запускаем попытку отрисовки
-    await nextTick();
-    forceRenderMissing();
+    // СРАЗУ кешируем базовые данные (без SVG), чтобы они не потерялись при быстром клике
+    pagesCache.value[currentPage.value] = JSON.parse(JSON.stringify(responseData));
+
+    // Вызываем рендер, жестко привязывая его к текущему списку и текущей странице
+    forceRenderMissing(records.value, currentPage.value);
 
     if (!props.selectedId && responseData.length > 0 && currentPage.value === 1) {
        emit('select-record', responseData[0], false);
@@ -274,36 +276,32 @@ const fetchRecords = async (forceRefresh = false) => {
 }
 
 // Эта функция будет «дорисовывать» то, что не отрисовалось сразу
-const forceRenderMissing = async () => {
-  // Ждем до 5 секунд (на медленных телефонах OCL может долго инициализироваться в фоне)
-  let attempts = 0;
-  while (!checkChemLib() && attempts < 25) {
-    await new Promise(r => setTimeout(r, 200));
-    attempts++;
-  }
-
-  if (!isChemReady.value) {
+// 3. Пуленепробиваемый рендер: мутирует объекты напрямую!
+// Принимает массив и номер страницы, чтобы избежать бага при быстром переключении
+const forceRenderMissing = async (targetRecords, targetPage) => {
+  const ready = await waitForOCL();
+  if (!ready) {
     console.error("Chemical library failed to load");
     return;
   }
 
-  let changed = false;
-  // Используем map для создания нового массива, чтобы Vue гарантированно увидел изменения
-  const updatedRecords = records.value.map(rec => {
+  let hasChanges = false;
+
+  // Важно: мы НЕ используем .map() и НЕ переназначаем records.value
+  // Мы мутируем реактивные свойства напрямую. Vue 3 отрендерит их моментально.
+  targetRecords.forEach(rec => {
     if (rec.product_smiles && !rec.rendered_svg) {
       const svg = prepareSvgForTable(rec.product_smiles, rec.id);
       if (svg) {
-        changed = true;
-        return { ...rec, rendered_svg: svg };
+        rec.rendered_svg = svg;
+        hasChanges = true;
       }
     }
-    return rec;
   });
 
-  if (changed) {
-    records.value = updatedRecords;
-    // Обновляем кэш
-    pagesCache.value[currentPage.value] = JSON.parse(JSON.stringify(updatedRecords));
+  // Обновляем кэш безопасно: только если мы все еще на той же странице
+  if (hasChanges && targetPage) {
+    pagesCache.value[targetPage] = JSON.parse(JSON.stringify(targetRecords));
   }
 };
 
@@ -380,24 +378,22 @@ const formatDate = (dateStr) => {
   })
 }
 
-watch(isChemReady, (ready) => {
-  if (ready && records.value.length > 0) {
-    forceRenderMissing();
-  }
-});
+const waitForOCL = async () => {
+  if (isChemReady.value) return true;
 
+  for (let i = 0; i < 50; i++) { // 50 попыток по 200мс = 10 секунд
+    if (checkChemLib()) {
+      isChemReady.value = true;
+      return true;
+    }
+    await new Promise(r => setTimeout(r, 200));
+  }
+  return false;
+};
 
 onMounted(() => {
-  // Запускаем цикл проверки библиотеки при монтировании
-  const interval = setInterval(() => {
-    if (checkChemLib()) {
-      clearInterval(interval);
-      console.log("OCL Ready!");
-    }
-  }, 300);
-
-  // Ограничиваем время ожидания 10 секундами, чтобы не крутилось вечно
-  setTimeout(() => clearInterval(interval), 10000);
+  // Предзагрузка библиотеки в фоне (чтобы ускорить первый рендер)
+  waitForOCL();
 
   if (!isSearchPending.value && !isSearchActive.value) {
     fetchCount();
