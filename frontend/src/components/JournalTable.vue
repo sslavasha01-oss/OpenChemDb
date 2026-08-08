@@ -44,10 +44,20 @@
                  <input type="checkbox" :value="rec.id" v-model="selectedIds">
              </td>
              <td class="col-viz">
-                <!-- Теперь рендерим из smiles через нашу функцию -->
-                <div class="reaction-container" v-if="rec.rendered_svg" v-html="rec.rendered_svg"></div>
-                <div class="no-viz" v-else>No Structure</div>
-             </td>
+  <div class="reaction-container">
+    <!-- СЛУЧАЙ 1: Картинка уже отрисована -->
+    <div v-if="rec.rendered_svg" v-html="rec.rendered_svg"></div>
+
+    <!-- СЛУЧАЙ 2: SMILES есть, но SVG еще не готов (ждем библиотеку) -->
+    <div v-else-if="rec.product_smiles" class="chem-loading">
+      <div class="mini-spinner"></div>
+      <span>Rendering...</span>
+    </div>
+
+    <!-- СЛУЧАЙ 3: В базе действительно нет SMILES -->
+    <div v-else class="no-viz">No Structure</div>
+  </div>
+</td>
 
   <td class="col-id" data-label="Entry">
     <div class="id-badge">#{{ rec.external_id }}</div>
@@ -100,6 +110,29 @@ const error = ref(null)
 const pagesCache = ref({})
 
 const isSearchMode = ref(false);
+
+const isChemReady = ref(false);
+
+// 1. Проверка готовности библиотеки
+const checkChemLib = () => {
+  // Проверяем наличие Molecule в глобальном объекте или импорте
+  if (window.OCL?.Molecule || (typeof renderStructure === 'function' && renderStructure('C'))) {
+    isChemReady.value = true;
+    return true;
+  }
+  return false;
+};
+
+// 3. Главная функция отрисовки (теперь она реактивна)
+const renderAllVisibleRecords = () => {
+  if (!isChemReady.value) return;
+
+  records.value.forEach(rec => {
+    if (rec.product_smiles && !rec.rendered_svg) {
+      rec.rendered_svg = prepareSvgForTable(rec.product_smiles, rec.id);
+    }
+  });
+};
 
 // Функция ожидания загрузки OCL (ретрай)
 const ensureOCLReady = async (maxAttempts = 5) => {
@@ -330,17 +363,30 @@ const formatDate = (dateStr) => {
   })
 }
 
+watch([isChemReady, records], () => {
+  if (isChemReady.value) {
+    renderAllVisibleRecords();
+  }
+}, { deep: true });
+
+
 onMounted(() => {
-  console.log("[Journal Debug Table] onMounted сработал. Флаг ожидания поиска:", isSearchPending.value);
+  // Запускаем цикл проверки библиотеки при монтировании
+  const interval = setInterval(() => {
+    if (checkChemLib()) {
+      clearInterval(interval);
+      console.log("OCL Ready!");
+    }
+  }, 300);
+
+  // Ограничиваем время ожидания 10 секундами, чтобы не крутилось вечно
+  setTimeout(() => clearInterval(interval), 10000);
 
   if (!isSearchPending.value && !isSearchActive.value) {
-    console.log("[Journal Debug Table] Блокировок нет, загружаем стандартный список /list");
     fetchCount();
     fetchRecords();
-  } else {
-    console.log("[Journal Debug Table] Загрузка /list отменена, таблица ждет результатов поиска.");
   }
-})
+});
 
 defineExpose({
   refreshData,
@@ -536,4 +582,23 @@ defineExpose({
 
 .col-check { width: 40px; text-align: center; }
 .col-check input { width: 18px; height: 18px; cursor: pointer; }
+
+.chem-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  color: #999;
+  font-size: 0.7rem;
+}
+
+.mini-spinner {
+  width: 16px;
+  height: 16px;
+  border: 2px solid #f3f3f3;
+  border-top: 2px solid #42b983;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
 </style>
