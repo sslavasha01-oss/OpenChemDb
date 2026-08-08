@@ -87,7 +87,7 @@
 
 <script setup>
 // ... (Весь JS код остается точно таким же, как в твоем рабочем примере) ...
-import { ref, watch, onMounted, computed } from 'vue'
+import { ref, watch, onMounted, computed, nextTick } from 'vue'
 import axios from 'axios'
 import { renderStructure } from '@/utils/chemUtils'
 const emit = defineEmits(['select-record', 'update:selected-export-ids'])
@@ -187,6 +187,8 @@ const fetchCount = async () => {
 const fetchRecords = async (forceRefresh = false) => {
   if (!forceRefresh && pagesCache.value[currentPage.value]) {
     records.value = pagesCache.value[currentPage.value];
+    // Даже если берем из кэша, проверяем — вдруг химия в прошлый раз не отрисовалась?
+    forceRenderMissing();
     return records.value;
   }
 
@@ -194,47 +196,36 @@ const fetchRecords = async (forceRefresh = false) => {
   error.value = null;
 
   try {
-    if (!localStorage.getItem('token')) return;
     const token = localStorage.getItem('token');
-
-    // Ждем загрузку химии перед отрисовкой
-    await ensureOCLReady();
+    if (!token) return;
 
     let responseData;
     if (isSearchMode.value) {
       const pageIds = searchResultsIds.value.slice(offset.value, offset.value + limit);
-      if (pageIds.length === 0) {
-        responseData = [];
-      } else {
+      if (pageIds.length === 0) responseData = [];
+      else {
         const params = new URLSearchParams();
         pageIds.forEach(id => params.append('ids', id));
-        const response = await axios.get('/api/my-journal/search/by-ids', {
-          params,
-          headers: { 'Authorization': `Bearer ${token}` }
-        });
-        responseData = response.data;
+        const res = await axios.get('/api/my-journal/search/by-ids', { params, headers: { 'Authorization': `Bearer ${token}` } });
+        responseData = res.data;
       }
     } else {
-      const response = await axios.get('/api/my-journal/list', {
-        params: { limit: limit, offset: offset.value },
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      responseData = response.data;
+      const res = await axios.get('/api/my-journal/list', { params: { limit, offset: offset.value }, headers: { 'Authorization': `Bearer ${token}` } });
+      responseData = res.data;
     }
 
-    // ПРЕ-РЕНДЕР: Готовим SVG заранее с изоляцией ID
-    const processedData = responseData.map(rec => ({
-      ...rec,
-      rendered_svg: rec.product_smiles ? prepareSvgForTable(rec.product_smiles, rec.id) : null
-    }));
+    // Сохраняем данные как есть (без немедленного рендеринга, если OCL тормозит)
+    records.value = responseData;
+    pagesCache.value[currentPage.value] = responseData;
 
-    pagesCache.value[currentPage.value] = processedData;
-    records.value = processedData;
+    // Запускаем попытку отрисовки
+    await nextTick();
+    forceRenderMissing();
 
-    if (!props.selectedId && processedData.length > 0 && currentPage.value === 1) {
-       emit('select-record', processedData[0], false);
+    if (!props.selectedId && responseData.length > 0 && currentPage.value === 1) {
+       emit('select-record', responseData[0], false);
     }
-    return processedData;
+    return responseData;
   } catch (err) {
     console.error(err);
     error.value = "Load failed";
@@ -242,6 +233,29 @@ const fetchRecords = async (forceRefresh = false) => {
     loading.value = false;
   }
 }
+
+// Эта функция будет «дорисовывать» то, что не отрисовалось сразу
+const forceRenderMissing = async () => {
+  // 1. Ждем библиотеку (увеличим время ожидания для мобилок)
+  const ready = await ensureOCLReady(15); // до 3 секунд ожидания
+  if (!ready) return;
+
+  let changed = false;
+
+  // 2. Проходим по текущим записям
+  records.value.forEach(rec => {
+    // Если SMILES есть, а картинки еще нет — рисуем
+    if (rec.product_smiles && !rec.rendered_svg) {
+      rec.rendered_svg = prepareSvgForTable(rec.product_smiles, rec.id);
+      if (rec.rendered_svg) changed = true;
+    }
+  });
+
+  // 3. Если что-то изменилось, обновляем кэш, чтобы при переходах назад всё было на месте
+  if (changed) {
+    pagesCache.value[currentPage.value] = JSON.parse(JSON.stringify(records.value));
+  }
+};
 
 const refreshData = async (keepSearch = false) => {
   // Очищаем кэш страниц в любом случае, так как данные в БД изменились
@@ -406,14 +420,16 @@ defineExpose({
   justify-content: center;
   background: #fff;
   border-radius: 4px;
+  min-height: 120px; /* Резервируем место под картинку */
+  min-width: 120px;
+  width: 100%;
 }
 
 .reaction-container :deep(svg) {
-  width: 100%;
-  height: 100%;
-  max-width: 160px;
-  max-height: 120px;
   display: block;
+  width: 100%;
+  height: auto;
+  max-height: 120px;
 }
 
 .id-badge { background: #42b983; color: white; padding: 2px 6px; border-radius: 4px; font-weight: bold; font-size: 0.85rem; }

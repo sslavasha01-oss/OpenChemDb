@@ -11,13 +11,14 @@ import OCL from 'openchemlib';
 export const renderStructure = (smiles, width = 160, height = 120) => {
   if (!smiles) return null;
 
-  if (!OCL || typeof OCL.Molecule === 'undefined') {
-    console.error("OCL is not initialized yet");
+  const oclLib = window.OCL || OCL;
+
+  if (!oclLib || !oclLib.Molecule) {
     return null;
   }
 
   try {
-    const mol = OCL.Molecule.fromSmiles(smiles);
+    const mol = oclLib.Molecule.fromSmiles(smiles);
 
     return mol.toSVG(width, height, null, {
       noMatter: true,            // Вписать в размеры
