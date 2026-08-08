@@ -134,12 +134,17 @@ const props = defineProps({
 // Вычисляемое свойство, которое гарантирует уникальность ID
 // при ЛЮБОМ изменении данных (из базы, из Кетчера, откуда угодно)
 const isolatedSvg = computed(() => {
-  const rawSvg = props.modelValue?.[`reagent${props.index}_svg`];
+  // 1. Беремо SMILES замість SVG
+  const smiles = props.modelValue?.[`reagent${props.index}_smiles`];
+  if (!smiles) return '';
+
+  // 2. Генеруємо новий SVG через OpenChemLib
+  const rawSvg = renderStructure(smiles, 160, 120);
   if (!rawSvg) return '';
 
   const prefix = `reagent-card-${props.index}`;
 
-  // Изолируем ID, href и url() "на лету" прямо перед рендером в DOM
+  // 3. Ізолюємо ID для уникнення конфліктів у DOM
   return rawSvg
     .replace(/id=["']([^"']+)["']/g, (match, id) => `id="${prefix}-${id}"`)
     .replace(/href=["']#([^"']+)["']/g, (match, href) => `href="#${prefix}-${href}"`)

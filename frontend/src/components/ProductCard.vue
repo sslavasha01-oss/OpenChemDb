@@ -12,7 +12,7 @@
           <span class="icon">⚗️</span>
           <p>Click to draw structure</p>
         </div>
-        <div v-else class="svg-render" v-html="modelValue.product_preview_svg"></div>
+        <div v-else class="svg-render" v-html="productSvg"></div>
       </div>
 
       <div class="fields-zone">
@@ -113,7 +113,7 @@
 </template>
 
 <script setup>
-import { ref, nextTick } from 'vue'
+import { ref,  nextTick, computed } from 'vue'
 import { renderStructure, calculateMW } from '@/utils/chemUtils'
 import OCL from 'openchemlib'
 
@@ -191,6 +191,20 @@ const drawSmiles = (smiles) => {
 };
 
 defineExpose({ drawSmiles });
+
+const productSvg = computed(() => {
+  const smiles = props.modelValue.product_smiles;
+  if (!smiles) return '';
+
+  const rawSvg = renderStructure(smiles, 160, 160);
+  if (!rawSvg) return '';
+
+  const prefix = 'prod-card';
+  return rawSvg
+    .replace(/id=["']([^"']+)["']/g, (match, id) => `id="${prefix}-${id}"`)
+    .replace(/href=["']#([^"']+)["']/g, (match, href) => `href="#${prefix}-${href}"`)
+    .replace(/url\(#([^)]+)\)/g, (match, url) => `url(#${prefix}-${url})`);
+});
 
 // 4. Сохранение изменений из глобального Кетчера
 const saveFromKetcher = async () => {
