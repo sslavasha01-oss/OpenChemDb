@@ -80,5 +80,3 @@ class UserJournalSchema(BaseModel):
     references: Optional[str] = None
     doi: Optional[str] = None
     procedure: Optional[str] = None
-
-    product_svg: Optional[str] = None

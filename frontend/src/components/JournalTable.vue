@@ -44,7 +44,8 @@
                  <input type="checkbox" :value="rec.id" v-model="selectedIds">
              </td>
              <td class="col-viz">
-                <div class="reaction-container" v-if="rec.product_svg" v-html="rec.product_svg"></div>
+                <!-- Теперь рендерим из smiles через нашу функцию -->
+                <div class="reaction-container" v-if="rec.product_smiles" v-html="renderStructure(rec.product_smiles)"></div>
                 <div class="no-viz" v-else>No Structure</div>
              </td>
 
@@ -88,7 +89,7 @@
 // ... (Весь JS код остается точно таким же, как в твоем рабочем примере) ...
 import { ref, watch, onMounted, computed } from 'vue'
 import axios from 'axios'
-
+import { renderStructure } from '@/utils/chemUtils'
 const emit = defineEmits(['select-record', 'update:selected-export-ids'])
 const records = ref([])
 const totalCount = ref(0)
@@ -386,7 +387,14 @@ defineExpose({
   background: #fff;
   border-radius: 4px;
 }
-.reaction-container :deep(svg) { max-width: 100%; height: auto; max-height: 120px; }
+
+.reaction-container :deep(svg) {
+  width: 100%;
+  height: 100%;
+  max-width: 160px;
+  max-height: 120px;
+  display: block;
+}
 
 .id-badge { background: #42b983; color: white; padding: 2px 6px; border-radius: 4px; font-weight: bold; font-size: 0.85rem; }
 .date-text { font-size: 0.7rem; color: #999; margin-top: 4px; }

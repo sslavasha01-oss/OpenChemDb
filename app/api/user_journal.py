@@ -237,8 +237,6 @@ async def get_journal_list(
         output = []
         for rec in records:
             schema_rec = UserJournalSchema.model_validate(rec)
-            if schema_rec.product_smiles:
-                schema_rec.product_svg = generate_molecule_svg(schema_rec.product_smiles)
             output.append(schema_rec)
 
         return output
@@ -391,48 +389,13 @@ async def get_journal_by_ids(
 
             # Валидируем через вашу Pydantic-схему
             schema_rec = UserJournalSchema.model_validate(row_dict)
-
-            # Добавляем SVG-графику для продукта, если есть SMILES
-            if schema_rec.product_smiles:
-                schema_rec.product_svg = generate_molecule_svg(schema_rec.product_smiles)
-
             output.append(schema_rec)
-
         return output
 
     except Exception as e:
         print(f"Error fetching journal records by IDs: {e}")
         raise HTTPException(status_code=500, detail="Failed to fetch journal records")
 
-
-def generate_molecule_svg(smiles: str) -> str:
-    """
-    Генерация SVG для одиночной молекулы.
-    """
-    if not smiles:
-        return ""
-
-    try:
-        mol = Chem.MolFromSmiles(smiles)
-        if mol:
-            # Для одиночной молекулы 400x200 обычно достаточно
-            d2d = Draw.MolDraw2DSVG(400, 200)
-
-            opts = d2d.drawOptions()
-            opts.prepareMolsBeforeDrawing = True
-            opts.fixedFontSize = 14
-
-            d2d.DrawMolecule(mol)
-            d2d.FinishDrawing()
-
-            svg = d2d.GetDrawingText()
-            # Делаем SVG адаптивным для фронтенда
-            return svg.replace('width="400px"', 'width="100%"').replace('height="200px"', 'height="auto"')
-
-    except Exception as e:
-        print(f"RDKit Render Error (Molecule) for {smiles[:20]}: {e}")
-
-    return ""
 
 def canonicalize_molecule_smiles(smi: str):
     if not smi:

@@ -114,6 +114,8 @@
 
 <script setup>
 import { ref, nextTick } from 'vue'
+import { renderStructure, calculateMW } from '@/utils/chemUtils'
+import OCL from 'openchemlib'
 
 const props = defineProps({
   modelValue: Object,
@@ -153,94 +155,39 @@ const ketcherToBackground = () => {
 
 let lastRenderedSmiles = '';
 
-// 2. Фоновая отрисовка структуры и расчет молярной массы продукта
-const drawSmiles = async (smiles) => {
-  const globalFrame = window.ketcherIframeElement || document.getElementById('global-ketcher-iframe')
-  if (smiles === lastRenderedSmiles && smiles !== '') return;
-  lastRenderedSmiles = smiles;
-  if (!smiles || smiles.trim() === "") {
-    const ketcher = window.ketcherSingleton ||
-                    globalFrame?.contentWindow?.ketcher ||
-                    document.getElementById('global-ketcher-iframe')?.contentWindow?.ketcher;
-    if (ketcher && typeof ketcher.setMolecule === 'function') ketcher.setMolecule("");
+const drawSmiles = (smiles) => {
+  console.log("[DrawSmiles] Triggered with:", smiles);
 
-    const updated = { ...props.modelValue };
-    updated.product_preview_svg = '';
-    updated.product_molar_mass = '';
-    emit('update:modelValue', updated);
-    emit('calculate');
+  if (smiles === lastRenderedSmiles && smiles !== '') {
+    console.log("[DrawSmiles] Smiles matches last rendered, skipping.");
     return;
   }
+  lastRenderedSmiles = smiles;
 
-  const tryDraw = (attempts = 0) => {
-    if (window.ketcherIsBusy) {
-         if (attempts < 50) setTimeout(() => tryDraw(attempts + 1), 200);
-    return;
-    }
-    const ketcher = window.ketcherSingleton ||
-                    globalFrame?.contentWindow?.ketcher ||
-                    document.getElementById('global-ketcher-iframe')?.contentWindow?.ketcher;
+  // Создаем копию объекта, чтобы Vue "увидел" изменение ссылки
+  const updated = { ...props.modelValue };
 
-    if (ketcher && typeof ketcher.setMolecule === 'function') {
-      if (!window.ketcherSingleton) window.ketcherSingleton = ketcher;
+  if (!smiles || smiles.trim() === "") {
+    updated.product_preview_svg = '';
+    updated.product_molar_mass = '';
+  } else {
+    // 1. Рендерим SVG
+    const svg = renderStructure(smiles, 160, 160);
+    updated.product_preview_svg = svg;
 
-      (async () => {
-        try {
-          await ketcher.setMolecule(smiles);
-          const blob = await ketcher.generateImage(smiles, { outputFormat: 'svg' });
-          const svgText = await blob.text();
+    // 2. Считаем массу
+    const mw = calculateMW(smiles);
+    updated.product_molar_mass = mw;
 
-          const molfile = await ketcher.getMolfile();
-          let massVal = null;
+    console.log("[DrawSmiles] New MW assigned to object:", updated.product_molar_mass);
+  }
 
-          if (ketcher.structService) {
-            try {
-              const result = await ketcher.structService.calculate({
-                struct: molfile,
-                properties: ['molecular-weight']
-              });
-              massVal = result?.['molecular-weight'];
-            } catch (calcError) {
-              console.error("Product background calculation failed:", calcError);
-            }
-          }
+  emit('update:modelValue', updated);
 
-          const updated = { ...props.modelValue };
-          updated.product_preview_svg = svgText;
-
-          if (massVal) {
-            const totalMass = String(massVal)
-              .split(';')
-              .reduce((sum, part) => {
-                const num = parseFloat(part.trim());
-                return sum + (isNaN(num) ? 0 : num);
-              }, 0);
-
-            updated.product_molar_mass = totalMass.toFixed(2);
-          }
-
-          emit('update:modelValue', updated);
-
-          nextTick(() => {
-            emit('calculate');
-          });
-
-          // Фикс зума для фоновой отрисовки
-          setTimeout(() => {
-            try {
-              if (typeof ketcher.setZoom === 'function') ketcher.setZoom(1.0);
-              else if (ketcher.editor?.setZoom) ketcher.editor.setZoom(1.0);
-            } catch (e) {}
-          }, 50);
-        } catch (err) {
-          console.error("[Product Draw Error]:", err);
-        }
-      })();
-    } else if (attempts < 25) {
-      setTimeout(() => tryDraw(attempts + 1), 100);
-    }
-  };
-  tryDraw();
+  nextTick(() => {
+    console.log("[DrawSmiles] Emitting calculate event...");
+    emit('calculate');
+  });
 };
 
 defineExpose({ drawSmiles });
@@ -252,38 +199,16 @@ const saveFromKetcher = async () => {
     if (!ketcher) return;
 
     const smiles = await ketcher.getSmiles();
-    const blob = await ketcher.generateImage(smiles, { outputFormat: 'svg' });
-    const svgText = await blob.text();
-    const molfile = await ketcher.getMolfile();
-
-    let massVal = null;
-
-    if (ketcher.structService) {
-      try {
-        const result = await ketcher.structService.calculate({
-          struct: molfile,
-          properties: ['molecular-weight']
-        });
-        massVal = result?.['molecular-weight'];
-      } catch (calcError) {
-        console.error("StructService calculation failed:", calcError);
-      }
-    }
+    console.log("[SaveFromKetcher] Smiles from editor:", smiles);
 
     const updatedValue = { ...props.modelValue };
     updatedValue.product_smiles = smiles;
-    updatedValue.product_preview_svg = svgText;
 
-    if (massVal) {
-      const totalMass = String(massVal)
-        .split(';')
-        .reduce((sum, part) => {
-          const num = parseFloat(part.trim());
-          return sum + (isNaN(num) ? 0 : num);
-        }, 0);
+    // Генерируем через OCL
+    updatedValue.product_preview_svg = renderStructure(smiles, 160, 160);
+    updatedValue.product_molar_mass = calculateMW(smiles);
 
-      updatedValue.product_molar_mass = totalMass.toFixed(2);
-    }
+    console.log("[SaveFromKetcher] Resulting MW:", updatedValue.product_molar_mass);
 
     emit('update:modelValue', updatedValue);
 

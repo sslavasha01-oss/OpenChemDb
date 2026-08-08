@@ -121,6 +121,7 @@
 
 <script setup>
 import { ref, nextTick, computed} from 'vue'
+import { renderStructure, calculateMW } from '@/utils/chemUtils'
 
 let debounceTimer = null
 
@@ -178,119 +179,26 @@ const copyToClipboard = (text) => {
 
 let lastRenderedSmiles = '';
 
-// 2. Фоновая отрисовка с детальным логированием шагов
-const drawSmiles = async (smiles) => {
-  const timestamp = Date.now();
-  console.time(`[Draw Performance #${props.index}-${timestamp}]`);
-
-  const globalFrame = window.ketcherIframeElement || document.getElementById('global-ketcher-iframe')
+const drawSmiles = (smiles) => {
   if (smiles === lastRenderedSmiles && smiles !== '') return;
   lastRenderedSmiles = smiles;
 
-  if (!smiles || smiles.trim() === "") {
-    console.log(`[ReagentCard #${props.index}] Пустой SMILES, очищаем поле.`);
-    const ketcher = window.ketcherSingleton ||
-                    globalFrame?.contentWindow?.ketcher ||
-                    document.getElementById('global-ketcher-iframe')?.contentWindow?.ketcher;
-    if (ketcher && typeof ketcher.setMolecule === 'function') ketcher.setMolecule("");
+  const updated = { ...props.modelValue };
+  const idx = props.index;
 
-    const updated = { ...props.modelValue };
-    updated[`reagent${props.index}_svg`] = '';
-    updated[`reagent${props.index}_molar_mass`] = '';
-    emit('update:modelValue', updated);
-    emit('calculate');
-    console.timeEnd(`[Draw Performance #${props.index}-${timestamp}]`);
-    return;
+  if (!smiles || smiles.trim() === "") {
+    updated[`reagent${idx}_svg`] = '';
+    updated[`reagent${idx}_molar_mass`] = '';
+  } else {
+    // Используем быстрые утилиты
+    updated[`reagent${idx}_svg`] = renderStructure(smiles, 160, 120);
+    updated[`reagent${idx}_molar_mass`] = calculateMW(smiles);
   }
 
-  const tryDraw = (attempts = 0) => {
-    const ketcher = window.ketcherSingleton ||
-                    globalFrame?.contentWindow?.ketcher ||
-                    document.getElementById('global-ketcher-iframe')?.contentWindow?.ketcher;
-
-    if (window.ketcherIsBusy) {
-      if (attempts < 10) {
-        setTimeout(() => tryDraw(attempts + 1), 200);
-      }
-      return;
-    }
-
-    if (ketcher && typeof ketcher.setMolecule === 'function') {
-      if (!window.ketcherSingleton) window.ketcherSingleton = ketcher;
-
-      // Занимаем Кетчер
-      window.ketcherIsBusy = true;
-      console.log(`[Lock Acquired] Реагент #${props.index} монополизировал Кетчер.`);
-
-      (async () => {
-        try {
-          console.log(`[Ketcher API] Передаем SMILES в setMolecule для #${props.index}`);
-          await ketcher.setMolecule("");
-          await ketcher.setMolecule(smiles);
-
-          console.log(`[Ketcher API] Запрашиваем generateImage SVG для #${props.index}`);
-          const blob = await ketcher.generateImage(smiles, { outputFormat: 'svg' });
-          const rawSvgText = await blob.text();
-
-          const molfile = await ketcher.getMolfile();
-          let massVal = null;
-
-          if (ketcher.structService) {
-            try {
-              const result = await ketcher.structService.calculate({
-                struct: molfile,
-                properties: ['molecular-weight']
-              });
-              massVal = result?.['molecular-weight'];
-            } catch (calcError) {
-              console.error("Background mass calculation failed:", calcError);
-            }
-          }
-
-          const updated = { ...props.modelValue };
-          updated[`reagent${props.index}_svg`] = rawSvgText;
-
-          if (massVal) {
-            const totalMass = String(massVal)
-              .split(';')
-              .reduce((sum, part) => {
-                const num = parseFloat(part.trim());
-                return sum + (isNaN(num) ? 0 : num);
-              }, 0);
-            updated[`reagent${props.index}_molar_mass`] = totalMass.toFixed(2);
-          }
-
-          console.log(`[Vue Lifecycle] Эмитим обновленный SVG наверх для #${props.index}`);
-          emit('update:modelValue', updated);
-
-          nextTick(() => {
-            emit('calculate');
-          });
-
-          setTimeout(() => {
-            try {
-              if (typeof ketcher.setZoom === 'function') ketcher.setZoom(1.0);
-              else if (ketcher.editor?.setZoom) ketcher.editor.setZoom(1.0);
-            } catch (e) {}
-          }, 50);
-
-        } catch (err) {
-          console.error(`[Fatal Draw Error] Ошибка в карточке реагента #${props.index}:`, err);
-        } finally {
-          // Освобождаем Кетчер
-          window.ketcherIsBusy = false;
-          console.log(`[Lock Released] Реагент #${props.index} освободил Кетчер.`);
-          console.timeEnd(`[Draw Performance #${props.index}-${timestamp}]`);
-        }
-      })();
-    } else if (attempts < 15) {
-      setTimeout(() => tryDraw(attempts + 1), 100);
-    } else {
-      console.error(`[Timeout] Не удалось дождаться инициализации Кетчера для реагента #${props.index}`);
-      console.timeEnd(`[Draw Performance #${props.index}-${timestamp}]`);
-    }
-  };
-  tryDraw();
+  emit('update:modelValue', updated);
+  nextTick(() => {
+    emit('calculate');
+  });
 };
 
 defineExpose({ drawSmiles });
@@ -382,47 +290,24 @@ const saveFromKetcher = async () => {
     if (!ketcher) return;
 
     const smiles = await ketcher.getSmiles();
-    const blob = await ketcher.generateImage(smiles, { outputFormat: 'svg' });
-    const rawSvgText = await blob.text();
-
-    const molfile = await ketcher.getMolfile();
-    let massVal = null;
-
-    if (ketcher.structService) {
-      try {
-        const result = await ketcher.structService.calculate({
-          struct: molfile,
-          properties: ['molecular-weight']
-        });
-        massVal = result?.['molecular-weight'];
-      } catch (calcError) {
-        console.error("StructService calculation failed:", calcError);
-      }
-    }
-
+    const idx = props.index;
     const updated = { ...props.modelValue };
-    updated[`reagent${props.index}_smiles`] = smiles;
-    updated[`reagent${props.index}_svg`] = rawSvgText;
 
-    if (massVal) {
-      const totalMass = String(massVal)
-        .split(';')
-        .reduce((sum, part) => {
-          const num = parseFloat(part.trim());
-          return sum + (isNaN(num) ? 0 : num);
-        }, 0);
-      updated[`reagent${props.index}_molar_mass`] = totalMass.toFixed(2);
-    }
+    updated[`reagent${idx}_smiles`] = smiles;
+    // Генерируем данные через OCL
+    updated[`reagent${idx}_svg`] = renderStructure(smiles, 160, 120);
+    updated[`reagent${idx}_molar_mass`] = calculateMW(smiles);
 
     emit('update:modelValue', updated);
     nextTick(() => { emit('calculate'); });
   } catch (err) {
-    console.error("Global saveFromKetcher error:", err);
+    console.error("Reagent saveFromKetcher error:", err);
   } finally {
     ketcherToBackground();
     showKetcher.value = false;
   }
 }
+
 
 const closeEditorWithoutSaving = () => {
   ketcherToBackground();
