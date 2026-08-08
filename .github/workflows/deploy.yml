@@ -20,6 +20,7 @@ jobs:
           key: ${{ secrets.SSH_KEY }}
           port: 22 # <--- ЕСЛИ ПРОБРОШЕН ДРУГОЙ ПОРТ, ПОМЕНЯЙ ЕГО ТУТ (например: 2222)
           script_stop: true
+          command_timeout: 5m
           script: |
             # Переходим в твой RAID-массив, где лежит проект
             cd /mnt/raid1/OpenChemDb
