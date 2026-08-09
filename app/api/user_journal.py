@@ -368,8 +368,9 @@ async def search_journal_ids(
         params["references"] = f"%{references.strip()}%"
 
     if procedure and procedure.strip():
-        where_clauses.append('"procedure" ILIKE :procedure')
-        params["procedure"] = f"%{procedure.strip()}%"
+        # Полнотекстовый поиск с конфигурацией 'simple' (мультиязычность)
+        where_clauses.append('to_tsvector(\'simple\', "procedure") @@ websearch_to_tsquery(\'simple\', :procedure)')
+        params["procedure"] = procedure.strip()
 
     if doi and doi.strip():
         # Точный поиск (exact match), так как DOI — утилитарный идентификатор
