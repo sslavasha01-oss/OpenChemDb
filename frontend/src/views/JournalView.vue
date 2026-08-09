@@ -428,7 +428,29 @@
               </div>
             </div>
           </div>
-
+        <div class="card search-card">
+            <div class="card-header">Text & Metadata Search</div>
+            <div class="card-body">
+              <div class="fields-zone">
+                <div class="field-group">
+                  <label>Conditions</label>
+                  <input type="text" v-model="searchState.conditions" placeholder="Reflux, 80°C, DMF..." class="smiles-compact-input">
+                </div>
+                <div class="field-group">
+                  <label>Procedure Keywords</label>
+                  <input type="text" v-model="searchState.procedure" placeholder="Search in method description..." class="smiles-compact-input">
+                </div>
+                <div class="field-group">
+                  <label>References / Journal</label>
+                  <input type="text" v-model="searchState.references" placeholder="J. Med. Chem, 2024..." class="smiles-compact-input">
+                </div>
+                <div class="field-group">
+                  <label>DOI</label>
+                  <input type="text" v-model="searchState.doi" placeholder="10.1021/..." class="smiles-compact-input">
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
 
         <!-- Модальное окно редактора Кетчер для вкладки поиска -->
@@ -809,6 +831,10 @@ const searchState = ref({
   product_smiles: '',
   product_svg: '',
   product_name: '',
+  conditions: '',
+  references: '',
+  doi: '',
+  procedure: '',
   exact_match: false
 })
 const showSearchKetcher = ref(false)
@@ -952,19 +978,26 @@ const closeSearchEditorWithoutSaving = () => {
 }
 
 const handleSubstructureSearch = async () => {
-  const rSmiles = searchState.value.reagent_smiles?.trim();
-  const pSmiles = searchState.value.product_smiles?.trim();
-  const rName = searchState.value.reagent_name?.trim(); // новое
-  const pName = searchState.value.product_name?.trim(); // новое
+  const s = searchState.value;
+  // Собираем все поля
+  const params = {
+    rSmiles: s.reagent_smiles?.trim(),
+    pSmiles: s.product_smiles?.trim(),
+    rName: s.reagent_name?.trim(),
+    pName: s.product_name?.trim(),
+    cond: s.conditions?.trim(),
+    refs: s.references?.trim(),
+    doi: s.doi?.trim(),
+    proc: s.procedure?.trim()
+  };
 
-  if (!rSmiles && !pSmiles && !rName && !pName) {
-    alert("Please enter structure or name to search.");
+  // Проверка: хотя бы одно поле должно быть заполнено
+  if (!Object.values(params).some(val => val)) {
+    alert("Please enter at least one search criterion.");
     return;
   }
 
-  if (tableRef.value) {
-    tableRef.value.isSearchPending = true;
-  }
+  if (tableRef.value) tableRef.value.isSearchPending = true;
 
   activeTab.value = 'table';
   await nextTick();
@@ -972,9 +1005,12 @@ const handleSubstructureSearch = async () => {
   if (tableRef.value) {
     tableRef.value.isSearchPending = true;
     try {
-      const isExact = searchState.value.exact_match || undefined;
-      // Передаем новые параметры в метод таблицы
-      await tableRef.value.runSubstructureSearch(rSmiles, pSmiles, isExact, rName, pName);
+      const isExact = s.exact_match || undefined;
+      // Передаем расширенный список аргументов
+      await tableRef.value.runSubstructureSearch(
+        params.rSmiles, params.pSmiles, isExact, params.rName, params.pName,
+        params.cond, params.refs, params.doi, params.proc
+      );
     } finally {
       tableRef.value.isSearchPending = false;
     }

@@ -342,7 +342,8 @@ const refreshData = async (keepSearch = false) => {
   await fetchRecords(true);
 }
 
-const runSubstructureSearch = async (reagentSmiles, productSmiles, exact, rName, pName) => {
+const runSubstructureSearch = async (reagentSmiles, productSmiles, exact, rName, pName,
+   cond, refs, doi, proc) => {
   console.log("[Journal Debug Table] Внутри runSubstructureSearch. Smiles:", { reagentSmiles, productSmiles });
   loading.value = true;
   error.value = null;
@@ -361,7 +362,11 @@ const runSubstructureSearch = async (reagentSmiles, productSmiles, exact, rName,
         product_smiles: productSmiles || undefined,
         exact: exact ? true : undefined,
         reagent_name: rName || undefined,
-        product_name: pName || undefined
+        product_name: pName || undefined,
+        conditions: cond || undefined,
+        references: refs || undefined,
+        doi: doi || undefined,
+        procedure: proc || undefined
       },
       headers: { 'Authorization': `Bearer ${token}` }
     });

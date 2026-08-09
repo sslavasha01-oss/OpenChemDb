@@ -276,6 +276,10 @@ async def search_journal_ids(
         reagent_smiles: Optional[str] = None,
         product_name: Optional[str] = None,
         reagent_name: Optional[str] = None,
+        conditions: Optional[str] = None,
+        references: Optional[str] = None,
+        doi: Optional[str] = None,
+        procedure: Optional[str] = None,
         exact: bool = False,
         current_user: User = Depends(get_current_user),
         db: AsyncSession = Depends(get_users_db)
@@ -284,7 +288,7 @@ async def search_journal_ids(
     Поиск ID записей журнала по подструктуре или точному совпадению продукта и/или любого из 5 реагентов.
     Возвращает список ID, отсортированных по external_id в возрастающем порядке.
     """
-    if not any([product_smiles, reagent_smiles, product_name, reagent_name]):
+    if not any([product_smiles, reagent_smiles, product_name, reagent_name, conditions, references, doi, procedure]):
         raise HTTPException(status_code=400, detail="At least one search criterion must be provided")
 
     # Базовые условия, общие для любого сценария
@@ -353,6 +357,24 @@ async def search_journal_ids(
 
         where_clauses.append(f"({' OR '.join(reagent_name_clauses)})")
         params["reagent_name"] = f"%{reagent_name.strip()}%"
+
+        # --- ЛОГИКА ДЛЯ МЕТА-ПОЛЕЙ ---
+    if conditions and conditions.strip():
+        where_clauses.append("conditions ILIKE :conditions")
+        params["conditions"] = f"%{conditions.strip()}%"
+
+    if references and references.strip():
+        where_clauses.append('"references" ILIKE :references')
+        params["references"] = f"%{references.strip()}%"
+
+    if procedure and procedure.strip():
+        where_clauses.append('"procedure" ILIKE :procedure')
+        params["procedure"] = f"%{procedure.strip()}%"
+
+    if doi and doi.strip():
+        # Точный поиск (exact match), так как DOI — утилитарный идентификатор
+        where_clauses.append("doi = :doi")
+        params["doi"] = doi.strip()
 
     # Собираем финальный SQL-запрос
     query_string = f"""
