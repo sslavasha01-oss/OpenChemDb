@@ -382,6 +382,15 @@
                     class="smiles-compact-input"
                   >
                 </div>
+                <div class="field-group">
+                   <label>Product Name</label>
+                      <input
+                         type="text"
+                         v-model="searchState.product_name"
+                         placeholder="Aspirin, Ibuprofen..."
+                         class="smiles-compact-input"
+                      >
+                </div>
               </div>
             </div>
           </div>
@@ -407,6 +416,15 @@
                     class="smiles-compact-input"
                   >
                 </div>
+                <div class="field-group">
+                    <label>Reagent Name</label>
+                        <input
+                         type="text"
+                         v-model="searchState.reagent_name"
+                         placeholder="Benzene, Acetic anhydride..."
+                         class="smiles-compact-input"
+                        >
+                 </div>
               </div>
             </div>
           </div>
@@ -787,8 +805,10 @@ const isolatedSearchReagentSvg = computed(() => {
 const searchState = ref({
   reagent_smiles: '',
   reagent_svg: '',
+  reagent_name: '',
   product_smiles: '',
   product_svg: '',
+  product_name: '',
   exact_match: false
 })
 const showSearchKetcher = ref(false)
@@ -932,50 +952,35 @@ const closeSearchEditorWithoutSaving = () => {
 }
 
 const handleSubstructureSearch = async () => {
-
   const rSmiles = searchState.value.reagent_smiles?.trim();
   const pSmiles = searchState.value.product_smiles?.trim();
+  const rName = searchState.value.reagent_name?.trim(); // новое
+  const pName = searchState.value.product_name?.trim(); // новое
 
-  if (!rSmiles && !pSmiles) {
-    alert("Please enter or draw at least one structure to search (reagent or product).");
+  if (!rSmiles && !pSmiles && !rName && !pName) {
+    alert("Please enter structure or name to search.");
     return;
   }
 
-  // 1. ПЕРВЫМ ДЕЛОМ блокируем стандартный onMounted таблицы!
   if (tableRef.value) {
-    console.log("[Journal Debug Parent] Выставляем блокировку isSearchPending = true");
     tableRef.value.isSearchPending = true;
   }
 
-  // 2. Только теперь переключаем вкладку
   activeTab.value = 'table';
-
-  // 3. Ждем, пока отработает жизненный цикл Vue
   await nextTick();
 
-  // Если компонент смонтировался только сейчас, реф появится здесь. Взводим флаг снова на всякий случай
   if (tableRef.value) {
     tableRef.value.isSearchPending = true;
-
-    // 3. Запускаем поиск. Внутри него произойдет fetchRecords, который и вернет нужные данные
     try {
       const isExact = searchState.value.exact_match || undefined;
-      await tableRef.value.runSubstructureSearch(rSmiles, pSmiles, isExact);
+      // Передаем новые параметры в метод таблицы
+      await tableRef.value.runSubstructureSearch(rSmiles, pSmiles, isExact, rName, pName);
     } finally {
-      // Снимаем блокировку в самом конце, чтобы обычные действия (клик по пагинации) работали штатно
       tableRef.value.isSearchPending = false;
     }
-  } else {
-    // Редкий фоллбек для ленивого рендеринга
-    setTimeout(async () => {
-      if (tableRef.value) {
-        tableRef.value.isSearchPending = true;
-        await tableRef.value.runSubstructureSearch(rSmiles, pSmiles);
-        tableRef.value.isSearchPending = false;
-      }
-    }, 50);
   }
 }
+
 
 onMounted(() => {
   // Находим глобальный айфрейм, так как локальный мы удалили

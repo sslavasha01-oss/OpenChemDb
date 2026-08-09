@@ -40,6 +40,7 @@ class UserJournal(Base):
     product_theoretical_mass: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 4))
     product_praktical_mass: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 4))
     product_yield_calc: Mapped[Optional[Decimal]] = mapped_column(Numeric(5, 2))
+    product_name: Mapped[Optional[str]] = mapped_column(Text)
 
     # Reactions
     reaction_smiles: Mapped[Optional[str]] = mapped_column(Text)
@@ -58,6 +59,7 @@ class UserJournal(Base):
     reagent1_concentration: Mapped[Optional[Decimal]] = mapped_column(Numeric(5, 2), server_default='1.0')
     reagent1_volume: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 4))
     reagent1_molar_ekv: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 4))
+    reagent1_name: Mapped[Optional[str]] = mapped_column(Text)
 
     # Reagent 2
     reagent2_smiles: Mapped[Optional[str]] = mapped_column(Text)
@@ -69,6 +71,7 @@ class UserJournal(Base):
     reagent2_concentration: Mapped[Optional[Decimal]] = mapped_column(Numeric(5, 2), server_default='1.0')
     reagent2_volume: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 4))
     reagent2_molar_ekv: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 4))
+    reagent2_name: Mapped[Optional[str]] = mapped_column(Text)
 
     # Reagent 3
     reagent3_smiles: Mapped[Optional[str]] = mapped_column(Text)
@@ -80,6 +83,7 @@ class UserJournal(Base):
     reagent3_concentration: Mapped[Optional[Decimal]] = mapped_column(Numeric(5, 2), server_default='1.0')
     reagent3_volume: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 4))
     reagent3_molar_ekv: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 4))
+    reagent3_name: Mapped[Optional[str]] = mapped_column(Text)
 
     # Reagent 4
     reagent4_smiles: Mapped[Optional[str]] = mapped_column(Text)
@@ -91,6 +95,7 @@ class UserJournal(Base):
     reagent4_concentration: Mapped[Optional[Decimal]] = mapped_column(Numeric(5, 2), server_default='1.0')
     reagent4_volume: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 4))
     reagent4_molar_ekv: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 4))
+    reagent4_name: Mapped[Optional[str]] = mapped_column(Text)
 
     # Reagent 5
     reagent5_smiles: Mapped[Optional[str]] = mapped_column(Text)
@@ -102,6 +107,7 @@ class UserJournal(Base):
     reagent5_concentration: Mapped[Optional[Decimal]] = mapped_column(Numeric(5, 2), server_default='1.0')
     reagent5_volume: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 4))
     reagent5_molar_ekv: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 4))
+    reagent5_name: Mapped[Optional[str]] = mapped_column(Text)
 
     # Meta
     conditions: Mapped[Optional[str]] = mapped_column(Text)

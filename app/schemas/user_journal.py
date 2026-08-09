@@ -22,6 +22,7 @@ class UserJournalSchema(BaseModel):
     product_theoretical_mass: Optional[Decimal] = None
     product_praktical_mass: Optional[Decimal] = None
     product_yield_calc: Optional[Decimal] = None
+    product_name: Optional[str] = None
 
     # Reaction (без mol_data)
     reaction_smiles: Optional[str] = None
@@ -37,6 +38,7 @@ class UserJournalSchema(BaseModel):
     reagent1_concentration: Optional[Decimal] = None
     reagent1_volume: Optional[Decimal] = None
     reagent1_molar_ekv: Optional[Decimal] = None
+    reagent1_name: Optional[str] = None
 
     reagent2_smiles: Optional[str] = None
     reagent2_moles: Optional[Decimal] = None
@@ -46,6 +48,7 @@ class UserJournalSchema(BaseModel):
     reagent2_concentration: Optional[Decimal] = None
     reagent2_volume: Optional[Decimal] = None
     reagent2_molar_ekv: Optional[Decimal] = None
+    reagent2_name: Optional[str] = None
 
     reagent3_smiles: Optional[str] = None
     reagent3_moles: Optional[Decimal] = None
@@ -55,6 +58,7 @@ class UserJournalSchema(BaseModel):
     reagent3_concentration: Optional[Decimal] = None
     reagent3_volume: Optional[Decimal] = None
     reagent3_molar_ekv: Optional[Decimal] = None
+    reagent3_name: Optional[str] = None
 
     reagent4_smiles: Optional[str] = None
     reagent4_moles: Optional[Decimal] = None
@@ -64,6 +68,7 @@ class UserJournalSchema(BaseModel):
     reagent4_concentration: Optional[Decimal] = None
     reagent4_volume: Optional[Decimal] = None
     reagent4_molar_ekv: Optional[Decimal] = None
+    reagent4_name: Optional[str] = None
 
     reagent5_smiles: Optional[str] = None
     reagent5_moles: Optional[Decimal] = None
@@ -73,6 +78,7 @@ class UserJournalSchema(BaseModel):
     reagent5_concentration: Optional[Decimal] = None
     reagent5_volume: Optional[Decimal] = None
     reagent5_molar_ekv: Optional[Decimal] = None
+    reagent5_name: Optional[str] = None
 
     # Meta
     conditions: Optional[str] = None

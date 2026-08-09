@@ -32,7 +32,7 @@
                <input type="checkbox" :checked="isAllSelected" @change="toggleSelectAll">
               </th>
               <th class="col-viz">Product</th>
-              <th class="col-id">ID / Date</th>
+              <th class="col-id">Entry / Name</th>
               <th class="col-cond">Conditions</th>
               <th class="col-yield">Yield</th>
               <th class="col-procedure">Procedure</th>
@@ -61,6 +61,9 @@
 
   <td class="col-id" data-label="Entry">
     <div class="id-badge">#{{ rec.external_id }}</div>
+    <div v-if="rec.product_name" class="product-name-text" :title="rec.product_name">
+      {{ rec.product_name }}
+    </div>
     <div class="date-text">{{ formatDate(rec.date_added) }}</div>
   </td>
 
@@ -339,7 +342,7 @@ const refreshData = async (keepSearch = false) => {
   await fetchRecords(true);
 }
 
-const runSubstructureSearch = async (reagentSmiles, productSmiles, exact) => {
+const runSubstructureSearch = async (reagentSmiles, productSmiles, exact, rName, pName) => {
   console.log("[Journal Debug Table] Внутри runSubstructureSearch. Smiles:", { reagentSmiles, productSmiles });
   loading.value = true;
   error.value = null;
@@ -356,7 +359,9 @@ const runSubstructureSearch = async (reagentSmiles, productSmiles, exact) => {
       params: {
         reagent_smiles: reagentSmiles || undefined,
         product_smiles: productSmiles || undefined,
-        exact: exact ? true : undefined
+        exact: exact ? true : undefined,
+        reagent_name: rName || undefined,
+        product_name: pName || undefined
       },
       headers: { 'Authorization': `Bearer ${token}` }
     });
@@ -490,7 +495,7 @@ defineExpose({
 }
 
 .col-viz { width: 180px; }
-.col-id { width: 100px; }
+.col-id { width: 150px; }
 .col-cond { width: 150px; }
 .col-yield { width: 80px; }
 .col-procedure { width: auto; }
@@ -503,6 +508,18 @@ defineExpose({
   min-height: 120px; /* Резервируем место под картинку */
   min-width: 120px;
   width: 100%;
+}
+
+.product-name-text {
+  font-weight: bold;
+  font-size: 0.85rem;
+  color: #2c3e50;
+  margin: 4px 0;
+  /* Защита от очень длинных имен */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 130px;
 }
 
 .reaction-container :deep(svg) {

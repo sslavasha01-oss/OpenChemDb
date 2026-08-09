@@ -40,7 +40,15 @@
             </button>
           </div>
         </div>
-
+        <div class="field-group">
+          <label>Reagent Name</label>
+          <input
+            type="text"
+            v-model="modelValue[`reagent${index}_name`]"
+            :disabled="!isEditing"
+            placeholder="e.g. THF, NaH..."
+          >
+        </div>
         <div class="field-group readonly">
           <label>M.W.</label>
           <input type="number" :value="modelValue[`reagent${index}_molar_mass`]" disabled>

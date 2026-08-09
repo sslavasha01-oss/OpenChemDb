@@ -3,16 +3,28 @@
     <div class="card-header">Reaction Product</div>
 
     <div class="card-body">
-      <div
-        class="structure-zone"
-        :class="{ 'editable-zone': isEditing }"
-        @click="isEditing && openEditor()"
-      >
-        <div v-if="!modelValue.product_preview_svg" class="placeholder">
-          <span class="icon">⚗️</span>
-          <p>Click to draw structure</p>
+      <div class="structure-sidebar">
+        <div
+          class="structure-zone"
+          :class="{ 'editable-zone': isEditing }"
+          @click="isEditing && openEditor()"
+        >
+          <div v-if="!modelValue.product_preview_svg" class="placeholder">
+            <span class="icon">⚗️</span>
+            <p>Click to draw structure</p>
+          </div>
+          <div v-else class="svg-render" v-html="productSvg"></div>
         </div>
-        <div v-else class="svg-render" v-html="productSvg"></div>
+
+        <div class="field-group product-name-field">
+          <label>Product Name</label>
+          <input
+            type="text"
+            v-model="modelValue.product_name"
+            :disabled="!isEditing"
+            placeholder="e.g. Aspirin"
+          >
+        </div>
       </div>
 
       <div class="fields-zone">
@@ -438,4 +450,25 @@ input:disabled {
 
 .date-field { width: 140px; }
 @media (max-width: 768px) { .date-field { width: 100%; } }
+
+/* Контейнер для структуры и имени */
+.structure-sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 160px; /* Совпадает с шириной structure-zone */
+}
+
+/* Стилизация поля названия продукта */
+.product-name-field input {
+  font-weight: bold;
+  border-color: #cbd5e0;
+}
+
+/* Адаптив для мобилок (чтобы на маленьких экранах поле растягивалось) */
+@media (max-width: 768px) {
+  .structure-sidebar {
+    width: 100%;
+  }
+}
 </style>

@@ -274,6 +274,8 @@ async def get_journal_count(
 async def search_journal_ids(
         product_smiles: Optional[str] = None,
         reagent_smiles: Optional[str] = None,
+        product_name: Optional[str] = None,
+        reagent_name: Optional[str] = None,
         exact: bool = False,
         current_user: User = Depends(get_current_user),
         db: AsyncSession = Depends(get_users_db)
@@ -282,8 +284,8 @@ async def search_journal_ids(
     Поиск ID записей журнала по подструктуре или точному совпадению продукта и/или любого из 5 реагентов.
     Возвращает список ID, отсортированных по external_id в возрастающем порядке.
     """
-    if not product_smiles and not reagent_smiles:
-        raise HTTPException(status_code=400, detail="At least one search structure must be provided")
+    if not any([product_smiles, reagent_smiles, product_name, reagent_name]):
+        raise HTTPException(status_code=400, detail="At least one search criterion must be provided")
 
     # Базовые условия, общие для любого сценария
     where_clauses = ["user_id = :user_id"]
@@ -337,6 +339,20 @@ async def search_journal_ids(
             )"""
             where_clauses.append(reagent_clause)
             params["reagent_smiles"] = clean_reagent
+
+    # --- ЛОГИКА ДЛЯ НАЗВАНИЯ ПРОДУКТА ---
+    if product_name and product_name.strip():
+        where_clauses.append("product_name ILIKE :product_name")
+        params["product_name"] = f"%{product_name.strip()}%"
+
+    # --- ЛОГИКА ДЛЯ НАЗВАНИЯ РЕАГЕНТОВ ---
+    if reagent_name and reagent_name.strip():
+        reagent_name_clauses = []
+        for i in range(1, 6):
+            reagent_name_clauses.append(f"reagent{i}_name ILIKE :reagent_name")
+
+        where_clauses.append(f"({' OR '.join(reagent_name_clauses)})")
+        params["reagent_name"] = f"%{reagent_name.strip()}%"
 
     # Собираем финальный SQL-запрос
     query_string = f"""
