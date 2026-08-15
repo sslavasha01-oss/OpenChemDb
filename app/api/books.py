@@ -53,6 +53,9 @@ async def search_book_ids(
             "limit": settings.SEARCH_LIMIT
         }
 
+    if not settings.LOCAL_MODE:
+        await db.execute(sa.text(f"SET LOCAL statement_timeout = {settings.STATEMENT_TIMEOUT};"))
+
     query = sa.text(f"""
         SELECT id FROM book_base
         WHERE {where_clause}
@@ -81,6 +84,9 @@ async def search_book_ids_smarts(
         raise HTTPException(status_code=400, detail=f"Invalid Molecule SMARTS: {smarts}")
     # Используем mol_from_smarts, так как он корректно интерпретирует
     # специфические для SMARTS запросы (дикие карты, количество связей и т.д.)
+
+    if not settings.LOCAL_MODE:
+        await db.execute(sa.text(f"SET LOCAL statement_timeout = {settings.STATEMENT_TIMEOUT};"))
     query = sa.text("""
             SELECT id FROM book_base
             WHERE mol_data @> cast(:smarts as qmol)
