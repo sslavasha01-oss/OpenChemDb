@@ -30,7 +30,7 @@ down:
 
 prod-up:
 	@echo "--- Starting PROD application ---"
-	docker compose -f $(COMPOSE_APP_FILE) up -d --wait
+	docker compose -f $(COMPOSE_APP_FILE) up -d --wait app users_db archive_db scheduler
 	@echo "--- Running Alembic migrations on PROD ---"
 	docker compose -f $(COMPOSE_APP_FILE) exec app alembic upgrade head
 	@echo "--- Starting PROD infrastructure ---"
