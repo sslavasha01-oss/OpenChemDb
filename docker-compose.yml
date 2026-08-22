@@ -13,6 +13,9 @@ services:
     volumes:
       - ./Caddyfile.local:/etc/caddy/Caddyfile
       - ./data/frontend_dist:/usr/share/caddy
+    depends_on:
+      frontend-builder:
+        condition: service_completed_successfully
     networks:
       - chem_network
 
@@ -62,6 +65,7 @@ services:
       - "5433:5432" # Пробрасываем на другой порт хоста
     volumes:
       - ./data/archive:/var/lib/postgresql/data
+      - ./data/init_archive_db:/docker-entrypoint-initdb.d:ro
       # shared_buffers до 12-16GB на 18 ядрах -c max_connections=200
     command: >
       postgres 

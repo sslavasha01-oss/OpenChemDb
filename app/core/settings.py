@@ -69,6 +69,11 @@ class Settings(BaseSettings):
     # Магия Pydantic:
     # 1. Сначала смотрим реальные переменные окружения (ОС)
     # 2. Если их нет, пробуем прочитать .env (полезно для локальной разработки без Docker)
+
+    R2_PUBLIC_BUCKET_ACCESS_KEY: str = 'dummy'
+    R2_PUBLIC_BUCKET_SECRET_KEY: str = 'dummy'
+    R2_PUBLIC_BUCKET_BUCKET_NAME: str = 'dummy'
+
     model_config = SettingsConfigDict(
         env_file=env_path,
         env_file_encoding='utf-8',

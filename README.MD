@@ -35,6 +35,41 @@ cp .env.example .env
 | **Update** | `make update` | Rebuilds the app and frontend builder without cache, restarts containers, waits for databases to pass healthchecks, and automatically applies Alembic migrations. |
 | **Stop** | `make down` | Safely stops and removes local containers without losing named volumes.                                                                                           |
 
+### 📦 Public Database Dump & Initial Setup
+
+If you need the full public reaction database (~3 million reactions) in addition to your personal entry log, follow these steps:
+
+#### 1. Download and Extract
+1. Download the database dump archive: https://data.openchemdb.com/database-dump/data.7z
+2. Extract the archive into your project root directory. This will create the `./data/` folder.
+
+#### 2. First-Time Setup Process
+Importing and initializing 3 million reactions in PostgreSQL can take **up to 5 hours** depending on your hardware. To prevent the application containers from timing out while the database is initializing, follow this sequence:
+
+* **Step A (Start Database Initialization):**
+
+  make init-db
+
+  *Monitor the progress of the dump import using:* `docker compose logs -f archive_db`
+
+* **Step B (Spin Up Main Services):**
+  Once `archive_db` finishes initializing and reports a healthy status, start the remaining application containers:
+
+  make up
+
+* **Step C (Build Frontend & Run Migrations):**
+
+  make update
+
+> 💡 **Shortcut:** Once `archive_db` is fully initialized and healthy, you can run steps **B** and **C** together with a single command:
+>
+> make first-start
+
+> ⚠️ **If you accidentally ran `make up` BEFORE extracting the dump:**
+> 1. Stop the running containers: `make down`
+> 2. Delete the created empty database directory: `rm -rf data/archive`
+> 3. Extract `data.7z` into the project root directory.
+> 4. Start initialization: `make init-db`
 
 ## Development Setup
 

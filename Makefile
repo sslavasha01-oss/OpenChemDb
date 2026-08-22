@@ -6,6 +6,16 @@ COMPOSE_LOCAL_FILE := docker-compose.yml
 
 # === LOCAL DEVELOPMENT ===
 
+# Шаг 1: Фоновый запуск только БД для распаковки и инициализации дампа
+init-db:
+	@echo "--- Starting database containers for initialization ---"
+	docker compose -f $(COMPOSE_LOCAL_FILE) up -d users_db archive_db
+	@echo "--- Databases started! Check logs via 'docker compose logs -f archive_db' to see progress. ---"
+
+# Автоматизированный первый запуск (после того как archive_db готова)
+first-start: up update
+	@echo "--- First-time setup completed successfully! ---"
+
 up:
 	@echo "--- Starting local environment ---"
 	docker compose -f $(COMPOSE_LOCAL_FILE) up -d
