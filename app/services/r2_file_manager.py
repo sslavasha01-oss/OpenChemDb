@@ -8,6 +8,7 @@ import shutil
 import boto3
 from botocore.config import Config
 from botocore.exceptions import ClientError
+from boto3.s3.transfer import TransferConfig
 from fastapi import HTTPException
 from fastapi.responses import StreamingResponse
 
@@ -29,7 +30,10 @@ class R2FileManager:
             endpoint_url=f"https://{settings.R2_ACCOUNT_ID}.r2.cloudflarestorage.com",
             aws_access_key_id=settings.R2_ACCESS_KEY,
             aws_secret_access_key=settings.R2_SECRET_KEY,
-            config=Config(signature_version="s3v4"),
+            config=Config(
+                signature_version="s3v4",
+                retries={'max_attempts': 10, 'mode': 'standard'}  # Добавлены ретраи
+            ),
         )
         self.bucket_name = settings.R2_BUCKET_NAME
 
@@ -132,8 +136,14 @@ class R2FileManager:
         r2_key = f"{settings.R2_USER_DATA_STORAGE_PATH}/{user_id}/{new_journal_ext_id}/{filename}"
         suffix = Path(filename).suffix
         content_type = MIME_TYPES.get(suffix.lower()) or mimetypes.guess_type(filename)[0] or "application/octet-stream"
-        file_bytes = source_stream.read()
-        self.s3_client.put_object(Bucket=self.bucket_name, Key=r2_key, Body=file_bytes, ContentType=content_type)
+
+        # Используем upload_fileobj вместо put_object для стриминга данных без забивания RAM
+        self.s3_client.upload_fileobj(
+            Fileobj=source_stream,
+            Bucket=self.bucket_name,
+            Key=r2_key,
+            ExtraArgs={"ContentType": content_type}
+        )
 
     def copy_file_to_build(self, user_id: int, relative_file_path: str, target_dir: Path) -> None:
         r2_key = f"{settings.R2_USER_DATA_STORAGE_PATH}/{user_id}/{relative_file_path}"
@@ -161,12 +171,20 @@ class R2FileManager:
         r2_key = f"{settings.R2_USER_DATA_STORAGE_PATH}/{user_id}/tmp/{zip_filename}.zip"
 
         try:
+            # Настройка для больших файлов (от 5ГБ и выше)
+            transfer_config = TransferConfig(
+                multipart_threshold=1024 * 25,  # 25MB
+                multipart_chunksize=1024 * 25,  # 25MB
+                max_concurrency=10,
+                use_threads=True
+            )
             # 5. Загружаем готовый архив в R2
             self.s3_client.upload_file(
                 Filename=str(local_zip_path),
                 Bucket=self.bucket_name,
                 Key=r2_key,
-                ExtraArgs={"ContentType": "application/zip"}
+                ExtraArgs={"ContentType": "application/zip"},
+                Config=transfer_config  # Применяем конфиг
             )
         except Exception as e:
             raise RuntimeError(f"Не удалось загрузить архив экспорта в R2: {str(e)}")
