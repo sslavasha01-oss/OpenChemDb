@@ -19,13 +19,24 @@
       </div>
 
       <template v-if="!isGuest">
-        <button
-          v-if="activeTab === 'table' || activeTab === 'method'"
-          class="btn-add-main"
-          @click="initNewEntryFromTable"
-        >
-          <span class="icon">+</span> New Entry
-        </button>
+        <div v-if="activeTab === 'table' || activeTab === 'method'" class="new-entry-split-btn">
+          <button class="btn-add-main" @click="initNewEntryFromTable">
+            <span class="icon">+</span> New Entry
+          </button>
+          <button
+            class="btn-add-arrow"
+            @click="showNewEntryDropdown = !showNewEntryDropdown"
+            :class="{ active: showNewEntryDropdown }"
+          >
+            ▼
+          </button>
+
+          <div v-if="showNewEntryDropdown" class="new-entry-dropdown">
+            <button @click="duplicateCurrentEntry">
+              <span class="icon">📑</span> Duplicate Current
+            </button>
+          </div>
+        </div>
 
 
 
@@ -510,6 +521,27 @@ const globalKetcherFrame = ref(null)
 
 const showExportModal = ref(false)
 const showImportModal = ref(false)
+
+const showNewEntryDropdown = ref(false)
+
+const duplicateCurrentEntry = () => {
+  // Копируем текущие данные
+  const sourceData = JSON.parse(JSON.stringify(journalData.value))
+
+  // Очищаем идентификаторы, чтобы бэкенд воспринял это как новую запись
+  delete sourceData.id
+  delete sourceData.external_id
+
+  // Устанавливаем данные в форму
+  journalData.value = sourceData
+  selectedRecordId.value = null
+  isEditing.value = true
+  activeTab.value = 'method'
+
+  // Очищаем временные аттачменты
+  pendingAttachments.value = []
+  showNewEntryDropdown.value = false
+}
 
 // Подключаем логику работы с Ketcher движком
 const { isKetcherInjected, triggerKetcherRedraw } = useJournalKetcher(globalKetcherFrame, journalData)
@@ -1570,7 +1602,71 @@ watch(activeTab, (newTab) => {
   border: none;
   pointer-events: none;
 }
+/* Стили для Split Button и Dropdown */
+.new-entry-split-btn {
+  display: flex;
+  position: relative;
+  align-items: center;
+}
 
+.new-entry-split-btn .btn-add-main {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+  border-right: 1px solid rgba(255,255,255,0.2);
+}
+
+.btn-add-arrow {
+  background-color: #42b983;
+  color: white;
+  border: none;
+  width: 30px;
+  height: 42px;
+  cursor: pointer;
+  border-top-right-radius: 8px;
+  border-bottom-right-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.7rem;
+  transition: background 0.2s;
+}
+
+.btn-add-arrow:hover { background-color: #3aa876; }
+.btn-add-arrow.active { background-color: #2c3e50; }
+
+.new-entry-dropdown {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  background: white;
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+  z-index: 1000;
+  margin-top: 5px;
+  overflow: hidden;
+}
+
+.new-entry-dropdown button {
+  width: 100%;
+  padding: 12px 15px;
+  border: none;
+  background: none;
+  text-align: left;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-weight: bold;
+  color: #2c3e50;
+  font-size: 0.9rem;
+}
+
+.new-entry-dropdown button:hover {
+  background-color: #f8f9fa;
+  color: #42b983;
+}
 .btn-add-main {
   background-color: #42b983;
   color: white;
