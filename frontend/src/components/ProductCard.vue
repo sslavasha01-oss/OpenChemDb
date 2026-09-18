@@ -39,6 +39,16 @@
               placeholder="C1=CC=CC=C1..."
               class="smiles-compact-input"
             >
+            <button
+              type="button"
+              class="btn-synthesize-from"
+              :disabled="!modelValue.product_smiles"
+              @click="$emit('synthesize-from')"
+              title="Start next step: Synthesize from this product"
+            >
+              <span class="btn-icon">➔</span>
+              <span class="btn-text">Synthesize from</span>
+            </button>
           </div>
         </div>
 
@@ -134,7 +144,7 @@ const props = defineProps({
   isEditing: Boolean
 })
 
-const emit = defineEmits(['update:modelValue', 'calculate'])
+const emit = defineEmits(['update:modelValue', 'calculate', 'synthesize-from'])
 
 const showKetcher = ref(false)
 const ketcherFrame = ref(null)
@@ -392,9 +402,56 @@ const closeEditorWithoutSaving = () => {
 .smiles-input-group {
   display: flex;
   width: 100%;
+  gap: 6px;
 }
 .smiles-compact-input {
   flex: 1;
+  min-width: 0;
+}
+
+/* Кнопка перехода к следующей стадии синтеза */
+.btn-synthesize-from {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background-color: #2c3e50;
+  color: #ffffff;
+  border: 1px solid #2c3e50;
+  border-radius: 4px;
+  padding: 0 10px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  height: 28px; /* в размер инпута */
+  transition: all 0.2s ease;
+}
+
+.btn-synthesize-from:hover:not(:disabled) {
+  background-color: #42b983;
+  border-color: #42b983;
+}
+
+.btn-synthesize-from:disabled {
+  background-color: #f5f5f5;
+  border-color: #e0e0e0;
+  color: #aaa;
+  cursor: not-allowed;
+}
+
+.btn-synthesize-from .btn-icon {
+  font-size: 0.85rem;
+  line-height: 1;
+}
+
+/* На экранах меньше 640px скрываем текст, оставляем только стрелку ➔ */
+@media (max-width: 640px) {
+  .btn-synthesize-from .btn-text {
+    display: none;
+  }
+  .btn-synthesize-from {
+    padding: 0 8px;
+  }
 }
 
 /* Сетка метрик: 3 колонки вместо 2 ужимают высоту в полтора раза */

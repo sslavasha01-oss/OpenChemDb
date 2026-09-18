@@ -28,7 +28,6 @@
             @click="showNewEntryDropdown = !showNewEntryDropdown"
             :class="{ active: showNewEntryDropdown }"
           >
-            ▼
           </button>
 
           <div v-if="showNewEntryDropdown" class="new-entry-dropdown">
@@ -37,9 +36,6 @@
             </button>
           </div>
         </div>
-
-
-
         <button
           v-if="activeTab === 'method'"
           :class="isEditing ? 'btn-cancel-main' : 'btn-edit-main'"
@@ -132,6 +128,7 @@
             ref="productCardRef"
             v-model="journalData"
             :isEditing="isEditing"
+            @synthesize-from="synthesizeFromCurrentProduct"
           />
         </div>
 
@@ -543,6 +540,41 @@ const duplicateCurrentEntry = () => {
   showNewEntryDropdown.value = false
 }
 
+// Создание новой стадии синтеза, где продукт становится Реагентом 1
+const synthesizeFromCurrentProduct = () => {
+  const prodSmiles = journalData.value?.product_smiles
+  if (!prodSmiles) return
+
+  const prodName = journalData.value?.product_name
+  const prodMw = journalData.value?.product_molar_mass
+  const prodSvg = journalData.value?.product_preview_svg
+
+  // 1. Создаем чистую новую запись
+  const newEntry = createEmptyEntry()
+
+  // 2. Помещаем продукт в качестве первого исходника
+  newEntry.reagent1_smiles = prodSmiles
+  if (prodName) newEntry.reagent1_name = prodName
+  if (prodMw) newEntry.reagent1_molar_mass = prodMw
+  if (prodSvg) newEntry.reagent1_preview_svg = prodSvg
+
+  // 3. Переводим форму в режим создания новой записи
+  journalData.value = newEntry
+  selectedRecordId.value = null
+  isEditing.value = true
+  activeTab.value = 'method'
+  pendingAttachments.value = []
+  if (typeof showNewEntryDropdown !== 'undefined') {
+    showNewEntryDropdown.value = false
+  }
+
+  // 4. Если у карточки ReagentCard есть собственный метод отрисовки — вызываем его
+  nextTick(() => {
+    if (reagentCardRefs.value?.[0]?.drawSmiles) {
+      reagentCardRefs.value[0].drawSmiles(prodSmiles)
+    }
+  })
+}
 // Подключаем логику работы с Ketcher движком
 const { isKetcherInjected, triggerKetcherRedraw } = useJournalKetcher(globalKetcherFrame, journalData)
 
@@ -2258,6 +2290,7 @@ watch(activeTab, (newTab) => {
   text-overflow: ellipsis; /* Три точки, если имя файла гигантское */
   white-space: nowrap;
 }
+
 
 .att-link:hover {
   text-overflow: initial;
